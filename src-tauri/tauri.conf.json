@@ -19,7 +19,7 @@
         "minWidth": 480,
         "minHeight": 320,
         "decorations": true,
-        "fileDropEnabled": true
+        "dragDropEnabled": true
       }
     ],
     "security": {
