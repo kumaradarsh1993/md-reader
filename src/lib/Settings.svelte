@@ -1,8 +1,15 @@
 <script lang="ts">
-  import { settings, type MaxWidth, type ThemeMode } from "./settings-store.svelte";
+  import { settings, type ThemeMode, WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT } from "./settings-store.svelte";
 
   interface Props { open: boolean }
   let { open = $bindable(false) }: Props = $props();
+
+  const widthPresets = [
+    { label: "Narrow", value: 56 },
+    { label: "Default", value: WIDTH_DEFAULT },
+    { label: "Wide", value: 110 },
+    { label: "Extra-wide", value: 140 },
+  ];
 </script>
 
 {#if open}
@@ -25,17 +32,40 @@
       </select>
     </label>
 
-    <label>
-      <span>Max width</span>
-      <select
-        value={settings.s.maxWidth}
-        onchange={(e) => settings.set("maxWidth", (e.currentTarget as HTMLSelectElement).value as MaxWidth)}
-      >
-        <option value="narrow">Narrow (56ch)</option>
-        <option value="wide">Wide (86ch)</option>
-        <option value="full">Full window</option>
-      </select>
-    </label>
+    <fieldset class="width-group">
+      <legend>
+        <span>Content width</span>
+        <span class="value">
+          {settings.s.fullWidth ? "Full window" : `${settings.s.contentWidthCh} ch`}
+        </span>
+      </legend>
+
+      <input
+        type="range"
+        min={WIDTH_MIN}
+        max={WIDTH_MAX}
+        step="1"
+        disabled={settings.s.fullWidth}
+        value={settings.s.contentWidthCh}
+        oninput={(e) => settings.set("contentWidthCh", +(e.currentTarget as HTMLInputElement).value)}
+      />
+
+      <div class="presets">
+        {#each widthPresets as p}
+          <button
+            type="button"
+            class:active={!settings.s.fullWidth && settings.s.contentWidthCh === p.value}
+            onclick={() => { settings.set("fullWidth", false); settings.set("contentWidthCh", p.value); }}
+          >{p.label}</button>
+        {/each}
+        <button
+          type="button"
+          class:active={settings.s.fullWidth}
+          onclick={() => settings.set("fullWidth", !settings.s.fullWidth)}
+        >Full</button>
+      </div>
+      <small class="hint">Tip: <kbd>Ctrl</kbd>+<kbd>]</kbd> wider · <kbd>Ctrl</kbd>+<kbd>[</kbd> narrower · <kbd>Ctrl</kbd>+<kbd>\\</kbd> full</small>
+    </fieldset>
 
     <label>
       <span>Font size: {settings.s.fontSize}px</span>
@@ -78,6 +108,15 @@
       />
       <span>Show outline sidebar</span>
     </label>
+
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={settings.s.centerHeadings}
+        onchange={(e) => settings.set("centerHeadings", (e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>Center headings <small>(for resumes / formal docs)</small></span>
+    </label>
   </div>
 {/if}
 
@@ -93,7 +132,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: min(420px, 92vw);
+    width: min(460px, 92vw);
     max-height: 86vh;
     overflow: auto;
     background: var(--bg);
@@ -122,5 +161,49 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     font: inherit;
+  }
+  fieldset.width-group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .5rem .75rem .75rem;
+    margin: .9rem 0;
+  }
+  fieldset.width-group legend {
+    display: inline-flex;
+    gap: .5rem;
+    align-items: baseline;
+    padding: 0 .35rem;
+    font-size: 13px;
+  }
+  .value { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .presets {
+    display: flex;
+    gap: .35rem;
+    margin-top: .5rem;
+    flex-wrap: wrap;
+  }
+  .presets button {
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 4px;
+    padding: .2rem .55rem;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .presets button:hover { background: var(--hover-bg); }
+  .presets button.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .hint { display: block; margin-top: .55rem; color: var(--muted); font-size: 11px; }
+  kbd {
+    background: var(--muted-bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 .3em;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .9em;
   }
 </style>

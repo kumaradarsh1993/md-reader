@@ -17,7 +17,9 @@ pub fn render(source: &str, dark: bool) -> String {
     extension.autolink = true;
     extension.math_dollars = true;
     extension.math_code = true;
-    extension.header_ids = Some("h-".to_string());
+    // Intentionally NOT setting header_ids — comrak emits an empty <a class="anchor">
+    // inside each heading which causes inconsistent layout/offset issues in WebView2.
+    // We assign ids client-side in post-render.ts using the same slug algorithm as Toc.
     extension.tagfilter = false;
 
     let mut parse = ParseOptions::default();

@@ -1,5 +1,5 @@
 mod commands;
-mod markdown;
+pub mod markdown;
 mod watcher;
 
 use tauri::{Emitter, Manager};

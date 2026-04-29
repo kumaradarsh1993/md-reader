@@ -62,36 +62,53 @@
 
 <style>
   .toc {
-    width: 240px;
-    flex: 0 0 240px;
+    width: 256px;
+    flex: 0 0 256px;
     border-right: 1px solid var(--border);
     background: var(--side-bg);
     overflow-y: auto;
-    padding: 1rem .75rem;
-    font-size: 13px;
+    padding: 1.25rem .85rem 2rem;
+    font-size: 12.5px;
+    line-height: 1.45;
   }
   .toc-title {
     text-transform: uppercase;
-    letter-spacing: .06em;
-    font-size: 11px;
+    letter-spacing: .08em;
+    font-size: 10.5px;
     color: var(--muted);
-    margin-bottom: .5rem;
+    font-weight: 600;
+    margin: 0 .25rem .65rem;
   }
-  .toc-empty { color: var(--muted); font-style: italic; }
+  .toc-empty {
+    color: var(--muted);
+    font-style: italic;
+    padding: .25rem .5rem;
+    font-size: 12px;
+  }
   ul { list-style: none; margin: 0; padding: 0; }
   li {
     padding-left: calc((var(--lvl) - 1) * 0.85rem);
+    margin: 1px 0;
   }
   button {
     background: none;
     border: 0;
-    padding: .25rem .25rem;
-    color: var(--fg);
+    padding: .3rem .55rem;
+    color: var(--muted-strong);
     text-align: left;
     cursor: pointer;
     width: 100%;
-    border-radius: 4px;
+    border-radius: 5px;
     font: inherit;
+    font-size: inherit;
+    line-height: 1.4;
+    transition: background-color 100ms ease, color 100ms ease;
+    white-space: normal;
+    word-break: break-word;
   }
-  button:hover { background: var(--hover-bg); }
+  button:hover {
+    background: var(--hover-bg);
+    color: var(--fg);
+  }
+  button:active { background: var(--accent-soft); }
 </style>

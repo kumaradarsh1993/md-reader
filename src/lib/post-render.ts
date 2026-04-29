@@ -28,7 +28,30 @@ async function loadMermaid() {
 }
 
 export async function postRender(root: HTMLElement, opts: { dark: boolean }) {
+  assignHeadingIds(root);
   await Promise.all([renderMath(root), renderMermaid(root, opts.dark)]);
+}
+
+function slugify(text: string): string {
+  return (
+    "h-" +
+    text
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+  );
+}
+
+function assignHeadingIds(root: HTMLElement) {
+  const seen = new Map<string, number>();
+  const headings = root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6");
+  headings.forEach((h) => {
+    const base = slugify(h.textContent ?? "");
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    h.id = n === 0 ? base : `${base}-${n}`;
+  });
 }
 
 async function renderMath(root: HTMLElement) {

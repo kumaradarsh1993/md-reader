@@ -1,17 +1,22 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 
 export type ThemeMode = "auto" | "light" | "dark";
-export type MaxWidth = "narrow" | "wide" | "full";
 
 export interface AppSettings {
   zoom: number;
   fontSize: number;
   fontFamily: string;
   theme: ThemeMode;
-  maxWidth: MaxWidth;
+  contentWidthCh: number;   // continuous: chars-wide cap on content (40..160)
+  fullWidth: boolean;       // ignore contentWidthCh, use viewport
+  centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
   showToc: boolean;
   recentFiles: string[];
 }
+
+export const WIDTH_MIN = 40;
+export const WIDTH_MAX = 160;
+export const WIDTH_DEFAULT = 86;
 
 const DEFAULTS: AppSettings = {
   zoom: 1.0,
@@ -19,7 +24,9 @@ const DEFAULTS: AppSettings = {
   fontFamily:
     "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif",
   theme: "auto",
-  maxWidth: "wide",
+  contentWidthCh: WIDTH_DEFAULT,
+  fullWidth: false,
+  centerHeadings: false,
   showToc: true,
   recentFiles: [],
 };
