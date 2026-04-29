@@ -6,7 +6,7 @@
   import { settings, effectiveDark } from "$lib/settings-store.svelte";
   import Viewer from "$lib/Viewer.svelte";
   import Editor from "$lib/Editor.svelte";
-  import Toc from "$lib/Toc.svelte";
+  import LeftPanel from "$lib/LeftPanel.svelte";
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
 
@@ -18,7 +18,9 @@
   let dirty = $state(false);
   let findOpen = $state(false);
   let settingsOpen = $state(false);
+  let fileMenuOpen = $state(false);
   let viewerEl: HTMLElement | null = $state(null);
+  let lastChangeFromDisk = $state(0);
   let unlistenChange: UnlistenFn | null = null;
   let unlistenCli: UnlistenFn | null = null;
   let unlistenDrop: UnlistenFn | null = null;
@@ -56,8 +58,24 @@
     dirty = false;
   }
 
+  async function closeFile() {
+    await api.unwatchFile();
+    path = null;
+    source = "";
+    dirty = false;
+    document.title = "md-reader";
+  }
+
+  async function openRecent(p: string) {
+    fileMenuOpen = false;
+    await load(p);
+  }
+
   function setMode(m: Mode) { mode = m; }
   function toggleEdit() { mode = mode === "view" ? "split" : "view"; }
+
+  // Current working directory for the file browser — derived from open file.
+  let cwd = $derived(path ? path.replace(/[\\/][^\\/]*$/, "") : null);
 
   function bumpZoom(delta: number) {
     const z = Math.min(2.5, Math.max(0.5, +(settings.s.zoom + delta).toFixed(2)));
@@ -73,6 +91,9 @@
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickAndLoad(); }
+    else if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); closeFile(); }
+    else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); settings.set("showFiles", !settings.s.showFiles); }
+    else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
     else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); bumpZoom(0.1); }
@@ -84,7 +105,6 @@
     else if (mod && e.key.toLowerCase() === "s") {
       if (mode !== "view") { e.preventDefault(); save(); }
     } else if (e.key === "F12") {
-      // open Tauri devtools (only available in dev builds)
       e.preventDefault();
       import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
         try { (getCurrentWebview() as any).openDevtools?.(); } catch { /* noop */ }
@@ -92,6 +112,7 @@
     } else if (e.key === "Escape") {
       findOpen = false;
       settingsOpen = false;
+      fileMenuOpen = false;
     }
   }
 
@@ -106,9 +127,11 @@
       if (path && changedPath === path) {
         try {
           const refreshed = await api.openFile(path);
-          // Only update if content actually changed (avoid clobbering edits in split mode).
           if (refreshed.content !== source) {
             source = refreshed.content;
+            // Tick a counter so the Viewer knows this update came from disk
+            // (not from in-app editing) and can live-follow.
+            lastChangeFromDisk = Date.now();
           }
         } catch { /* ignore transient read errors during atomic-save */ }
       }
@@ -123,6 +146,15 @@
     });
 
     window.addEventListener("keydown", onKey);
+
+    // Auto-reopen the most-recently-opened file on launch, if it still exists.
+    // Skip if we already loaded a file from CLI args (Explorer double-click).
+    const cliArgs = (typeof window !== "undefined")
+      ? (window as any).__TAURI_CLI_ARGS__
+      : null;
+    if (!path && !cliArgs && settings.s.recentFiles[0]) {
+      load(settings.s.recentFiles[0]).catch(() => { /* file may have been moved/deleted */ });
+    }
   });
 
   onDestroy(() => {
@@ -140,11 +172,54 @@
 <div class="shell">
   <header class="toolbar">
     <div class="left">
-      <button onclick={pickAndLoad} title="Open (Ctrl+O)">Open…</button>
+      <div class="menu-anchor">
+        <button class="file-btn" onclick={() => (fileMenuOpen = !fileMenuOpen)} title="File menu">
+          File <span class="caret">▾</span>
+        </button>
+        {#if fileMenuOpen}
+          <div class="menu-backdrop" onclick={() => (fileMenuOpen = false)} role="presentation"></div>
+          <div class="menu" role="menu">
+            <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndLoad(); }}>
+              <span>Open file…</span><span class="kbd">Ctrl O</span>
+            </button>
+            {#if settings.s.recentFiles.length > 0}
+              <div class="menu-sep"></div>
+              <div class="menu-label">Recent</div>
+              {#each settings.s.recentFiles.slice(0, 8) as r}
+                <button class="menu-item recent" onclick={() => openRecent(r)} title={r}>
+                  <span class="recent-name">{r.split(/[\\/]/).pop()}</span>
+                  <span class="recent-dir">{r.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).slice(-2).join("/")}</span>
+                </button>
+              {/each}
+            {/if}
+            <div class="menu-sep"></div>
+            <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; closeFile(); }}>
+              <span>Close file</span><span class="kbd">Ctrl W</span>
+            </button>
+            <button class="menu-item" onclick={() => { fileMenuOpen = false; settingsOpen = true; }}>
+              <span>Settings…</span><span class="kbd">Ctrl ,</span>
+            </button>
+          </div>
+        {/if}
+      </div>
       <div class="seg">
         <button class:active={mode === "view"} onclick={() => setMode("view")}>View</button>
         <button class:active={mode === "split"} onclick={() => setMode("split")}>Split</button>
         <button class:active={mode === "edit"} onclick={() => setMode("edit")}>Edit</button>
+      </div>
+      <div class="seg panel-toggles" title="Toggle side-panel sections">
+        <button
+          class:active={settings.s.showFiles}
+          onclick={() => settings.set("showFiles", !settings.s.showFiles)}
+          title="Files (Ctrl+B)"
+          aria-label="Toggle files panel"
+        >📁</button>
+        <button
+          class:active={settings.s.showToc}
+          onclick={() => settings.set("showToc", !settings.s.showToc)}
+          title="Outline"
+          aria-label="Toggle outline panel"
+        >📑</button>
       </div>
     </div>
     <div class="middle">
@@ -171,8 +246,13 @@
   </header>
 
   <div class="body">
-    {#if settings.s.showToc && mode !== "edit"}
-      <Toc {source} />
+    {#if mode !== "edit"}
+      <LeftPanel
+        {source}
+        {cwd}
+        activePath={path}
+        onOpenFile={(p) => load(p)}
+      />
     {/if}
     <main class="content" bind:this={viewerEl}>
       {#if mode === "edit"}
@@ -180,10 +260,10 @@
       {:else if mode === "split"}
         <div class="split">
           <Editor bind:source onSave={save} />
-          <Viewer {source} basePath={path ?? ""} />
+          <Viewer {source} basePath={path ?? ""} {mode} {lastChangeFromDisk} />
         </div>
       {:else}
-        <Viewer {source} basePath={path ?? ""} />
+        <Viewer {source} basePath={path ?? ""} {mode} {lastChangeFromDisk} />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
     </main>
@@ -423,4 +503,69 @@
     border-right: 1px solid var(--border);
   }
   .split :global(.viewer) { border-right: 0; }
+
+  /* File menu */
+  .menu-anchor { position: relative; }
+  .file-btn .caret { font-size: 9px; margin-left: .25em; opacity: .7; }
+  .menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: transparent;
+  }
+  .menu {
+    position: absolute;
+    top: 32px;
+    left: 0;
+    z-index: 31;
+    min-width: 280px;
+    background: var(--bg-elevated, var(--bg));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    padding: 4px;
+    -webkit-app-region: no-drag;
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 30px;
+    padding: 0 .65rem;
+    font-size: 13px;
+    color: var(--fg);
+    border-radius: var(--radius-sm);
+    text-align: left;
+  }
+  .menu-item:hover:not([disabled]) { background: var(--accent); color: white; }
+  .menu-item:hover:not([disabled]) .kbd,
+  .menu-item:hover:not([disabled]) .recent-dir { color: rgba(255,255,255,0.85); }
+  .menu-item[disabled] { opacity: .4; cursor: default; }
+  .menu-item.recent {
+    flex-direction: column;
+    align-items: flex-start;
+    height: auto;
+    padding: .35rem .65rem;
+    gap: 1px;
+  }
+  .recent-name { font-size: 13px; }
+  .recent-dir { font-size: 11px; color: var(--muted); }
+  .menu-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    padding: .35rem .65rem .15rem;
+    font-weight: 600;
+  }
+  .menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
+  .kbd {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 1rem;
+  }
 </style>

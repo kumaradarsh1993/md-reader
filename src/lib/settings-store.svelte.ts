@@ -11,6 +11,8 @@ export interface AppSettings {
   fullWidth: boolean;       // ignore contentWidthCh, use viewport
   centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
   showToc: boolean;
+  showFiles: boolean;
+  panelWidth: number;
   recentFiles: string[];
 }
 
@@ -28,6 +30,8 @@ const DEFAULTS: AppSettings = {
   fullWidth: false,
   centerHeadings: false,
   showToc: true,
+  showFiles: false,
+  panelWidth: 280,
   recentFiles: [],
 };
 

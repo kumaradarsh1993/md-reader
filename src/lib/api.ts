@@ -7,6 +7,13 @@ export interface OpenedFile {
   content: string;
 }
 
+export interface DirEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  is_md: boolean;
+}
+
 export const api = {
   openFile: (path: string) => invoke<OpenedFile>("open_file", { path }),
   saveFile: (path: string, content: string) =>
@@ -15,6 +22,8 @@ export const api = {
     invoke<string>("render_markdown", { source, dark }),
   watchFile: (path: string) => invoke<void>("watch_file", { path }),
   unwatchFile: () => invoke<void>("unwatch_file"),
+  listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
+  parentOf: (path: string) => invoke<string | null>("parent_of", { path }),
 
   pickFile: async (): Promise<string | null> => {
     const result = await openDialog({

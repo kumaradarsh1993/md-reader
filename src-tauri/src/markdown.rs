@@ -28,6 +28,9 @@ pub fn render(source: &str, dark: bool) -> String {
     let mut render = RenderOptions::default();
     render.unsafe_ = true;
     render.hardbreaks = false;
+    // Emit data-sourcepos="line:col-line:col" on every block element, used by
+    // the frontend to map source-line changes back to DOM nodes for live-follow.
+    render.sourcepos = true;
 
     let options = Options { extension, parse, render };
 

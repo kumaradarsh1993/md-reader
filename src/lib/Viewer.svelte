@@ -4,19 +4,73 @@
   import { settings, effectiveDark } from "./settings-store.svelte";
   import { postRender } from "./post-render";
 
-  interface Props { source: string; basePath: string }
-  let { source = "", basePath = "" }: Props = $props();
+  type Mode = "view" | "edit" | "split";
+
+  interface Props {
+    source: string;
+    basePath: string;
+    mode?: Mode;
+    lastChangeFromDisk?: number;
+  }
+  let { source = "", basePath = "", mode = "view", lastChangeFromDisk = 0 }: Props = $props();
 
   let container: HTMLDivElement;
   let html = $state("");
   let lastScroll = 0;
+  let prevSource = "";
+  let prevDiskTick = 0;
 
   let dark = $derived(effectiveDark(settings.s.theme));
+
+  /**
+   * Find the first 1-indexed line where two markdown sources diverge.
+   * Returns null if identical or both empty.
+   */
+  function firstChangedLine(oldSrc: string, newSrc: string): number | null {
+    if (oldSrc === newSrc) return null;
+    const oldLines = oldSrc.split("\n");
+    const newLines = newSrc.split("\n");
+    const min = Math.min(oldLines.length, newLines.length);
+    for (let i = 0; i < min; i++) {
+      if (oldLines[i] !== newLines[i]) return i + 1;
+    }
+    return min + 1; // appended past end
+  }
+
+  /** Find the deepest element whose data-sourcepos range covers `line`. */
+  function findElementByLine(root: HTMLElement, line: number): HTMLElement | null {
+    const els = Array.from(root.querySelectorAll<HTMLElement>("[data-sourcepos]"));
+    let best: HTMLElement | null = null;
+    let bestRange = Infinity;
+    for (const el of els) {
+      const sp = el.dataset.sourcepos;
+      if (!sp) continue;
+      const m = /^(\d+):\d+-(\d+):\d+$/.exec(sp);
+      if (!m) continue;
+      const from = +m[1];
+      const to = +m[2];
+      if (line >= from && line <= to) {
+        const range = to - from;
+        if (range < bestRange) {
+          best = el;
+          bestRange = range;
+        }
+      }
+    }
+    return best;
+  }
 
   $effect(() => {
     const src = source;
     const isDark = dark;
+    const diskTick = lastChangeFromDisk;
+    const currentMode = mode;
     let cancelled = false;
+
+    // Compute change line BEFORE re-render, while we still have the old source on screen.
+    const isDiskChange = diskTick !== prevDiskTick;
+    const changedLine = isDiskChange ? firstChangedLine(prevSource, src) : null;
+
     (async () => {
       const rendered = await api.renderMarkdown(src, isDark);
       if (cancelled) return;
@@ -27,12 +81,44 @@
         container.scrollTop = lastScroll;
         await postRender(container, { dark: isDark });
         rewriteRelativeImages(container, basePath);
+
+        // Live-follow: if this re-render came from a disk change AND we're in view mode,
+        // smart-scroll to the changed region and briefly highlight it.
+        if (isDiskChange && changedLine != null && currentMode === "view") {
+          maybeFollowToLine(changedLine);
+        }
       }
+      prevSource = src;
+      prevDiskTick = diskTick;
     })();
     return () => {
       cancelled = true;
     };
   });
+
+  function maybeFollowToLine(line: number) {
+    if (!container) return;
+    const el = findElementByLine(container, line);
+    if (!el) return;
+
+    const elTop = el.offsetTop;
+    const elBottom = elTop + el.offsetHeight;
+    const visibleTop = container.scrollTop;
+    const visibleBottom = visibleTop + container.clientHeight;
+
+    // Scroll if: user already saw the change region OR is near the bottom (tail-mode)
+    const inViewport = elBottom > visibleTop && elTop < visibleBottom;
+    const nearBottom = visibleBottom >= container.scrollHeight - 200;
+    const nearChange = Math.abs(elTop - visibleBottom) < 400 || Math.abs(elTop - visibleTop) < 400;
+
+    if (inViewport || nearBottom || nearChange) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    // Brief highlight regardless of scroll
+    el.classList.add("live-edit-flash");
+    setTimeout(() => el.classList.remove("live-edit-flash"), 1400);
+  }
 
   function rewriteRelativeImages(root: HTMLElement, base: string) {
     if (!base) return;
@@ -404,6 +490,16 @@
     overflow-x: auto;
     overflow-y: hidden;
     padding: .25em 0;
+  }
+
+  /* ─── Live-follow flash on changed elements ────────────── */
+  @keyframes live-edit-flash {
+    0%   { background-color: var(--accent-soft); box-shadow: 0 0 0 4px var(--accent-soft); }
+    100% { background-color: transparent; box-shadow: 0 0 0 0 transparent; }
+  }
+  .viewer :global(.live-edit-flash) {
+    animation: live-edit-flash 1.4s ease-out;
+    border-radius: 4px;
   }
 
   /* ─── Mermaid ──────────────────────────────────────────── */

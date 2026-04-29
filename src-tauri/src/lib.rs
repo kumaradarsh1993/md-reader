@@ -59,6 +59,8 @@ pub fn run() {
             commands::watch_file,
             commands::unwatch_file,
             commands::current_watch,
+            commands::list_dir,
+            commands::parent_of,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
