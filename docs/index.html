@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>md-reader — the viewer for AI-generated Markdown</title>
+  <meta name="description" content="A lightweight, cross-platform Markdown viewer that re-renders as Claude, ChatGPT, or Cursor write. No vault. No setup." />
+
+  <meta property="og:title" content="md-reader" />
+  <meta property="og:description" content="The viewer for AI-generated Markdown — re-renders as your AI writes." />
+  <meta property="og:type" content="website" />
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a84ff'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='34' font-family='SF Pro,Segoe UI Variable,Inter,sans-serif' font-weight='600' fill='white'%3EM%3C/text%3E%3C/svg%3E" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="#" class="brand" aria-label="md-reader home">
+      <span class="logo" aria-hidden="true">M</span>
+      <span class="brand-name">md-reader</span>
+    </a>
+    <nav class="topnav">
+      <a href="#features">Features</a>
+      <a href="#why">Why</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/kumaradarsh1993/md-reader" class="gh">GitHub →</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="hero-inner">
+    <p class="kicker">For Claude · ChatGPT · Cursor</p>
+    <h1>Read your AI's Markdown.</h1>
+    <p class="lede">
+      A lightweight, cross-platform Markdown viewer that re-renders as your AI
+      writes. No vault. No setup. Double-click a <code>.md</code> file and read it.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="#download">Download</a>
+      <a class="btn ghost" href="https://github.com/kumaradarsh1993/md-reader">★ Star on GitHub</a>
+    </div>
+    <div class="meta">
+      Tauri 2 · Rust · Svelte 5 · ~10 MB installer · MIT
+    </div>
+  </div>
+
+  <div class="hero-demo" role="img" aria-label="md-reader window showing live-reload as text appears in a markdown file">
+    <div class="window">
+      <div class="titlebar">
+        <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+        <span class="title">plan.md — md-reader</span>
+      </div>
+      <div class="tabs">
+        <div class="tab active">plan.md</div>
+        <div class="tab">notes.md</div>
+        <div class="tab-plus">+</div>
+      </div>
+      <div class="window-body">
+        <aside class="sidebar">
+          <div class="sb-label">OUTLINE</div>
+          <div class="sb-item">Section 1: Goal</div>
+          <div class="sb-item active">Section 2: Approach</div>
+          <div class="sb-item indent">Architecture</div>
+          <div class="sb-item indent">Trade-offs</div>
+          <div class="sb-item">Section 3: Risks</div>
+        </aside>
+        <article class="doc">
+          <h1>Plan: ship md-reader v1</h1>
+          <p class="hr"></p>
+          <h2>Section 2: Approach</h2>
+          <p>Use Tauri 2 with comrak on the Rust side and Svelte 5 on the frontend.
+          Watch the file with <code>notify</code> debounced at 150ms.</p>
+          <p class="typing">
+            The render pipeline preserves scroll position across re-renders,
+            so the user never gets yanked away while their AI is writing.<span class="caret"></span>
+          </p>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="features">
+  <h2 class="section-h">What it does</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="emoji">⚡</div>
+      <h3>Live-reload</h3>
+      <p>Open a file, run Claude in another terminal, watch content appear. Smart-scroll follows the edit only if you're nearby — no yanking.</p>
+    </div>
+    <div class="card">
+      <div class="emoji">📑</div>
+      <h3>Multi-tab</h3>
+      <p>Drop multiple files to open as tabs. Drag a tab outside the window — Chrome-style — to spawn a new window.</p>
+    </div>
+    <div class="card">
+      <div class="emoji">🗂️</div>
+      <h3>Side panel</h3>
+      <p>Files browser and document outline in a Lightroom-style stack. Each toggles independently. Drag to resize.</p>
+    </div>
+    <div class="card">
+      <div class="emoji">🎨</div>
+      <h3>GFM-perfect</h3>
+      <p>All five alert types, tables with alignment, task lists, footnotes, KaTeX math, Mermaid diagrams, syntax-highlighted code.</p>
+    </div>
+    <div class="card">
+      <div class="emoji">🪶</div>
+      <h3>~10 MB</h3>
+      <p>Tauri 2 + WebView2 means no Chromium bundle. Installer is small. Cold start under a second.</p>
+    </div>
+    <div class="card">
+      <div class="emoji">⌨️</div>
+      <h3>Keyboard-first</h3>
+      <p>Every action has a shortcut. Ctrl+T new tab. Ctrl+W close. Ctrl+] / Ctrl+[ width. Ctrl+\\ full-width. Ctrl+E split.</p>
+    </div>
+    <div class="card">
+      <div class="emoji">🔒</div>
+      <h3>Local-only</h3>
+      <p>No network calls. No telemetry. No accounts. Files stay where they are. Open-source under MIT.</p>
+    </div>
+    <div class="card">
+      <div class="emoji">🌓</div>
+      <h3>Light + dark</h3>
+      <p>Auto-follows system. Apple-leaning palette tuned for long reads. Adjustable zoom, font size, and content width.</p>
+    </div>
+  </div>
+</section>
+
+<section id="why" class="why">
+  <h2 class="section-h">Why this exists</h2>
+  <div class="why-grid">
+    <div class="why-cell">
+      <h3>VS Code's preview is buried.</h3>
+      <p>Trust modal. Folder pick. Right-click. Open preview. Three of your screen taken by sidebars you can't reshape. Markdown deserves better.</p>
+    </div>
+    <div class="why-cell">
+      <h3>Obsidian wants a vault.</h3>
+      <p>Single file? Casual reading? You'd still need to set up a vault and a plugin to make it pretty. md-reader is stateless — open a file, you're done.</p>
+    </div>
+    <div class="why-cell">
+      <h3>The new AI-md viewers are Mac-only.</h3>
+      <p>Marky, MarkViewer, MacMD Viewer all launched 2025–2026 to view AI output. None of them ship for Windows. md-reader fills that gap.</p>
+    </div>
+    <div class="why-cell">
+      <h3>The OSS editors quietly hollowed out.</h3>
+      <p>MarkText is unmaintained. Boost Note shut down Sept 2025. Typora went paid. Mou is dead. The viewer-first niche needs a new entrant.</p>
+    </div>
+  </div>
+</section>
+
+<section id="download" class="download">
+  <h2 class="section-h">Get it</h2>
+  <div class="download-row">
+    <a class="dl-card" href="https://github.com/kumaradarsh1993/md-reader/releases">
+      <div class="dl-os">Windows</div>
+      <div class="dl-info">NSIS installer · ~10 MB</div>
+      <div class="dl-arrow">→</div>
+    </a>
+    <a class="dl-card" href="https://github.com/kumaradarsh1993/md-reader/releases">
+      <div class="dl-os">macOS</div>
+      <div class="dl-info">.dmg · Apple Silicon + Intel</div>
+      <div class="dl-arrow">→</div>
+    </a>
+    <a class="dl-card" href="https://github.com/kumaradarsh1993/md-reader/releases">
+      <div class="dl-os">Linux</div>
+      <div class="dl-info">AppImage · .deb</div>
+      <div class="dl-arrow">→</div>
+    </a>
+  </div>
+  <p class="download-note">Or build from source: <code>git clone … && npm install && npm run tauri build</code></p>
+</section>
+
+<section class="stack">
+  <div class="stack-inner">
+    <h2 class="section-h">Built with</h2>
+    <div class="stack-grid">
+      <div><strong>Shell</strong><span>Tauri 2</span></div>
+      <div><strong>Backend</strong><span>Rust</span></div>
+      <div><strong>Frontend</strong><span>Svelte 5</span></div>
+      <div><strong>Bundler</strong><span>Vite</span></div>
+      <div><strong>Markdown</strong><span>comrak</span></div>
+      <div><strong>Highlighting</strong><span>syntect</span></div>
+      <div><strong>Math</strong><span>KaTeX</span></div>
+      <div><strong>Diagrams</strong><span>Mermaid</span></div>
+      <div><strong>Editor</strong><span>CodeMirror 6</span></div>
+      <div><strong>File watch</strong><span>notify</span></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <span>md-reader · MIT</span>
+    <span class="dot-sep">·</span>
+    <a href="https://github.com/kumaradarsh1993/md-reader">GitHub</a>
+    <span class="dot-sep">·</span>
+    <span>Built with <a href="https://claude.com/claude-code">Claude Code</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
