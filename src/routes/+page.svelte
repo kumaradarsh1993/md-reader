@@ -4,78 +4,84 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { api } from "$lib/api";
   import { settings, effectiveDark } from "$lib/settings-store.svelte";
+  import { tabs } from "$lib/tabs-store.svelte";
   import Viewer from "$lib/Viewer.svelte";
   import Editor from "$lib/Editor.svelte";
   import LeftPanel from "$lib/LeftPanel.svelte";
+  import TabBar from "$lib/TabBar.svelte";
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
 
   type Mode = "view" | "edit" | "split";
 
-  let path = $state<string | null>(null);
-  let source = $state("");
   let mode = $state<Mode>("view");
-  let dirty = $state(false);
   let findOpen = $state(false);
   let settingsOpen = $state(false);
   let fileMenuOpen = $state(false);
   let viewerEl: HTMLElement | null = $state(null);
-  let lastChangeFromDisk = $state(0);
   let unlistenChange: UnlistenFn | null = null;
   let unlistenCli: UnlistenFn | null = null;
   let unlistenDrop: UnlistenFn | null = null;
 
+  // Convenience derived state from active tab
+  let active = $derived(tabs.active);
+  let path = $derived(active?.path ?? null);
+  let source = $derived(active?.source ?? "");
+  let dirty = $derived(active?.dirty ?? false);
+  let cwd = $derived(path ? path.replace(/[\\/][^\\/]*$/, "") : null);
+
+  // Theme application
   $effect(() => {
     const dark = effectiveDark(settings.s.theme);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   });
 
-  async function load(p: string) {
-    try {
-      const file = await api.openFile(p);
-      path = file.path;
-      source = file.content;
-      dirty = false;
+  // Re-arm watcher whenever the active tab changes
+  $effect(() => {
+    const p = path;
+    (async () => {
       await api.unwatchFile();
-      await api.watchFile(file.path);
-      await settings.pushRecent(file.path);
-      const name = file.path.split(/[\\/]/).pop() ?? "md-reader";
-      document.title = `${name} — md-reader`;
+      if (p) await api.watchFile(p);
+    })();
+  });
+
+  // Keep document title in sync with active tab
+  $effect(() => {
+    const name = path ? path.split(/[\\/]/).pop() : null;
+    document.title = name ? `${name} — md-reader` : "md-reader";
+  });
+
+  async function openInTab(p: string) {
+    try {
+      await tabs.openOrFocus(p);
     } catch (e) {
       console.error(e);
       alert(`Failed to open file: ${e}`);
     }
   }
 
-  async function pickAndLoad() {
+  async function pickAndOpen() {
     const p = await api.pickFile();
-    if (p) await load(p);
+    if (p) await openInTab(p);
   }
 
   async function save() {
-    if (!path) return;
-    await api.saveFile(path, source);
-    dirty = false;
+    if (!active) return;
+    await api.saveFile(active.path, active.source);
+    tabs.markActiveSaved();
   }
 
-  async function closeFile() {
-    await api.unwatchFile();
-    path = null;
-    source = "";
-    dirty = false;
-    document.title = "md-reader";
+  async function closeActiveTab() {
+    if (active) tabs.close(active.id);
   }
 
   async function openRecent(p: string) {
     fileMenuOpen = false;
-    await load(p);
+    await openInTab(p);
   }
 
   function setMode(m: Mode) { mode = m; }
   function toggleEdit() { mode = mode === "view" ? "split" : "view"; }
-
-  // Current working directory for the file browser — derived from open file.
-  let cwd = $derived(path ? path.replace(/[\\/][^\\/]*$/, "") : null);
 
   function bumpZoom(delta: number) {
     const z = Math.min(2.5, Math.max(0.5, +(settings.s.zoom + delta).toFixed(2)));
@@ -88,10 +94,17 @@
     settings.set("contentWidthCh", w);
   }
 
+  function onEditorChange(s: string) {
+    tabs.setActiveSource(s);
+  }
+
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickAndLoad(); }
-    else if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); closeFile(); }
+    if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickAndOpen(); }
+    else if (mod && e.key.toLowerCase() === "t") { e.preventDefault(); pickAndOpen(); }
+    else if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); closeActiveTab(); }
+    else if (mod && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); tabs.next(); }
+    else if (mod && e.key === "Tab" && e.shiftKey) { e.preventDefault(); tabs.prev(); }
     else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); settings.set("showFiles", !settings.s.showFiles); }
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
@@ -120,40 +133,46 @@
     await settings.init();
 
     unlistenCli = await api.onOpenFromCli((paths) => {
-      if (paths[0]) load(paths[0]);
+      if (paths[0]) openInTab(paths[0]);
     });
 
     unlistenChange = await api.onFileChanged(async (changedPath) => {
-      if (path && changedPath === path) {
+      // Only refresh if the changed file is the active one (the only one we watch).
+      if (active && changedPath === active.path) {
         try {
-          const refreshed = await api.openFile(path);
-          if (refreshed.content !== source) {
-            source = refreshed.content;
-            // Tick a counter so the Viewer knows this update came from disk
-            // (not from in-app editing) and can live-follow.
-            lastChangeFromDisk = Date.now();
+          const refreshed = await api.openFile(active.path);
+          if (refreshed.content !== active.source) {
+            tabs.setActiveSourceFromDisk(refreshed.content);
           }
-        } catch { /* ignore transient read errors during atomic-save */ }
+        } catch { /* atomic-save transient */ }
       }
     });
 
-    // Native file-drop into the window.
+    // Native OS file-drop on the window — opens in new tab.
     unlistenDrop = await getCurrentWebview().onDragDropEvent((evt) => {
       if (evt.payload.type === "drop" && evt.payload.paths.length > 0) {
-        const p = evt.payload.paths[0];
-        if (/\.(md|markdown|mdown|mkd|mkdn)$/i.test(p)) load(p);
+        for (const p of evt.payload.paths) {
+          if (/\.(md|markdown|mdown|mkd|mkdn)$/i.test(p)) {
+            openInTab(p);
+          }
+        }
       }
     });
 
     window.addEventListener("keydown", onKey);
 
-    // Auto-reopen the most-recently-opened file on launch, if it still exists.
-    // Skip if we already loaded a file from CLI args (Explorer double-click).
-    const cliArgs = (typeof window !== "undefined")
-      ? (window as any).__TAURI_CLI_ARGS__
+    // Initial-state determination, in priority order:
+    // 1. Explorer double-click → __TAURI_CLI_ARGS__ (handled by onOpenFromCli)
+    // 2. Tear-out window → __MD_INITIAL_FILE__ injected by spawn_window
+    // 3. Restore previously-open tabs from settings
+    // 4. Otherwise: empty state
+    const initialFile = (typeof window !== "undefined")
+      ? (window as any).__MD_INITIAL_FILE__
       : null;
-    if (!path && !cliArgs && settings.s.recentFiles[0]) {
-      load(settings.s.recentFiles[0]).catch(() => { /* file may have been moved/deleted */ });
+    if (initialFile && typeof initialFile === "string") {
+      await openInTab(initialFile);
+    } else if (tabs.tabs.length === 0) {
+      await tabs.restore();
     }
   });
 
@@ -179,8 +198,11 @@
         {#if fileMenuOpen}
           <div class="menu-backdrop" onclick={() => (fileMenuOpen = false)} role="presentation"></div>
           <div class="menu" role="menu">
-            <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndLoad(); }}>
+            <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
               <span>Open file…</span><span class="kbd">Ctrl O</span>
+            </button>
+            <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
+              <span>New tab</span><span class="kbd">Ctrl T</span>
             </button>
             {#if settings.s.recentFiles.length > 0}
               <div class="menu-sep"></div>
@@ -193,8 +215,8 @@
               {/each}
             {/if}
             <div class="menu-sep"></div>
-            <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; closeFile(); }}>
-              <span>Close file</span><span class="kbd">Ctrl W</span>
+            <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; closeActiveTab(); }}>
+              <span>Close tab</span><span class="kbd">Ctrl W</span>
             </button>
             <button class="menu-item" onclick={() => { fileMenuOpen = false; settingsOpen = true; }}>
               <span>Settings…</span><span class="kbd">Ctrl ,</span>
@@ -227,7 +249,7 @@
         <span class="path" title={path}>{path}</span>
         {#if dirty}<span class="dot" title="Unsaved">●</span>{/if}
       {:else}
-        <span class="muted">No file open — Ctrl+O to open, or drop a .md file here.</span>
+        <span class="muted">No file open — Ctrl+T to open in new tab, or drop a .md file here.</span>
       {/if}
     </div>
     <div class="right">
@@ -245,25 +267,44 @@
     </div>
   </header>
 
+  <TabBar onNewTab={pickAndOpen} />
+
   <div class="body">
     {#if mode !== "edit"}
       <LeftPanel
         {source}
         {cwd}
         activePath={path}
-        onOpenFile={(p) => load(p)}
+        onOpenFile={(p) => openInTab(p)}
       />
     {/if}
     <main class="content" bind:this={viewerEl}>
-      {#if mode === "edit"}
-        <Editor bind:source onSave={save} />
+      {#if !active}
+        <div class="empty-state">
+          <div class="empty-glyph">⌘</div>
+          <h2>No file open</h2>
+          <p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> to open one, or drop a <code>.md</code> file onto the window.</p>
+          {#if settings.s.recentFiles.length > 0}
+            <div class="empty-recent">
+              <div class="empty-label">Recent</div>
+              {#each settings.s.recentFiles.slice(0, 5) as r}
+                <button class="empty-recent-item" onclick={() => openInTab(r)} title={r}>
+                  <span>{r.split(/[\\/]/).pop()}</span>
+                  <span class="dim">{r.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).slice(-2).join("/")}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {:else if mode === "edit"}
+        <Editor source={active.source} onChange={onEditorChange} onSave={save} />
       {:else if mode === "split"}
         <div class="split">
-          <Editor bind:source onSave={save} />
-          <Viewer {source} basePath={path ?? ""} {mode} {lastChangeFromDisk} />
+          <Editor source={active.source} onChange={onEditorChange} onSave={save} />
+          <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} />
         </div>
       {:else}
-        <Viewer {source} basePath={path ?? ""} {mode} {lastChangeFromDisk} />
+        <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
     </main>
@@ -568,4 +609,83 @@
     color: var(--muted);
     margin-left: 1rem;
   }
+
+  /* Empty state — shown when no tabs are open */
+  .empty-state {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--muted);
+    gap: .5rem;
+    padding: 2rem;
+    background: var(--bg);
+  }
+  .empty-glyph {
+    font-size: 48px;
+    color: var(--border-strong, var(--border));
+    margin-bottom: .5rem;
+    opacity: .6;
+  }
+  .empty-state h2 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--fg);
+  }
+  .empty-state p {
+    margin: 0;
+    font-size: 13px;
+  }
+  .empty-state kbd {
+    background: var(--muted-bg);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 .35em;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .85em;
+  }
+  .empty-state code {
+    background: var(--code-inline-bg);
+    padding: .12em .35em;
+    border-radius: 4px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .9em;
+  }
+  .empty-recent {
+    margin-top: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: min(420px, 80%);
+  }
+  .empty-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    font-weight: 600;
+    text-align: left;
+    padding: 0 .5rem .25rem;
+  }
+  .empty-recent-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    align-items: flex-start;
+    padding: .45rem .65rem;
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--fg);
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .empty-recent-item:hover { background: var(--accent); color: white; }
+  .empty-recent-item:hover .dim { color: rgba(255,255,255,0.85); }
+  .empty-recent-item .dim { font-size: 11px; color: var(--muted); }
 </style>

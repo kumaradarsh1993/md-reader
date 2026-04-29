@@ -2,8 +2,12 @@
   import { onDestroy, onMount } from "svelte";
   import { settings, effectiveDark } from "./settings-store.svelte";
 
-  interface Props { source: string; onSave: () => void }
-  let { source = $bindable(""), onSave }: Props = $props();
+  interface Props {
+    source: string;
+    onChange?: (s: string) => void;
+    onSave?: () => void;
+  }
+  let { source = "", onChange, onSave }: Props = $props();
 
   let host: HTMLDivElement;
   let view: any = null;
@@ -21,7 +25,7 @@
 
     const updateListener = EditorView.updateListener.of((u) => {
       if (u.docChanged) {
-        source = u.state.doc.toString();
+        onChange?.(u.state.doc.toString());
       }
     });
 

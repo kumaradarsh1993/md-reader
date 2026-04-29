@@ -30,7 +30,7 @@ pub fn run() {
         }));
     }
 
-    builder
+    let result = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -61,7 +61,11 @@ pub fn run() {
             commands::current_watch,
             commands::list_dir,
             commands::parent_of,
+            commands::spawn_window,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    if let Err(e) = result {
+        eprintln!("error while running tauri application: {e}");
+    }
 }

@@ -14,6 +14,8 @@ export interface AppSettings {
   showFiles: boolean;
   panelWidth: number;
   recentFiles: string[];
+  openTabs: string[];
+  activeTabPath: string | null;
 }
 
 export const WIDTH_MIN = 40;
@@ -33,6 +35,8 @@ const DEFAULTS: AppSettings = {
   showFiles: false,
   panelWidth: 280,
   recentFiles: [],
+  openTabs: [],
+  activeTabPath: null,
 };
 
 class SettingsStore {

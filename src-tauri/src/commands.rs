@@ -1,11 +1,14 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::markdown;
 use crate::watcher::WatcherState;
+
+static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
 pub struct DirEntry {
@@ -105,4 +108,29 @@ pub fn parent_of(path: String) -> Option<String> {
     Path::new(&path)
         .parent()
         .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Open a new app window pre-loaded with the given file (used for tear-out tabs).
+#[tauri::command]
+pub fn spawn_window(app: AppHandle, file: String) -> Result<(), String> {
+    let n = WINDOW_COUNTER.fetch_add(1, AtomicOrdering::SeqCst);
+    let label = format!("md-{}", n);
+
+    // The first window is "main"; new ones reuse the same SPA entry. We pass the
+    // initial file via window.__MD_INITIAL_FILE__ which the frontend reads on mount.
+    let init = format!(
+        "window.__MD_INITIAL_FILE__ = {};",
+        serde_json::to_string(&file).unwrap_or_else(|_| "null".to_string())
+    );
+
+    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("/".into()))
+        .title("md-reader")
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(480.0, 320.0)
+        .initialization_script(&init)
+        .build()
+        .map_err(|e| format!("spawn_window failed: {e}"))?;
+
+    let _ = win.set_focus();
+    Ok(())
 }
