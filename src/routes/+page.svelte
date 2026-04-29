@@ -22,6 +22,7 @@
   let unlistenChange: UnlistenFn | null = null;
   let unlistenCli: UnlistenFn | null = null;
   let unlistenDrop: UnlistenFn | null = null;
+  let unlistenOpenFile: UnlistenFn | null = null;
 
   // Convenience derived state from active tab
   let active = $derived(tabs.active);
@@ -136,6 +137,20 @@
       if (paths[0]) openInTab(paths[0]);
     });
 
+    // Listen for the file-open event the spawned window receives after tear-out.
+    unlistenOpenFile = await api.onOpenFileEvent((p) => {
+      console.log("[md-reader] open-file event:", p);
+      if (p) openInTab(p);
+    });
+
+    // Tell the Rust side that this window is ready to receive events.
+    try {
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit("md-reader://window-ready");
+    } catch (e) {
+      console.warn("[md-reader] window-ready emit failed", e);
+    }
+
     unlistenChange = await api.onFileChanged(async (changedPath) => {
       // Only refresh if the changed file is the active one (the only one we watch).
       if (active && changedPath === active.path) {
@@ -183,16 +198,13 @@
     window.addEventListener("keydown", onKey);
 
     // Initial-state determination, in priority order:
-    // 1. Explorer double-click → __TAURI_CLI_ARGS__ (handled by onOpenFromCli)
-    // 2. Tear-out window → __MD_INITIAL_FILE__ injected by spawn_window
-    // 3. Restore previously-open tabs from settings
+    // 1. Explorer double-click → onOpenFromCli (handled above)
+    // 2. Tear-out window → onOpenFileEvent (handled above)
+    // 3. Restore previously-open tabs from settings (only on the main window)
     // 4. Otherwise: empty state
-    const initialFile = (typeof window !== "undefined")
-      ? (window as any).__MD_INITIAL_FILE__
-      : null;
-    if (initialFile && typeof initialFile === "string") {
-      await openInTab(initialFile);
-    } else if (tabs.tabs.length === 0) {
+    const isMainWindow = (typeof window !== "undefined")
+      && (window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "main";
+    if (isMainWindow && tabs.tabs.length === 0) {
       await tabs.restore();
     }
   });
@@ -203,6 +215,7 @@
     unlistenCli?.();
     unlistenChange?.();
     unlistenDrop?.();
+    unlistenOpenFile?.();
     window.removeEventListener("keydown", onKey);
     if (dragSwallowers) {
       window.removeEventListener("dragover", dragSwallowers);
@@ -414,17 +427,26 @@
   :global(*) { box-sizing: border-box; }
   :global(*::selection) { background: var(--accent-soft); }
 
-  /* Thin macOS-style scrollbars */
+  /* Always-visible scrollbars — subtle but actually present, so you can see
+     position in long docs at a glance. Slightly bolder on hover. */
   :global(::-webkit-scrollbar) { width: 12px; height: 12px; }
   :global(::-webkit-scrollbar-track) { background: transparent; }
   :global(::-webkit-scrollbar-thumb) {
-    background: transparent;
+    background-color: rgba(120, 120, 128, 0.45);
     border: 3px solid transparent;
     border-radius: 8px;
     background-clip: padding-box;
+    min-height: 24px;
   }
-  :global(*:hover::-webkit-scrollbar-thumb) { background-color: rgba(120, 120, 128, 0.4); background-clip: padding-box; }
-  :global(::-webkit-scrollbar-thumb:hover) { background-color: rgba(120, 120, 128, 0.6) !important; background-clip: padding-box; }
+  :global(::-webkit-scrollbar-thumb:hover) {
+    background-color: rgba(120, 120, 128, 0.7);
+    background-clip: padding-box;
+  }
+  :global(::-webkit-scrollbar-thumb:active) {
+    background-color: rgba(120, 120, 128, 0.85);
+    background-clip: padding-box;
+  }
+  :global(::-webkit-scrollbar-corner) { background: transparent; }
 
   :global(button:focus-visible),
   :global(input:focus-visible),

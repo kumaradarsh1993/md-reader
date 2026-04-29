@@ -111,31 +111,37 @@ pub fn parent_of(path: String) -> Option<String> {
 }
 
 /// Open a new app window pre-loaded with the given file (used for tear-out tabs).
+///
+/// Strategy: spawn the new window with the same default URL the main window
+/// uses (so URL resolution can never differ from the working main window).
+/// Then emit a per-window event carrying the file path. The frontend listens
+/// for the event and opens the file once it has mounted. We retry the emit a
+/// few times in case the listener is registered slightly after the window
+/// becomes ready — `openOrFocus` dedupes on path so duplicate emits are safe.
 #[tauri::command]
 pub fn spawn_window(app: AppHandle, file: String) -> Result<(), String> {
+    use tauri::Emitter;
+
     let n = WINDOW_COUNTER.fetch_add(1, AtomicOrdering::SeqCst);
     let label = format!("md-{}", n);
 
-    // The first window is "main"; new ones reuse the same SPA entry. We pass the
-    // initial file via window.__MD_INITIAL_FILE__ which the frontend reads on mount.
-    let init = format!(
-        "window.__MD_INITIAL_FILE__ = {};",
-        serde_json::to_string(&file).unwrap_or_else(|_| "null".to_string())
-    );
-
-    // "index.html" instead of "/" — the SPA entry point. In dev this resolves to
-    // the Vite SPA; in prod, to the bundled SvelteKit static index. "/" alone
-    // sometimes fails to resolve to index.html in production, leading to a
-    // white-screen new window.
-    // Drag-drop is enabled by default on Tauri 2 webviews; no explicit toggle.
-    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
         .title("md-reader")
         .inner_size(1100.0, 760.0)
         .min_inner_size(480.0, 320.0)
-        .initialization_script(&init)
         .build()
         .map_err(|e| format!("spawn_window failed: {e}"))?;
 
     let _ = win.set_focus();
+
+    let win_clone = win.clone();
+    let file_clone = file.clone();
+    std::thread::spawn(move || {
+        for delay_ms in [200u64, 600, 1500, 3000] {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            let _ = win_clone.emit("md-reader://open-file", &file_clone);
+        }
+    });
+
     Ok(())
 }

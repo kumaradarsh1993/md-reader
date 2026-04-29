@@ -41,4 +41,7 @@ export const api = {
 
   onOpenFromCli: (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
     listen<string[]>("open-file-from-cli", (e) => handler(e.payload)),
+
+  onOpenFileEvent: (handler: (path: string) => void): Promise<UnlistenFn> =>
+    listen<string>("md-reader://open-file", (e) => handler(e.payload)),
 };
