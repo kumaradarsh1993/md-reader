@@ -127,11 +127,11 @@ pub fn spawn_window(app: AppHandle, file: String) -> Result<(), String> {
     // the Vite SPA; in prod, to the bundled SvelteKit static index. "/" alone
     // sometimes fails to resolve to index.html in production, leading to a
     // white-screen new window.
+    // Drag-drop is enabled by default on Tauri 2 webviews; no explicit toggle.
     let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
         .title("md-reader")
         .inner_size(1100.0, 760.0)
         .min_inner_size(480.0, 320.0)
-        .drag_drop_enabled(true)
         .initialization_script(&init)
         .build()
         .map_err(|e| format!("spawn_window failed: {e}"))?;
