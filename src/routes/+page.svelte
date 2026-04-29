@@ -148,16 +148,37 @@
       }
     });
 
-    // Native OS file-drop on the window — opens in new tab.
+    // Native OS file-drop on the window — opens each .md as a new tab.
+    // We log a hint on every drop event so it's easy to debug from DevTools
+    // console if a drop ever appears not to trigger.
     unlistenDrop = await getCurrentWebview().onDragDropEvent((evt) => {
-      if (evt.payload.type === "drop" && evt.payload.paths.length > 0) {
-        for (const p of evt.payload.paths) {
-          if (/\.(md|markdown|mdown|mkd|mkdn)$/i.test(p)) {
+      if (evt.payload.type === "drop") {
+        console.log("[md-reader] drop:", evt.payload.paths);
+        const dropped = evt.payload.paths ?? [];
+        let opened = 0;
+        for (const p of dropped) {
+          if (/\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(p)) {
             openInTab(p);
+            opened++;
           }
+        }
+        if (dropped.length > 0 && opened === 0) {
+          console.warn("[md-reader] drop ignored — no markdown extension:", dropped);
         }
       }
     });
+
+    // Belt-and-suspenders: HTML5-level dragover preventDefault so the OS-level
+    // Tauri drop handler always wins over any in-page drag-drop machinery.
+    dragSwallowers = (e: DragEvent) => {
+      const items = e.dataTransfer?.items;
+      if (!items) return;
+      for (const it of Array.from(items)) {
+        if (it.kind === "file") { e.preventDefault(); return; }
+      }
+    };
+    window.addEventListener("dragover", dragSwallowers);
+    window.addEventListener("drop", dragSwallowers);
 
     window.addEventListener("keydown", onKey);
 
@@ -176,11 +197,17 @@
     }
   });
 
+  let dragSwallowers: ((e: DragEvent) => void) | null = null;
+
   onDestroy(() => {
     unlistenCli?.();
     unlistenChange?.();
     unlistenDrop?.();
     window.removeEventListener("keydown", onKey);
+    if (dragSwallowers) {
+      window.removeEventListener("dragover", dragSwallowers);
+      window.removeEventListener("drop", dragSwallowers);
+    }
   });
 </script>
 
@@ -191,39 +218,9 @@
 <div class="shell">
   <header class="toolbar">
     <div class="left">
-      <div class="menu-anchor">
-        <button class="file-btn" onclick={() => (fileMenuOpen = !fileMenuOpen)} title="File menu">
-          File <span class="caret">▾</span>
-        </button>
-        {#if fileMenuOpen}
-          <div class="menu-backdrop" onclick={() => (fileMenuOpen = false)} role="presentation"></div>
-          <div class="menu" role="menu">
-            <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
-              <span>Open file…</span><span class="kbd">Ctrl O</span>
-            </button>
-            <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
-              <span>New tab</span><span class="kbd">Ctrl T</span>
-            </button>
-            {#if settings.s.recentFiles.length > 0}
-              <div class="menu-sep"></div>
-              <div class="menu-label">Recent</div>
-              {#each settings.s.recentFiles.slice(0, 8) as r}
-                <button class="menu-item recent" onclick={() => openRecent(r)} title={r}>
-                  <span class="recent-name">{r.split(/[\\/]/).pop()}</span>
-                  <span class="recent-dir">{r.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).slice(-2).join("/")}</span>
-                </button>
-              {/each}
-            {/if}
-            <div class="menu-sep"></div>
-            <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; closeActiveTab(); }}>
-              <span>Close tab</span><span class="kbd">Ctrl W</span>
-            </button>
-            <button class="menu-item" onclick={() => { fileMenuOpen = false; settingsOpen = true; }}>
-              <span>Settings…</span><span class="kbd">Ctrl ,</span>
-            </button>
-          </div>
-        {/if}
-      </div>
+      <button class="file-btn" onclick={() => (fileMenuOpen = !fileMenuOpen)} title="File menu" aria-haspopup="menu" aria-expanded={fileMenuOpen}>
+        File <span class="caret">▾</span>
+      </button>
       <div class="seg">
         <button class:active={mode === "view"} onclick={() => setMode("view")}>View</button>
         <button class:active={mode === "split"} onclick={() => setMode("split")}>Split</button>
@@ -312,6 +309,37 @@
 </div>
 
 <Settings bind:open={settingsOpen} />
+
+<!-- File menu rendered at root level so it escapes the toolbar's
+     backdrop-filter stacking context (which was making it invisible) -->
+{#if fileMenuOpen}
+  <div class="menu-backdrop" onclick={() => (fileMenuOpen = false)} role="presentation"></div>
+  <div class="menu file-menu" role="menu">
+    <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
+      <span>Open file…</span><span class="kbd">Ctrl O</span>
+    </button>
+    <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
+      <span>New tab</span><span class="kbd">Ctrl T</span>
+    </button>
+    {#if settings.s.recentFiles.length > 0}
+      <div class="menu-sep"></div>
+      <div class="menu-label">Recent</div>
+      {#each settings.s.recentFiles.slice(0, 8) as r}
+        <button class="menu-item recent" onclick={() => openRecent(r)} title={r}>
+          <span class="recent-name">{r.split(/[\\/]/).pop()}</span>
+          <span class="recent-dir">{r.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).slice(-2).join("/")}</span>
+        </button>
+      {/each}
+    {/if}
+    <div class="menu-sep"></div>
+    <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; closeActiveTab(); }}>
+      <span>Close tab</span><span class="kbd">Ctrl W</span>
+    </button>
+    <button class="menu-item" onclick={() => { fileMenuOpen = false; settingsOpen = true; }}>
+      <span>Settings…</span><span class="kbd">Ctrl ,</span>
+    </button>
+  </div>
+{/if}
 
 <style>
   /* Apple-leaning palette — quiet neutrals, system blue accent, hairline borders */
@@ -431,9 +459,12 @@
     -webkit-app-region: drag;
     flex-shrink: 0;
   }
-  .toolbar button,
-  .toolbar .seg,
-  .toolbar .width-badge { -webkit-app-region: no-drag; }
+  /* Mark all interactive zones as no-drag so click events reach buttons.
+     The .middle (centered title) stays as the drag-region. */
+  .toolbar .left,
+  .toolbar .left *,
+  .toolbar .right,
+  .toolbar .right * { -webkit-app-region: no-drag; }
 
   .left, .right {
     display: flex;
@@ -545,27 +576,25 @@
   }
   .split :global(.viewer) { border-right: 0; }
 
-  /* File menu */
-  .menu-anchor { position: relative; }
+  /* File button & menu */
   .file-btn .caret { font-size: 9px; margin-left: .25em; opacity: .7; }
-  .menu-backdrop {
+  :global(.menu-backdrop) {
     position: fixed;
     inset: 0;
-    z-index: 30;
+    z-index: 50;
     background: transparent;
   }
-  .menu {
-    position: absolute;
-    top: 32px;
-    left: 0;
-    z-index: 31;
+  :global(.file-menu) {
+    position: fixed;
+    top: 50px;
+    left: 16px;
+    z-index: 51;
     min-width: 280px;
-    background: var(--bg-elevated, var(--bg));
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
     padding: 4px;
-    -webkit-app-region: no-drag;
     backdrop-filter: saturate(180%) blur(20px);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
   }
