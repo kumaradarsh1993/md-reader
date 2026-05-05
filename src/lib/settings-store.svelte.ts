@@ -12,6 +12,8 @@ export interface AppSettings {
   centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
   liveTrack: boolean;       // persistent accent on AI-edited regions + pulse
   diffMode: boolean;        // highlight all lines that differ from baseline
+  anthropicApiKey: string;  // for smart-diff (LLM-summarised changes); empty = feature disabled
+  anthropicModel: string;   // override model for smart-diff
   showToc: boolean;
   showFiles: boolean;
   panelWidth: number;
@@ -35,6 +37,8 @@ const DEFAULTS: AppSettings = {
   centerHeadings: false,
   liveTrack: false,
   diffMode: false,
+  anthropicApiKey: "",
+  anthropicModel: "claude-haiku-4-5",
   showToc: true,
   showFiles: false,
   panelWidth: 280,

@@ -11,6 +11,7 @@
   import TabBar from "$lib/TabBar.svelte";
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
+  import { summariseDiff, SmartDiffError } from "$lib/smart-diff";
 
   type Mode = "view" | "edit" | "split";
 
@@ -27,6 +28,11 @@
   // events arriving). Auto-clears 2s after the last event.
   let editingPulse = $state(false);
   let editingPulseTimer: ReturnType<typeof setTimeout> | null = null;
+  // Smart-diff banner state
+  let summaryText = $state<string | null>(null);
+  let summaryError = $state<string | null>(null);
+  let summaryLoading = $state(false);
+  let summaryUsage = $state<{ input?: number; output?: number } | null>(null);
 
   // Convenience derived state from active tab
   let active = $derived(tabs.active);
@@ -102,6 +108,48 @@
   function onEditorChange(s: string) {
     tabs.setActiveSource(s);
   }
+
+  async function summariseChanges() {
+    if (!active) return;
+    if (!settings.s.anthropicApiKey) {
+      summaryError = "No API key. Open Settings → Smart-diff and paste your Anthropic key.";
+      summaryText = null;
+      return;
+    }
+    summaryLoading = true;
+    summaryError = null;
+    try {
+      const res = await summariseDiff(
+        active.baselineSource,
+        active.source,
+        settings.s.anthropicApiKey,
+        settings.s.anthropicModel || "claude-haiku-4-5",
+      );
+      summaryText = res.summary;
+      summaryUsage = { input: res.inputTokens, output: res.outputTokens };
+    } catch (e) {
+      const msg = e instanceof SmartDiffError ? e.message : String(e);
+      summaryError = msg;
+      summaryText = null;
+    } finally {
+      summaryLoading = false;
+    }
+  }
+
+  function dismissSummary() {
+    summaryText = null;
+    summaryError = null;
+    summaryUsage = null;
+  }
+
+  // Clear stale summary when switching tabs or resetting baseline
+  $effect(() => {
+    const _ = active?.baselineSource;
+    const __ = active?.id;
+    summaryText = null;
+    summaryError = null;
+    summaryUsage = null;
+  });
 
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
@@ -270,6 +318,16 @@
         title="Diff mode — highlight everything that's changed since you opened the file (Ctrl+D)"
         aria-label="Toggle diff mode"
       >🔍 Diff</button>
+      {#if settings.s.diffMode && active && active.source !== active.baselineSource}
+        <button
+          class="track-btn"
+          disabled={summaryLoading}
+          onclick={summariseChanges}
+          title="Summarise what changed since baseline using Claude"
+        >
+          {summaryLoading ? "…" : "✨ Why?"}
+        </button>
+      {/if}
     </div>
     <div class="middle">
       {#if path}
@@ -309,6 +367,24 @@
       />
     {/if}
     <main class="content" bind:this={viewerEl}>
+      {#if summaryText || summaryError}
+        <div class="summary-banner" class:error={!!summaryError}>
+          <div class="summary-head">
+            <span class="summary-label">{summaryError ? "⚠ Smart-diff" : "✨ What changed"}</span>
+            {#if summaryUsage?.input}
+              <span class="summary-usage">
+                {summaryUsage.input}+{summaryUsage.output} tokens
+              </span>
+            {/if}
+            <button class="summary-close" onclick={dismissSummary} aria-label="Dismiss">×</button>
+          </div>
+          {#if summaryError}
+            <div class="summary-body">{summaryError}</div>
+          {:else if summaryText}
+            <div class="summary-body">{@html summaryText.replace(/^- /gm, "• ").replace(/\n/g, "<br>")}</div>
+          {/if}
+        </div>
+      {/if}
       {#if !active}
         <div class="empty-state">
           <div class="empty-glyph">⌘</div>
@@ -788,4 +864,55 @@
   .empty-recent-item:hover { background: var(--accent); color: white; }
   .empty-recent-item:hover .dim { color: rgba(255,255,255,0.85); }
   .empty-recent-item .dim { font-size: 11px; color: var(--muted); }
+
+  /* Smart-diff banner */
+  .summary-banner {
+    margin: .6rem clamp(1rem, 4vw, 2.5rem) 0;
+    padding: .85rem 1rem;
+    background: linear-gradient(180deg, var(--accent-soft), transparent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    color: var(--fg);
+    flex-shrink: 0;
+  }
+  .summary-banner.error {
+    background: linear-gradient(180deg, rgba(229, 83, 75, 0.10), transparent);
+    border-color: #f85149;
+  }
+  .summary-head {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-bottom: .35rem;
+  }
+  .summary-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--accent);
+  }
+  .summary-banner.error .summary-label { color: #f85149; }
+  .summary-usage {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .summary-close {
+    background: none;
+    border: 0;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 .35rem;
+    height: auto;
+  }
+  .summary-close:hover { color: var(--fg); }
+  .summary-body {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--fg);
+  }
 </style>

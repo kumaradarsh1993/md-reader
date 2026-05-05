@@ -117,6 +117,37 @@
       />
       <span>Center headings <small>(for resumes / formal docs)</small></span>
     </label>
+
+    <fieldset class="smart-diff-group">
+      <legend>
+        <span>Smart-diff</span>
+        <span class="value">{settings.s.anthropicApiKey ? "key set" : "disabled"}</span>
+      </legend>
+      <p class="hint smart-hint">
+        Generates a 2–4 bullet summary of what changed (powered by the Anthropic API).
+        Sends your file content to api.anthropic.com — leave the key blank to disable.
+      </p>
+      <label>
+        <span>Anthropic API key</span>
+        <input
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="sk-ant-..."
+          value={settings.s.anthropicApiKey}
+          onchange={(e) => settings.set("anthropicApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
+        />
+      </label>
+      <label>
+        <span>Model</span>
+        <input
+          type="text"
+          spellcheck="false"
+          value={settings.s.anthropicModel}
+          onchange={(e) => settings.set("anthropicModel", (e.currentTarget as HTMLInputElement).value.trim() || "claude-haiku-4-5")}
+        />
+      </label>
+    </fieldset>
   </div>
 {/if}
 
@@ -162,11 +193,29 @@
     border-radius: 4px;
     font: inherit;
   }
-  fieldset.width-group {
+  fieldset.width-group,
+  fieldset.smart-diff-group {
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: .5rem .75rem .75rem;
     margin: .9rem 0;
+  }
+  .smart-hint {
+    font-size: 11.5px;
+    line-height: 1.45;
+    margin: .35rem .25rem .65rem;
+    color: var(--muted);
+  }
+  fieldset.smart-diff-group label { margin: .65rem 0; }
+  fieldset.smart-diff-group input[type="password"] {
+    padding: .35rem .5rem;
+    background: var(--input-bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font: inherit;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
   }
   fieldset.width-group legend {
     display: inline-flex;

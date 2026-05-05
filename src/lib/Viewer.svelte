@@ -164,17 +164,29 @@
     const el = findElementByLine(container, line);
     if (!el) return;
 
-    const elTop = el.offsetTop;
-    const elBottom = elTop + el.offsetHeight;
-    const visibleTop = container.scrollTop;
-    const visibleBottom = visibleTop + container.clientHeight;
+    let shouldScroll: boolean;
+    if (settings.s.liveTrack) {
+      // Live-track mode: ALWAYS follow. The user opted in to "follow the AI's
+      // cursor" — they don't want us second-guessing whether the edit is near
+      // their current scroll position. This was the bug where edits far below
+      // the viewport never triggered a scroll.
+      shouldScroll = true;
+    } else {
+      // Default: don't yank the user mid-read. Only scroll if the edit is
+      // already near where they are, or they're tail-watching from the bottom.
+      const elTop = el.offsetTop;
+      const elBottom = elTop + el.offsetHeight;
+      const visibleTop = container.scrollTop;
+      const visibleBottom = visibleTop + container.clientHeight;
+      const inViewport = elBottom > visibleTop && elTop < visibleBottom;
+      const nearBottom = visibleBottom >= container.scrollHeight - 200;
+      const nearChange =
+        Math.abs(elTop - visibleBottom) < 400 ||
+        Math.abs(elTop - visibleTop) < 400;
+      shouldScroll = inViewport || nearBottom || nearChange;
+    }
 
-    // Scroll if: user already saw the change region OR is near the bottom (tail-mode)
-    const inViewport = elBottom > visibleTop && elTop < visibleBottom;
-    const nearBottom = visibleBottom >= container.scrollHeight - 200;
-    const nearChange = Math.abs(elTop - visibleBottom) < 400 || Math.abs(elTop - visibleTop) < 400;
-
-    if (inViewport || nearBottom || nearChange) {
+    if (shouldScroll) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
@@ -182,8 +194,7 @@
     el.classList.add("live-edit-flash");
     setTimeout(() => el.classList.remove("live-edit-flash"), 1400);
 
-    // Live-track mode: longer-lasting accent so a glance later still tells
-    // you "this section was just rewritten." Stacks on top of the flash.
+    // Live-track: longer-lasting 6s accent on top of the flash
     if (settings.s.liveTrack) {
       el.classList.add("live-tracked");
       setTimeout(() => el.classList.remove("live-tracked"), 6000);
