@@ -9,57 +9,80 @@
 
   let dragId = $state<string | null>(null);
   let dragOverId = $state<string | null>(null);
+  /// Set by per-tab onDrop. If true, the drop was a successful in-bar reorder
+  /// and we must NOT tear out on dragend.
+  let dropHandledInside = false;
 
   function onDragStart(e: DragEvent, t: Tab) {
     if (!e.dataTransfer) return;
     dragId = t.id;
+    dropHandledInside = false;
     e.dataTransfer.effectAllowed = "move";
-    // Used for cross-window drop detection
     e.dataTransfer.setData("application/x-md-reader-tab", t.path);
     e.dataTransfer.setData("text/plain", t.path);
   }
 
-  function onDragOver(e: DragEvent, t: Tab) {
-    if (dragId && dragId !== t.id) {
-      e.preventDefault();
-      dragOverId = t.id;
-    }
+  // Per-tab dragover: enables drop-on-tab for reorder + visual highlight.
+  function onTabDragOver(e: DragEvent, t: Tab) {
+    if (!dragId || !e.dataTransfer) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragId !== t.id) dragOverId = t.id;
+  }
+
+  // Bar-level dragover: makes the entire tab bar a drop target so drops on
+  // empty space (between tabs, on the "+" button, etc.) DON'T trigger tear-out.
+  function onBarDragOver(e: DragEvent) {
+    if (!dragId || !e.dataTransfer) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }
+
+  function onBarDrop(e: DragEvent) {
+    // Drop on empty bar area — no-op, but mark as handled so dragend skips tear-out.
+    e.preventDefault();
+    if (dragId) dropHandledInside = true;
   }
 
   function onDrop(e: DragEvent, t: Tab) {
     e.preventDefault();
-    if (!dragId || dragId === t.id) return;
+    if (!dragId) return;
+    dropHandledInside = true;
+    if (dragId === t.id) return;
     const fromIdx = tabs.tabs.findIndex((x) => x.id === dragId);
     const toIdx = tabs.tabs.findIndex((x) => x.id === t.id);
     tabs.reorder(fromIdx, toIdx);
-    dragId = null;
-    dragOverId = null;
   }
 
   async function onDragEnd(e: DragEvent) {
-    // If the drag ended OUTSIDE the window, spawn a new window with this tab.
-    // We approximate "outside" by checking if the drop position is outside the
-    // viewport rectangle.
-    if (!dragId) return;
-    const draggedTab = tabs.tabs.find((t) => t.id === dragId);
+    const id = dragId;
+    const handled = dropHandledInside;
     dragId = null;
     dragOverId = null;
+    dropHandledInside = false;
+    if (!id) return;
+
+    // Skip tear-out if the drop was inside the tab bar (handled by onDrop /
+    // onBarDrop) — this covers reorders and "dropped on empty bar area."
+    if (handled) return;
+
+    // The reliable cross-platform signal for "drop landed outside any
+    // accepting target" is dropEffect === "none". Browsers set this when no
+    // dragover handler called preventDefault on the final position. That
+    // includes drops outside the window entirely, AND drops onto in-window
+    // elements that don't accept (e.g. the rendered Viewer area). Either way,
+    // user intent is "send this elsewhere." (clientX/Y is unreliable in
+    // WebView2 on outside-window drops — often reports 0,0.)
+    if (e.dataTransfer?.dropEffect !== "none") return;
+
+    const draggedTab = tabs.tabs.find((t) => t.id === id);
     if (!draggedTab) return;
 
-    const insideViewport =
-      e.clientX >= 0 &&
-      e.clientY >= 0 &&
-      e.clientX <= window.innerWidth &&
-      e.clientY <= window.innerHeight;
-
-    if (!insideViewport && tabs.tabs.length > 1) {
-      // Tear out into a new window
-      try {
-        await invoke("spawn_window", { file: draggedTab.path });
-        tabs.close(draggedTab.id);
-      } catch (err) {
-        console.error("spawn_window failed", err);
-      }
+    try {
+      await invoke("spawn_window", { file: draggedTab.path });
+      tabs.close(id);
+    } catch (err) {
+      console.error("spawn_window failed", err);
     }
   }
 
@@ -70,7 +93,13 @@
 </script>
 
 {#if tabs.tabs.length > 0}
-  <div class="tab-bar" role="tablist">
+  <div
+    class="tab-bar"
+    role="tablist"
+    tabindex="-1"
+    ondragover={onBarDragOver}
+    ondrop={onBarDrop}
+  >
     {#each tabs.tabs as t (t.id)}
       <div
         role="tab"
@@ -81,7 +110,7 @@
         class:drag-over={dragOverId === t.id}
         draggable="true"
         ondragstart={(e) => onDragStart(e, t)}
-        ondragover={(e) => onDragOver(e, t)}
+        ondragover={(e) => onTabDragOver(e, t)}
         ondrop={(e) => onDrop(e, t)}
         ondragend={onDragEnd}
         onclick={() => tabs.switchTo(t.id)}

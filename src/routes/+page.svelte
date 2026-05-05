@@ -23,6 +23,10 @@
   let unlistenCli: UnlistenFn | null = null;
   let unlistenDrop: UnlistenFn | null = null;
   let unlistenOpenFile: UnlistenFn | null = null;
+  // Pulses while the active file is being edited from disk (file-changed
+  // events arriving). Auto-clears 2s after the last event.
+  let editingPulse = $state(false);
+  let editingPulseTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Convenience derived state from active tab
   let active = $derived(tabs.active);
@@ -107,6 +111,7 @@
     else if (mod && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); tabs.next(); }
     else if (mod && e.key === "Tab" && e.shiftKey) { e.preventDefault(); tabs.prev(); }
     else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); settings.set("showFiles", !settings.s.showFiles); }
+    else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); settings.set("liveTrack", !settings.s.liveTrack); }
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
@@ -152,12 +157,16 @@
     }
 
     unlistenChange = await api.onFileChanged(async (changedPath) => {
-      // Only refresh if the changed file is the active one (the only one we watch).
       if (active && changedPath === active.path) {
         try {
           const refreshed = await api.openFile(active.path);
           if (refreshed.content !== active.source) {
             tabs.setActiveSourceFromDisk(refreshed.content);
+            // Pulse the "live" badge: shown while edits are streaming, fades
+            // 2s after the last received change.
+            editingPulse = true;
+            if (editingPulseTimer) clearTimeout(editingPulseTimer);
+            editingPulseTimer = setTimeout(() => { editingPulse = false; }, 2000);
           }
         } catch { /* atomic-save transient */ }
       }
@@ -253,11 +262,21 @@
           aria-label="Toggle outline panel"
         >📑</button>
       </div>
+      <button
+        class="track-btn"
+        class:active={settings.s.liveTrack}
+        onclick={() => settings.set("liveTrack", !settings.s.liveTrack)}
+        title="Live-track AI edits — keep changed sections highlighted (Ctrl+L)"
+        aria-label="Toggle live-track mode"
+      >📡 Track</button>
     </div>
     <div class="middle">
       {#if path}
         <span class="path" title={path}>{path}</span>
         {#if dirty}<span class="dot" title="Unsaved">●</span>{/if}
+        {#if editingPulse}
+          <span class="live-pulse" title="File is changing on disk">📡 live</span>
+        {/if}
       {:else}
         <span class="muted">No file open — Ctrl+T to open in new tab, or drop a .md file here.</span>
       {/if}
@@ -513,6 +532,31 @@
   }
   .muted { color: var(--muted); font-size: 12px; }
   .dot { color: var(--accent); font-size: 10px; line-height: 1; }
+  .live-pulse {
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-weight: 500;
+    margin-left: .35rem;
+    animation: live-pulse-fade 1.5s ease-in-out infinite;
+    white-space: nowrap;
+  }
+  @keyframes live-pulse-fade {
+    0%, 100% { opacity: .55; }
+    50%      { opacity: 1; }
+  }
+  .track-btn {
+    margin-left: .25rem;
+    font-size: 11.5px;
+    padding: 0 .55rem;
+  }
+  .track-btn.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
   .zoom { font-size: 11px; color: var(--muted); min-width: 2.8em; text-align: center; font-variant-numeric: tabular-nums; }
   .width-badge {
     display: inline-flex;

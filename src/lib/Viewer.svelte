@@ -115,9 +115,16 @@
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
-    // Brief highlight regardless of scroll
+    // Always-on: brief 1.4s flash that grabs the eye
     el.classList.add("live-edit-flash");
     setTimeout(() => el.classList.remove("live-edit-flash"), 1400);
+
+    // Live-track mode: longer-lasting accent so a glance later still tells
+    // you "this section was just rewritten." Stacks on top of the flash.
+    if (settings.s.liveTrack) {
+      el.classList.add("live-tracked");
+      setTimeout(() => el.classList.remove("live-tracked"), 6000);
+    }
   }
 
   function rewriteRelativeImages(root: HTMLElement, base: string) {
@@ -499,6 +506,17 @@
   }
   .viewer :global(.live-edit-flash) {
     animation: live-edit-flash 1.4s ease-out;
+    border-radius: 4px;
+  }
+
+  /* ─── Live-track persistent accent (toggled by settings.liveTrack) ─ */
+  @keyframes live-tracked-accent {
+    0%   { background-color: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+    25%  { background-color: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+    100% { background-color: transparent; box-shadow: inset 0 0 0 transparent; }
+  }
+  .viewer :global(.live-tracked) {
+    animation: live-tracked-accent 6s ease-out;
     border-radius: 4px;
   }
 

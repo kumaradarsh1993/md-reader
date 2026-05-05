@@ -10,6 +10,7 @@ export interface AppSettings {
   contentWidthCh: number;   // continuous: chars-wide cap on content (40..160)
   fullWidth: boolean;       // ignore contentWidthCh, use viewport
   centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
+  liveTrack: boolean;       // persistent accent on AI-edited regions + pulse
   showToc: boolean;
   showFiles: boolean;
   panelWidth: number;
@@ -31,6 +32,7 @@ const DEFAULTS: AppSettings = {
   contentWidthCh: WIDTH_DEFAULT,
   fullWidth: false,
   centerHeadings: false,
+  liveTrack: false,
   showToc: true,
   showFiles: false,
   panelWidth: 280,
