@@ -24,6 +24,7 @@ export const api = {
   unwatchFile: () => invoke<void>("unwatch_file"),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   parentOf: (path: string) => invoke<string | null>("parent_of", { path }),
+  isTornOutWindow: () => invoke<boolean>("is_torn_out_window"),
 
   pickFile: async (): Promise<string | null> => {
     const result = await openDialog({

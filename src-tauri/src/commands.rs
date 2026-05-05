@@ -1,14 +1,11 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use serde::Serialize;
-use tauri::{AppHandle, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, State};
 
 use crate::markdown;
 use crate::watcher::WatcherState;
-
-static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
 pub struct DirEntry {
@@ -110,38 +107,49 @@ pub fn parent_of(path: String) -> Option<String> {
         .map(|p| p.to_string_lossy().to_string())
 }
 
-/// Open a new app window pre-loaded with the given file (used for tear-out tabs).
+/// Spawn a new top-level window for a torn-out tab.
 ///
-/// Strategy: spawn the new window with the same default URL the main window
-/// uses (so URL resolution can never differ from the working main window).
-/// Then emit a per-window event carrying the file path. The frontend listens
-/// for the event and opens the file once it has mounted. We retry the emit a
-/// few times in case the listener is registered slightly after the window
-/// becomes ready — `openOrFocus` dedupes on path so duplicate emits are safe.
+/// **Strategy: separate OS process, not Tauri sub-window.**
+/// Three previous attempts using `WebviewWindowBuilder` from inside a Tauri
+/// command resulted in a white-screen child window AND a frozen parent window
+/// — likely because Tauri 2 spawning an additional WebviewWindow from a
+/// command thread interacts badly with WebView2's COM threading, blocking the
+/// main event loop. Process-spawn sidesteps this entirely:
+///
+/// - Each torn-out window is a fresh `md-reader.exe` process, fully isolated.
+/// - If the child crashes, the parent keeps running. No more frozen-app bug.
+/// - WebView2 runtime is shared at the OS level, so the memory cost per
+///   window is just the Tauri/Rust binary (~10 MB).
+/// - `--new-window` flag tells the spawned instance to skip the
+///   single-instance plugin (see lib.rs setup), so it actually runs as its
+///   own process instead of forwarding the path to the existing instance.
 #[tauri::command]
-pub fn spawn_window(app: AppHandle, file: String) -> Result<(), String> {
-    use tauri::Emitter;
+pub fn spawn_window(file: String) -> Result<(), String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("spawn_window: cannot resolve current exe path: {e}"))?;
 
-    let n = WINDOW_COUNTER.fetch_add(1, AtomicOrdering::SeqCst);
-    let label = format!("md-{}", n);
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.arg("--new-window").arg(&file);
 
-    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
-        .title("md-reader")
-        .inner_size(1100.0, 760.0)
-        .min_inner_size(480.0, 320.0)
-        .build()
-        .map_err(|e| format!("spawn_window failed: {e}"))?;
+    // On Windows, ensure the new process gets its own console group so that
+    // closing the parent doesn't take it down.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+    }
 
-    let _ = win.set_focus();
-
-    let win_clone = win.clone();
-    let file_clone = file.clone();
-    std::thread::spawn(move || {
-        for delay_ms in [200u64, 600, 1500, 3000] {
-            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-            let _ = win_clone.emit("md-reader://open-file", &file_clone);
-        }
-    });
+    cmd.spawn()
+        .map_err(|e| format!("spawn_window: failed to start child process: {e}"))?;
 
     Ok(())
+}
+
+/// Whether this process was launched via tear-out (i.e. has --new-window in argv).
+/// The frontend uses this to skip restoring previously-open tabs in torn-out
+/// windows — those should only show the file they were spawned with.
+#[tauri::command]
+pub fn is_torn_out_window() -> bool {
+    std::env::args().any(|a| a == "--new-window")
 }

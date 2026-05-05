@@ -112,6 +112,7 @@
     else if (mod && e.key === "Tab" && e.shiftKey) { e.preventDefault(); tabs.prev(); }
     else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); settings.set("showFiles", !settings.s.showFiles); }
     else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); settings.set("liveTrack", !settings.s.liveTrack); }
+    else if (mod && e.key.toLowerCase() === "d") { e.preventDefault(); settings.set("diffMode", !settings.s.diffMode); }
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
@@ -142,19 +143,12 @@
       if (paths[0]) openInTab(paths[0]);
     });
 
-    // Listen for the file-open event the spawned window receives after tear-out.
+    // Vestigial from the in-process spawn era — keep the listener around so we
+    // can still react to per-window file-open events if anything ever emits
+    // them again. Process-based tear-out uses the regular onOpenFromCli path.
     unlistenOpenFile = await api.onOpenFileEvent((p) => {
-      console.log("[md-reader] open-file event:", p);
       if (p) openInTab(p);
     });
-
-    // Tell the Rust side that this window is ready to receive events.
-    try {
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit("md-reader://window-ready");
-    } catch (e) {
-      console.warn("[md-reader] window-ready emit failed", e);
-    }
 
     unlistenChange = await api.onFileChanged(async (changedPath) => {
       if (active && changedPath === active.path) {
@@ -208,12 +202,12 @@
 
     // Initial-state determination, in priority order:
     // 1. Explorer double-click → onOpenFromCli (handled above)
-    // 2. Tear-out window → onOpenFileEvent (handled above)
-    // 3. Restore previously-open tabs from settings (only on the main window)
-    // 4. Otherwise: empty state
-    const isMainWindow = (typeof window !== "undefined")
-      && (window as any).__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "main";
-    if (isMainWindow && tabs.tabs.length === 0) {
+    // 2. Torn-out window (--new-window flag) → CLI arg carries the file path
+    //    via onOpenFromCli; do NOT also restore prior tabs.
+    // 3. Otherwise (regular launch) → restore previously-open tabs.
+    let isTornOut = false;
+    try { isTornOut = await api.isTornOutWindow(); } catch { /* dev mode */ }
+    if (!isTornOut && tabs.tabs.length === 0) {
       await tabs.restore();
     }
   });
@@ -269,6 +263,13 @@
         title="Live-track AI edits — keep changed sections highlighted (Ctrl+L)"
         aria-label="Toggle live-track mode"
       >📡 Track</button>
+      <button
+        class="track-btn"
+        class:active={settings.s.diffMode}
+        onclick={() => settings.set("diffMode", !settings.s.diffMode)}
+        title="Diff mode — highlight everything that's changed since you opened the file (Ctrl+D)"
+        aria-label="Toggle diff mode"
+      >🔍 Diff</button>
     </div>
     <div class="middle">
       {#if path}
@@ -330,10 +331,10 @@
       {:else if mode === "split"}
         <div class="split">
           <Editor source={active.source} onChange={onEditorChange} onSave={save} />
-          <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} />
+          <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} baselineSource={active.baselineSource} />
         </div>
       {:else}
-        <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} />
+        <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} baselineSource={active.baselineSource} />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
     </main>
@@ -363,6 +364,10 @@
         </button>
       {/each}
     {/if}
+    <div class="menu-sep"></div>
+    <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; tabs.resetActiveBaseline(); }}>
+      <span>Reset diff baseline</span><span class="kbd">diff = now</span>
+    </button>
     <div class="menu-sep"></div>
     <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; closeActiveTab(); }}>
       <span>Close tab</span><span class="kbd">Ctrl W</span>

@@ -11,8 +11,16 @@
     basePath: string;
     mode?: Mode;
     lastChangeFromDisk?: number;
+    /** Source content the diff-mode baseline compares against. */
+    baselineSource?: string;
   }
-  let { source = "", basePath = "", mode = "view", lastChangeFromDisk = 0 }: Props = $props();
+  let {
+    source = "",
+    basePath = "",
+    mode = "view",
+    lastChangeFromDisk = 0,
+    baselineSource = "",
+  }: Props = $props();
 
   let container: HTMLDivElement;
   let html = $state("");
@@ -65,6 +73,8 @@
     const isDark = dark;
     const diskTick = lastChangeFromDisk;
     const currentMode = mode;
+    const baseline = baselineSource;
+    const diffOn = settings.s.diffMode;
     let cancelled = false;
 
     // Compute change line BEFORE re-render, while we still have the old source on screen.
@@ -82,10 +92,18 @@
         await postRender(container, { dark: isDark });
         rewriteRelativeImages(container, basePath);
 
-        // Live-follow: if this re-render came from a disk change AND we're in view mode,
-        // smart-scroll to the changed region and briefly highlight it.
+        // Live-follow: smart-scroll + flash for the most recent disk edit.
         if (isDiskChange && changedLine != null && currentMode === "view") {
           maybeFollowToLine(changedLine);
+        }
+
+        // Diff mode: paint every line that differs from the baseline. This is
+        // cumulative — every change since the baseline was set lights up,
+        // unlike live-track which only shows the most recent edit briefly.
+        if (diffOn) {
+          applyDiffHighlight(container, baseline, src);
+        } else {
+          clearDiffHighlight(container);
         }
       }
       prevSource = src;
@@ -95,6 +113,51 @@
       cancelled = true;
     };
   });
+
+  /** Set of 1-indexed line numbers in `current` whose text isn't present
+   *  anywhere in `baseline`. Naive but cheap and effective for AI-edit cases:
+   *  added or modified lines stand out; "moved" lines aren't flagged (which is
+   *  fine — moves are visually obvious anyway). */
+  function changedLinesAgainst(baseline: string, current: string): Set<number> {
+    const baselineLines = new Set(baseline.split("\n"));
+    const currentLines = current.split("\n");
+    const out = new Set<number>();
+    for (let i = 0; i < currentLines.length; i++) {
+      const ln = currentLines[i];
+      // Ignore blank lines — they're usually noise in markdown diffs.
+      if (ln.trim() === "") continue;
+      if (!baselineLines.has(ln)) out.add(i + 1);
+    }
+    return out;
+  }
+
+  function applyDiffHighlight(root: HTMLElement, baseline: string, current: string) {
+    clearDiffHighlight(root);
+    if (baseline === current) return;
+    const changed = changedLinesAgainst(baseline, current);
+    if (changed.size === 0) return;
+    const els = root.querySelectorAll<HTMLElement>("[data-sourcepos]");
+    for (const el of els) {
+      const sp = el.dataset.sourcepos;
+      if (!sp) continue;
+      const m = /^(\d+):\d+-(\d+):\d+$/.exec(sp);
+      if (!m) continue;
+      const from = +m[1];
+      const to = +m[2];
+      for (let line = from; line <= to; line++) {
+        if (changed.has(line)) {
+          el.classList.add("diff-changed");
+          break;
+        }
+      }
+    }
+  }
+
+  function clearDiffHighlight(root: HTMLElement) {
+    root.querySelectorAll(".diff-changed").forEach((el) =>
+      el.classList.remove("diff-changed"),
+    );
+  }
 
   function maybeFollowToLine(line: number) {
     if (!container) return;
@@ -518,6 +581,19 @@
   .viewer :global(.live-tracked) {
     animation: live-tracked-accent 6s ease-out;
     border-radius: 4px;
+  }
+
+  /* ─── Diff mode: cumulative highlighting against a baseline ────── */
+  .viewer :global(.diff-changed) {
+    background-color: rgba(46, 160, 67, 0.10);
+    box-shadow: inset 3px 0 0 #2ea043;
+    border-radius: 4px;
+    padding-left: 8px;
+    margin-left: -11px;
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.diff-changed) {
+    background-color: rgba(63, 185, 80, 0.14);
+    box-shadow: inset 3px 0 0 #3fb950;
   }
 
   /* ─── Mermaid ──────────────────────────────────────────── */

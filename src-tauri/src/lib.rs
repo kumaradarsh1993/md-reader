@@ -10,8 +10,16 @@ use crate::watcher::WatcherState;
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
+    // If this process was launched as a tear-out window via spawn_window
+    // (passes `--new-window <file>`), skip the single-instance plugin so the
+    // tear-out actually runs as its own independent process. Without this,
+    // single-instance would forward the file path to the existing instance and
+    // exit the new process — defeating the whole point of tear-out.
+    let cli_args: Vec<String> = std::env::args().collect();
+    let is_torn_out = cli_args.iter().any(|a| a == "--new-window");
+
     #[cfg(desktop)]
-    {
+    if !is_torn_out {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Forward any file path args from the second invocation to the running window.
             let files: Vec<String> = args
@@ -62,6 +70,7 @@ pub fn run() {
             commands::list_dir,
             commands::parent_of,
             commands::spawn_window,
+            commands::is_torn_out_window,
         ])
         .run(tauri::generate_context!());
 

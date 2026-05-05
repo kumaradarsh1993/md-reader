@@ -11,6 +11,7 @@ export interface AppSettings {
   fullWidth: boolean;       // ignore contentWidthCh, use viewport
   centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
   liveTrack: boolean;       // persistent accent on AI-edited regions + pulse
+  diffMode: boolean;        // highlight all lines that differ from baseline
   showToc: boolean;
   showFiles: boolean;
   panelWidth: number;
@@ -33,6 +34,7 @@ const DEFAULTS: AppSettings = {
   fullWidth: false,
   centerHeadings: false,
   liveTrack: false,
+  diffMode: false,
   showToc: true,
   showFiles: false,
   panelWidth: 280,

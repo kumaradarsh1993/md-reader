@@ -5,6 +5,9 @@ export interface Tab {
   id: string;
   path: string;
   source: string;
+  /** Snapshot of source taken when the tab opened. Diff mode visualises changes
+   *  against this; reset via "Reset diff baseline" in the File menu. */
+  baselineSource: string;
   dirty: boolean;
   scrollPos: number;
   /** Bumped each time the file changes on disk so the Viewer can live-follow. */
@@ -37,6 +40,7 @@ class TabsStore {
       id: newId(),
       path: file.path,
       source: file.content,
+      baselineSource: file.content,
       dirty: false,
       scrollPos: 0,
       diskTick: 0,
@@ -127,6 +131,13 @@ class TabsStore {
     if (t) t.dirty = false;
   }
 
+  /** Snap the diff baseline to the current source — "from now, this is the
+   *  reference point for diff highlighting." */
+  resetActiveBaseline() {
+    const t = this.active;
+    if (t) t.baselineSource = t.source;
+  }
+
   /** Restore on launch from settings. Filters out files that no longer exist. */
   async restore() {
     const paths = settings.s.openTabs ?? [];
@@ -140,6 +151,7 @@ class TabsStore {
             id: newId(),
             path: file.path,
             source: file.content,
+            baselineSource: file.content,
             dirty: false,
             scrollPos: 0,
             diskTick: 0,
