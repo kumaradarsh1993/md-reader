@@ -2,8 +2,10 @@ mod commands;
 pub mod markdown;
 mod watcher;
 
+use parking_lot::Mutex;
 use tauri::{Emitter, Manager};
 
+use crate::commands::InitialFiles;
 use crate::watcher::WatcherState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,28 +40,24 @@ pub fn run() {
         }));
     }
 
+    // Capture CLI file args at process start. Frontend pulls these synchronously
+    // on mount via take_initial_files — replaces the previous setTimeout-based
+    // emit which raced with tab restore.
+    let initial_files: Vec<String> = cli_args
+        .iter()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .cloned()
+        .collect();
+
     let result = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(WatcherState::new())
-        .setup(|app| {
-            // First-launch CLI args: when Explorer opens a .md by file association,
-            // the path is passed as argv[1]. Defer the emit so the frontend has mounted.
-            let args: Vec<String> = std::env::args()
-                .skip(1)
-                .filter(|a| !a.starts_with('-'))
-                .collect();
-            if !args.is_empty() {
-                let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(400));
-                    let _ = handle.emit("open-file-from-cli", args);
-                });
-            }
-            Ok(())
-        })
+        .manage(InitialFiles(Mutex::new(initial_files)))
+        .setup(|_app| Ok(()))
         .invoke_handler(tauri::generate_handler![
             commands::open_file,
             commands::save_file,
@@ -71,6 +69,7 @@ pub fn run() {
             commands::parent_of,
             commands::spawn_window,
             commands::is_torn_out_window,
+            commands::take_initial_files,
         ])
         .run(tauri::generate_context!());
 

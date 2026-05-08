@@ -1,11 +1,18 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 
+use parking_lot::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::markdown;
 use crate::watcher::WatcherState;
+
+/// CLI file paths captured at process start. The frontend pulls these
+/// synchronously on mount via `take_initial_files`, eliminating the race we
+/// previously had with the post-mount `setTimeout`-based emit (which fired
+/// _after_ tab-restore had a chance to clobber activeId).
+pub struct InitialFiles(pub Mutex<Vec<String>>);
 
 #[derive(Serialize)]
 pub struct DirEntry {
@@ -152,4 +159,18 @@ pub fn spawn_window(file: String) -> Result<(), String> {
 #[tauri::command]
 pub fn is_torn_out_window() -> bool {
     std::env::args().any(|a| a == "--new-window")
+}
+
+/// Drain and return the CLI-passed file paths captured at process start.
+/// Called once by the frontend on mount; if non-empty, the frontend opens
+/// those files and skips session-restore (the user's intent is "open these
+/// specific files, not whatever was open last time"). Subsequent file-open
+/// requests during the running session arrive via the single-instance
+/// plugin's emit, not this command.
+#[tauri::command]
+pub fn take_initial_files(state: State<'_, InitialFiles>) -> Vec<String> {
+    let mut guard = state.0.lock();
+    let out = guard.clone();
+    guard.clear();
+    out
 }

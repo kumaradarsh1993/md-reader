@@ -25,6 +25,7 @@ export const api = {
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
   parentOf: (path: string) => invoke<string | null>("parent_of", { path }),
   isTornOutWindow: () => invoke<boolean>("is_torn_out_window"),
+  takeInitialFiles: () => invoke<string[]>("take_initial_files"),
 
   pickFile: async (): Promise<string | null> => {
     const result = await openDialog({

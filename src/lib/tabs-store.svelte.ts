@@ -159,12 +159,18 @@ class TabsStore {
         ];
       } catch { /* file moved/deleted — skip */ }
     }
-    if (activePath) {
-      const t = this.tabs.find((tab) => tab.path === activePath);
-      if (t) this.activeId = t.id;
-    }
-    if (!this.activeId && this.tabs.length > 0) {
-      this.activeId = this.tabs[0].id;
+    // Defensive: only set activeId if nothing else has already claimed it.
+    // A concurrent code path (e.g. take_initial_files → openOrFocus) may have
+    // set activeId to a CLI-passed file while we were still looping; we must
+    // not clobber that with the previous session's last-active path.
+    if (!this.activeId) {
+      if (activePath) {
+        const t = this.tabs.find((tab) => tab.path === activePath);
+        if (t) this.activeId = t.id;
+      }
+      if (!this.activeId && this.tabs.length > 0) {
+        this.activeId = this.tabs[0].id;
+      }
     }
   }
 

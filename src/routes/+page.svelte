@@ -249,14 +249,27 @@
     window.addEventListener("keydown", onKey);
 
     // Initial-state determination, in priority order:
-    // 1. Explorer double-click → onOpenFromCli (handled above)
-    // 2. Torn-out window (--new-window flag) → CLI arg carries the file path
-    //    via onOpenFromCli; do NOT also restore prior tabs.
-    // 3. Otherwise (regular launch) → restore previously-open tabs.
-    let isTornOut = false;
-    try { isTornOut = await api.isTornOutWindow(); } catch { /* dev mode */ }
-    if (!isTornOut && tabs.tabs.length === 0) {
-      await tabs.restore();
+    // 1. Explorer file-association launch → take_initial_files returns the
+    //    path; we open it and SKIP session restore (intent is "open this
+    //    specific file, not whatever I had open last time").
+    // 2. Torn-out window (--new-window) → take_initial_files returns the file
+    //    we were spawned with; same handling as #1.
+    // 3. Plain launch with no CLI args → restore previously-open tabs.
+    // (Subsequent file-opens during a running session come through the
+    // single-instance plugin's emit → onOpenFromCli listener above, not here.)
+    let initialFiles: string[] = [];
+    try { initialFiles = await api.takeInitialFiles(); } catch { /* dev mode */ }
+
+    if (initialFiles.length > 0) {
+      for (const p of initialFiles) {
+        await openInTab(p);
+      }
+    } else {
+      let isTornOut = false;
+      try { isTornOut = await api.isTornOutWindow(); } catch { /* dev mode */ }
+      if (!isTornOut && tabs.tabs.length === 0) {
+        await tabs.restore();
+      }
     }
   });
 
