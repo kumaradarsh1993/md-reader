@@ -138,3 +138,85 @@ Tools: Figma (free for one-off carousels), Canva, or just take screen recordings
 
 LinkedIn audiences punish hype tropes harder than Reddit does. Plain
 first-person voice and a specific anecdote outperform every time.
+
+---
+
+# v0.2.0 launch — drafts (Smart Edit Mode)
+
+Headline change in this release: a WYSIWYG editor that hides every `##`,
+`**`, and `[text](url)`. Markdown becomes approachable for non-technical
+readers. Tertiary change: live-track + diff mode moved to Experimental
+(off by default), so the toolbar is much calmer.
+
+## Draft 1 — Personal-story tone (recommended)
+
+> Markdown is suddenly everywhere — every AI tool writes in it. ChatGPT,
+> Claude, Cursor, all default to `.md`. Which would be fine, except your
+> manager opens the file in Notepad and asks why there are hashtags
+> before every heading.
+>
+> So I spent two sleepless nights and burnt ~$100 in Claude API credits
+> adding a **smart edit mode** to md-reader, my open-source markdown
+> reader for Windows / macOS / Linux.
+>
+> You type into the rendered view — like Notion, like a Word doc. No `##`,
+> no `**`, no `[text](url)` ever visible. Saves back to clean markdown on
+> disk. Round-trip safe. If you want the raw source, one click flips you
+> to it — power users keep their muscle memory; non-technical users
+> finally stop asking what the asterisks mean.
+>
+> Also retired in this release: the "live AI edit tracking" chrome
+> cluttering the top toolbar. Moved to Settings → Experimental, off by
+> default. The product feels twice as calm.
+>
+> Stack: Tauri 2 + Svelte 5 + Milkdown for the WYSIWYG, comrak (Rust) for
+> read-only. Local-only. No telemetry. MIT.
+>
+> v0.2.0 just shipped. Repo in the comments.
+>
+> (Tried to caffeinate through this. Couldn't — I'm one of those
+> caffeine-oversensitive people, so it was a water-only two-nighter. The
+> things one suffers for shipping software.)
+
+## Draft 2 — Punchier / launch tone
+
+> $100 in Claude API tokens. Two nights without sleep. Zero coffee
+> (caffeine-oversensitive, don't @ me — water did the job). One feature
+> I've wanted in a markdown tool for years.
+>
+> md-reader v0.2.0 ships **Smart Edit Mode**: type into the rendered
+> view, no markdown symbols ever visible. Bold/italic/lists/links/tables
+> all work the way they do in Notion or Word. Saves clean markdown to
+> disk on every keystroke.
+>
+> Why this matters: AI tools have made markdown the default content
+> format for everyone — not just developers. But the moment a
+> non-technical reader hits edit mode and sees `## heading` and
+> `**bold**`, they bounce. This closes that gap. Power users keep raw
+> mode one click away.
+>
+> Open source, MIT, Tauri 2 + Svelte + Milkdown. Cross-platform.
+>
+> Repo in comments. Would love feedback from anyone who's tried to get
+> a non-technical teammate to "just edit the markdown file please."
+
+## What to tweak before posting
+
+- Pick Draft 1 or Draft 2 (Draft 1 follows your v0.1 voice more closely).
+- The `~$100` figure is approximate — sharpen if you want to cite the real
+  Anthropic console number. Tokens-burned-to-ship-a-feature is a strong
+  builder-credibility signal on LinkedIn right now.
+- Add the GitHub URL in the **first comment**, not the body (LinkedIn
+  deboosts posts with external links inline).
+- Suggested screenshot/GIF: a 5-second clip of typing into a smart-edit
+  surface with a list/heading auto-formatting, no markdown symbols ever
+  flashing. Or a side-by-side of "what the AI wrote" (raw) vs "what the
+  user sees" (smart edit).
+
+## What to skip
+
+- "Excited to announce v0.2…" — same trap as v0.1 launch.
+- Naming the model used to generate the code (LinkedIn audience reads
+  "wrote it with AI" → less interested in the artifact).
+- Listing every minor change. Smart edit is the one thing worth leading
+  with; everything else goes in the changelog.

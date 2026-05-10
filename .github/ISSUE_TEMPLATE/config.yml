@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/kumaradarsh1993/md-reader/discussions
+    about: "For 'how do I do X' or 'what should this become' — start a Discussion rather than an Issue. (Discussions need to be enabled on the repo first.)"
+  - name: Quick chat / DM
+    url: https://github.com/kumaradarsh1993
+    about: For private feedback, ping me on GitHub.

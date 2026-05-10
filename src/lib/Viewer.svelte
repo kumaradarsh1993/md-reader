@@ -161,6 +161,9 @@
 
   function maybeFollowToLine(line: number) {
     if (!container) return;
+    // Live-track is a viewer feature: in smart-edit mode the Viewer isn't
+    // mounted at all, so this code path is naturally inert there. The setting
+    // is also gated behind Settings → Experimental → "Live AI edit tracking".
     const el = findElementByLine(container, line);
     if (!el) return;
 

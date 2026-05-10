@@ -7,13 +7,16 @@
   import { tabs } from "$lib/tabs-store.svelte";
   import Viewer from "$lib/Viewer.svelte";
   import Editor from "$lib/Editor.svelte";
+  import SmartEditor from "$lib/SmartEditor.svelte";
   import LeftPanel from "$lib/LeftPanel.svelte";
   import TabBar from "$lib/TabBar.svelte";
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
   import { summariseDiff, SmartDiffError } from "$lib/smart-diff";
 
-  type Mode = "view" | "edit" | "split";
+  // "edit" picks the user's preferred sub-mode (settings.editorMode);
+  // "rawEdit" forces the CodeMirror raw markdown source view.
+  type Mode = "view" | "edit" | "rawEdit";
 
   let mode = $state<Mode>("view");
   let findOpen = $state(false);
@@ -92,7 +95,10 @@
   }
 
   function setMode(m: Mode) { mode = m; }
-  function toggleEdit() { mode = mode === "view" ? "split" : "view"; }
+  // Ctrl+E: cycle view → smart edit → view. Power-users can still get the raw
+  // CodeMirror source via the toolbar sub-toggle, Settings → Default edit mode,
+  // or "Split" (which always uses raw on the left).
+  function toggleEdit() { mode = mode === "view" ? "edit" : "view"; }
 
   function bumpZoom(delta: number) {
     const z = Math.min(2.5, Math.max(0.5, +(settings.s.zoom + delta).toFixed(2)));
@@ -159,8 +165,22 @@
     else if (mod && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); tabs.next(); }
     else if (mod && e.key === "Tab" && e.shiftKey) { e.preventDefault(); tabs.prev(); }
     else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); settings.set("showFiles", !settings.s.showFiles); }
-    else if (mod && e.key.toLowerCase() === "l") { e.preventDefault(); settings.set("liveTrack", !settings.s.liveTrack); }
-    else if (mod && e.key.toLowerCase() === "d") { e.preventDefault(); settings.set("diffMode", !settings.s.diffMode); }
+    else if (mod && e.key.toLowerCase() === "l") {
+      // Live-track is experimental and disabled by default. The shortcut only
+      // fires when the user has opted in via Settings → Experimental.
+      if (settings.s.experimentalLiveTrack) {
+        e.preventDefault();
+        settings.set("liveTrack", !settings.s.liveTrack);
+      }
+    }
+    else if (mod && e.key.toLowerCase() === "d") {
+      // Diff mode is experimental and disabled by default. The shortcut only
+      // fires when the user has opted in via Settings → Experimental.
+      if (settings.s.experimentalDiffMode) {
+        e.preventDefault();
+        settings.set("diffMode", !settings.s.diffMode);
+      }
+    }
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
@@ -171,7 +191,13 @@
     else if (mod && e.key === "[") { e.preventDefault(); bumpWidth(-8); }
     else if (mod && e.key === "\\") { e.preventDefault(); settings.set("fullWidth", !settings.s.fullWidth); }
     else if (mod && e.key.toLowerCase() === "s") {
-      if (mode !== "view") { e.preventDefault(); save(); }
+      if (mode !== "view") {
+        // SmartEditor has its own host-level Ctrl+S handler (so the shortcut
+        // works while focus is inside the editor). When focus is elsewhere
+        // (toolbar, etc.) we still want Ctrl+S to save.
+        e.preventDefault();
+        save();
+      }
     } else if (e.key === "F12") {
       e.preventDefault();
       import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
@@ -300,9 +326,20 @@
       </button>
       <div class="seg">
         <button class:active={mode === "view"} onclick={() => setMode("view")}>View</button>
-        <button class:active={mode === "split"} onclick={() => setMode("split")}>Split</button>
-        <button class:active={mode === "edit"} onclick={() => setMode("edit")}>Edit</button>
+        <button class:active={mode === "edit" || mode === "rawEdit"} onclick={() => setMode("edit")}>Edit</button>
       </div>
+      {#if mode === "edit" || mode === "rawEdit"}
+        <div class="seg edit-sub" title="Edit mode: Smart hides markdown syntax · Raw shows the source">
+          <button
+            class:active={mode === "edit" && settings.s.editorMode === "smart"}
+            onclick={() => { settings.set("editorMode", "smart"); setMode("edit"); }}
+          >Smart</button>
+          <button
+            class:active={mode === "rawEdit" || (mode === "edit" && settings.s.editorMode === "raw")}
+            onclick={() => { settings.set("editorMode", "raw"); setMode("rawEdit"); }}
+          >Raw</button>
+        </div>
+      {/if}
       <div class="seg panel-toggles" title="Toggle side-panel sections">
         <button
           class:active={settings.s.showFiles}
@@ -317,29 +354,33 @@
           aria-label="Toggle outline panel"
         >📑</button>
       </div>
-      <button
-        class="track-btn"
-        class:active={settings.s.liveTrack}
-        onclick={() => settings.set("liveTrack", !settings.s.liveTrack)}
-        title="Live-track AI edits — keep changed sections highlighted (Ctrl+L)"
-        aria-label="Toggle live-track mode"
-      >📡 Track</button>
-      <button
-        class="track-btn"
-        class:active={settings.s.diffMode}
-        onclick={() => settings.set("diffMode", !settings.s.diffMode)}
-        title="Diff mode — highlight everything that's changed since you opened the file (Ctrl+D)"
-        aria-label="Toggle diff mode"
-      >🔍 Diff</button>
-      {#if settings.s.diffMode && active && active.source !== active.baselineSource}
+      {#if settings.s.experimentalLiveTrack}
         <button
           class="track-btn"
-          disabled={summaryLoading}
-          onclick={summariseChanges}
-          title="Summarise what changed since baseline using Claude"
-        >
-          {summaryLoading ? "…" : "✨ Why?"}
-        </button>
+          class:active={settings.s.liveTrack}
+          onclick={() => settings.set("liveTrack", !settings.s.liveTrack)}
+          title="Live-track AI edits — keep changed sections highlighted (Ctrl+L)"
+          aria-label="Toggle live-track mode"
+        >📡 Track</button>
+      {/if}
+      {#if settings.s.experimentalDiffMode}
+        <button
+          class="track-btn"
+          class:active={settings.s.diffMode}
+          onclick={() => settings.set("diffMode", !settings.s.diffMode)}
+          title="Diff mode — highlight everything that's changed since you opened the file (Ctrl+D)"
+          aria-label="Toggle diff mode"
+        >🔍 Diff</button>
+        {#if settings.s.diffMode && active && active.source !== active.baselineSource}
+          <button
+            class="track-btn"
+            disabled={summaryLoading}
+            onclick={summariseChanges}
+            title="Summarise what changed since baseline using Claude"
+          >
+            {summaryLoading ? "…" : "✨ Why?"}
+          </button>
+        {/if}
       {/if}
     </div>
     <div class="middle">
@@ -371,14 +412,12 @@
   <TabBar onNewTab={pickAndOpen} />
 
   <div class="body">
-    {#if mode !== "edit"}
-      <LeftPanel
-        {source}
-        {cwd}
-        activePath={path}
-        onOpenFile={(p) => openInTab(p)}
-      />
-    {/if}
+    <LeftPanel
+      {source}
+      {cwd}
+      activePath={path}
+      onOpenFile={(p) => openInTab(p)}
+    />
     <main class="content" bind:this={viewerEl}>
       {#if summaryText || summaryError}
         <div class="summary-banner" class:error={!!summaryError}>
@@ -415,15 +454,12 @@
             </div>
           {/if}
         </div>
-      {:else if mode === "edit"}
+      {:else if mode === "edit" && settings.s.editorMode === "smart"}
+        <SmartEditor source={active.source} onChange={onEditorChange} onSave={save} />
+      {:else if mode === "edit" || mode === "rawEdit"}
         <Editor source={active.source} onChange={onEditorChange} onSave={save} />
-      {:else if mode === "split"}
-        <div class="split">
-          <Editor source={active.source} onChange={onEditorChange} onSave={save} />
-          <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} baselineSource={active.baselineSource} />
-        </div>
       {:else}
-        <Viewer source={active.source} basePath={active.path} {mode} lastChangeFromDisk={active.diskTick} baselineSource={active.baselineSource} />
+        <Viewer source={active.source} basePath={active.path} mode={"view"} lastChangeFromDisk={active.diskTick} baselineSource={active.baselineSource} />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
     </main>
@@ -472,6 +508,9 @@
   :global(:root) {
     --bg: #ffffff;
     --bg-elevated: #ffffff;
+    /* Subtle warm-paper tint for the smart-edit surface — distinguishes
+       "I'm editing" from "I'm reading" without screaming. */
+    --bg-edit: #fbfaf6;
     --fg: #18181b;
     --fg-strong: #09090b;
     --muted: #71717a;
@@ -501,6 +540,8 @@
   :global(html[data-theme="dark"]) {
     --bg: #1c1c1e;
     --bg-elevated: #2c2c2e;
+    /* Slightly lighter than --bg, reads as a "card" surface in dark mode. */
+    --bg-edit: #232326;
     --fg: #f5f5f7;
     --fg-strong: #ffffff;
     --muted: #98989f;
@@ -684,6 +725,12 @@
   button:hover { background: var(--hover-bg); }
   button:active { background: var(--accent-soft); }
 
+  .edit-sub {
+    font-size: 11px;
+    margin-left: 0;
+  }
+  .edit-sub button { padding: 0 .55rem; }
+
   /* Pill segmented control */
   .seg {
     display: inline-flex;
@@ -723,19 +770,6 @@
     flex-direction: column;
     min-width: 0;
   }
-  .split {
-    display: flex;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  .split :global(.editor-host),
-  .split :global(.viewer) {
-    flex: 1 1 0;
-    width: 50%;
-    border-right: 1px solid var(--border);
-  }
-  .split :global(.viewer) { border-right: 0; }
-
   /* File button & menu */
   .file-btn .caret { font-size: 9px; margin-left: .25em; opacity: .7; }
   :global(.menu-backdrop) {

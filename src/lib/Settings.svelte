@@ -118,6 +118,27 @@
       <span>Center headings <small>(for resumes / formal docs)</small></span>
     </label>
 
+    <fieldset class="editor-mode-group">
+      <legend><span>Default edit mode</span></legend>
+      <p class="hint smart-hint">
+        <strong>Smart</strong> hides markdown symbols (<code>**</code>, <code>##</code>, …) and
+        edits like a Word doc. <strong>Raw</strong> shows the underlying markdown source.
+        You can also switch per-tab from the toolbar.
+      </p>
+      <div class="presets">
+        <button
+          type="button"
+          class:active={settings.s.editorMode === "smart"}
+          onclick={() => settings.set("editorMode", "smart")}
+        >Smart (WYSIWYG)</button>
+        <button
+          type="button"
+          class:active={settings.s.editorMode === "raw"}
+          onclick={() => settings.set("editorMode", "raw")}
+        >Raw (markdown)</button>
+      </div>
+    </fieldset>
+
     <fieldset class="smart-diff-group">
       <legend>
         <span>Smart-diff</span>
@@ -148,6 +169,35 @@
         />
       </label>
     </fieldset>
+
+    <details class="experimental">
+      <summary>Experimental features</summary>
+      <p class="hint smart-hint">
+        These may change or disappear between releases.
+      </p>
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={settings.s.experimentalLiveTrack}
+          onchange={(e) => settings.set("experimentalLiveTrack", (e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>
+          Live AI edit tracking
+          <small>Auto-scrolls the viewer to AI-edited lines and accents them. Adds a 📡 toolbar button + <kbd>Ctrl</kbd>+<kbd>L</kbd>.</small>
+        </span>
+      </label>
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={settings.s.experimentalDiffMode}
+          onchange={(e) => settings.set("experimentalDiffMode", (e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>
+          Diff mode &amp; smart-diff
+          <small>Highlights every line changed since the file was opened. Adds a 🔍 toolbar button + <kbd>Ctrl</kbd>+<kbd>D</kbd>, plus the ✨ Why? Claude-summary action when changes exist.</small>
+        </span>
+      </label>
+    </details>
   </div>
 {/if}
 
@@ -194,11 +244,38 @@
     font: inherit;
   }
   fieldset.width-group,
-  fieldset.smart-diff-group {
+  fieldset.smart-diff-group,
+  fieldset.editor-mode-group {
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: .5rem .75rem .75rem;
     margin: .9rem 0;
+  }
+  fieldset.editor-mode-group legend {
+    padding: 0 .35rem;
+    font-size: 13px;
+  }
+  details.experimental {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .5rem .75rem;
+    margin: .9rem 0;
+  }
+  details.experimental summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    padding: .15rem 0;
+    user-select: none;
+  }
+  details.experimental[open] summary { margin-bottom: .35rem; }
+  details.experimental .check { align-items: flex-start; gap: .55rem; }
+  details.experimental .check small {
+    display: block;
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.45;
+    margin-top: .15rem;
   }
   .smart-hint {
     font-size: 11.5px;
