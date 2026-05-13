@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.4.0 — 2026-05-13
+
+### Added — Live Edit Theatre (opt-in, off by default)
+
+The headline of v0.4.0 — a new product mode that activates when an external
+edit is detected on the file you have open. Enable via
+**Settings → Advanced features → 🎬 Live Edit Theatre**.
+
+When enabled:
+
+- **Smooth zoom-out animation** + faint background desaturation when an
+  AI (Claude, ChatGPT, Cursor, etc.) starts writing to the active file.
+  Reads as "I know something is happening — watch the show."
+- **Bottom-left status bar** during the turn: live change count and a
+  pulsing indicator. Morphs to "Edits done — X highlighted" with
+  Dismiss / Show details buttons once edits stop for 5 seconds.
+- **Yellow highlights** painted on every changed section via comrak's
+  `data-sourcepos` mapping. Stay visible after dismiss; toggle with the
+  floating "Show / Hide changes" chip top-right of the viewport.
+- **Diff sidebar** (`Ctrl + Shift + D` or "Show details" button) — a
+  Word-comments-style right panel listing every changed section as a
+  card. Two modes per card:
+  - **Naive diff** — red strikethrough / green underline inline diff via
+    diff-match-patch. Fast, local, no network.
+  - **✨ Summary** — prose summary by Claude, fetched on demand. Reuses
+    the existing Smart-diff Anthropic API key from Settings.
+- **Turn ring buffer** — the last 10 AI turns are kept in memory per tab.
+  Dropdown at the top of the sidebar lets you re-view any of them as a
+  frozen artefact ("v3 — 2 min ago") plus a cumulative "Since file
+  opened" option. Lost on app close (in-memory only).
+- **Discoverability tip** — users who haven't enabled Theatre yet see a
+  one-time bottom-of-screen banner when an external edit first arrives.
+  Click "Enable" to flip the toggle, or ✕ to dismiss.
+
+### Stack additions
+
+- `diff-match-patch` 1.0.5 (~30 KB) for naive-diff rendering.
+- New `src/lib/theatre/` module: `types.ts`, `diff-engine.ts`,
+  `store.svelte.ts`, `StatusBar.svelte`, `ResumeChip.svelte`,
+  `TipBanner.svelte`, `DiffSidebar.svelte`.
+
+### Architecture
+
+- Theatre state lives on each `Tab` object (in-memory, lost on close —
+  by design). 10-turn ring buffer caps per-tab memory at ~1 MB for a
+  50 KB file. Bundle delta: ~30 KB. App startup time unchanged.
+- External edits route through `tabs-store.setActiveSourceFromDisk`,
+  which invokes `theatre/store.onBeforeExternalEdit` and
+  `onAfterExternalEdit` to drive the state machine. Pure functions on
+  reactive Tab fields — no separate state container.
+- See `docs/proposals/live-edit-theatre.md` for the full design rationale,
+  state machine, and the locked decisions from the 2026-05-13 debate.
+
 ## 0.3.0 — 2026-05-13
 
 ### Added

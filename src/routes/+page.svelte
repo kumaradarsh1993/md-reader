@@ -13,6 +13,12 @@
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
   import About from "$lib/About.svelte";
+  import StatusBar from "$lib/theatre/StatusBar.svelte";
+  import ResumeChip from "$lib/theatre/ResumeChip.svelte";
+  import TipBanner from "$lib/theatre/TipBanner.svelte";
+  import DiffSidebar from "$lib/theatre/DiffSidebar.svelte";
+  import { toggleSidebar, viewSnapshots, zoomFor } from "$lib/theatre/store.svelte";
+  import { changedSections } from "$lib/theatre/diff-engine";
 
   // "edit" picks the user's preferred sub-mode (settings.editorMode);
   // "rawEdit" forces the CodeMirror raw markdown source view.
@@ -28,8 +34,9 @@
   let unlistenCli: UnlistenFn | null = null;
   let unlistenDrop: UnlistenFn | null = null;
   let unlistenOpenFile: UnlistenFn | null = null;
-  // (live-track / diff-mode UI removed in v0.3.0; full theatre-mode UX
-  // arrives in v0.4.0 — see docs/proposals/live-edit-theatre.md)
+  // Has any external edit been observed for the active tab this session?
+  // Used to gate the TipBanner — we don't want to nag people on app open.
+  let externalEditObserved = $state(false);
 
   // Convenience derived state from active tab
   let active = $derived(tabs.active);
@@ -37,6 +44,29 @@
   let source = $derived(active?.source ?? "");
   let dirty = $derived(active?.dirty ?? false);
   let cwd = $derived(path ? path.replace(/[\\/][^\\/]*$/, "") : null);
+
+  // Theatre highlight ranges for the active tab: drawn from the in-flight or
+  // selected turn (unless the user has hidden them). Empty array = no paint.
+  let theatreRanges = $derived.by((): Array<{ from: number; to: number }> => {
+    if (!active) return [];
+    if (active.highlightsHidden) return [];
+    if (!settings.s.advancedLiveEditTheatre) return [];
+    const snaps = viewSnapshots(active);
+    if (!snaps) return [];
+    if (snaps.before === snaps.after) return [];
+    const sections = changedSections(snaps.before, snaps.after);
+    const out: Array<{ from: number; to: number }> = [];
+    for (const s of sections) {
+      for (const r of s.changedLineRangesAfter) out.push(r);
+    }
+    return out;
+  });
+
+  // Current zoom multiplier — animated CSS transform applied to the body content.
+  let theatreZoom = $derived(active ? zoomFor(active.theatrePhase) : 1.0);
+  let theatreEngaged = $derived(
+    !!active && (active.theatrePhase === "engaging" || active.theatrePhase === "engaged" || active.theatrePhase === "done"),
+  );
 
   // Theme application
   $effect(() => {
@@ -51,6 +81,16 @@
       await api.unwatchFile();
       if (p) await api.watchFile(p);
     })();
+  });
+
+  // Reset the global "external edit observed this session" flag whenever
+  // the active tab changes. The TipBanner reads the *active tab* and this
+  // flag together — clearing on tab switch means the tip won't carry over
+  // from one tab to another (it's per-file in spirit, but the flag itself
+  // is global to the page for simplicity).
+  $effect(() => {
+    const _ = active?.id;
+    externalEditObserved = false;
   });
 
   // Keep document title in sync with active tab
@@ -120,6 +160,14 @@
     // Ctrl+L and Ctrl+D removed in v0.3.0. The features they toggled
     // (liveTrack, diffMode) are being repackaged as Live Edit Theatre in
     // v0.4.0 with a new shortcut surface. See docs/proposals/live-edit-theatre.md.
+    else if (mod && e.shiftKey && e.key.toLowerCase() === "d") {
+      // Toggle the Live Edit Theatre diff sidebar for the active tab.
+      // Only meaningful when theatre is enabled AND there's something to show.
+      if (active) {
+        e.preventDefault();
+        toggleSidebar(active);
+      }
+    }
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
@@ -169,9 +217,10 @@
           const refreshed = await api.openFile(active.path);
           if (refreshed.content !== active.source) {
             tabs.setActiveSourceFromDisk(refreshed.content);
-            // (The "📡 live" pulse badge was removed in v0.3.0. v0.4.0
-            // re-introduces an external-edit signal via the Live Edit
-            // Theatre mode's status bar — see docs/proposals/live-edit-theatre.md.)
+            // Mark that we've seen an external edit — the TipBanner uses
+            // this to decide whether to surface the Live Edit Theatre tip
+            // (only for users who haven't enabled the feature yet).
+            externalEditObserved = true;
           }
         } catch { /* atomic-save transient */ }
       }
@@ -328,14 +377,19 @@
 
   <TabBar onNewTab={pickAndOpen} />
 
-  <div class="body">
+  <div class="body" class:theatre-engaged={theatreEngaged}>
     <LeftPanel
       {source}
       {cwd}
       activePath={path}
       onOpenFile={(p) => openInTab(p)}
     />
-    <main class="content" bind:this={viewerEl}>
+    <main
+      class="content"
+      class:theatre-content={theatreEngaged}
+      style="--theatre-zoom: {theatreZoom};"
+      bind:this={viewerEl}
+    >
       {#if !active}
         <div class="empty-state">
           <div class="empty-glyph">⌘</div>
@@ -358,12 +412,32 @@
       {:else if mode === "edit" || mode === "rawEdit"}
         <Editor source={active.source} onChange={onEditorChange} onSave={save} />
       {:else}
-        <Viewer source={active.source} basePath={active.path} mode={"view"} lastChangeFromDisk={active.diskTick} baselineSource={active.baselineSource} />
+        <Viewer
+          source={active.source}
+          basePath={active.path}
+          mode={"view"}
+          lastChangeFromDisk={active.diskTick}
+          baselineSource={active.baselineSource}
+          theatreHighlightRanges={theatreRanges}
+        />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
     </main>
+    {#if active && active.sidebarOpen && settings.s.advancedLiveEditTheatre}
+      <DiffSidebar tab={active} />
+    {/if}
   </div>
 </div>
+
+<!-- Theatre overlays — sit on top of everything else. Each is internally
+     gated on the active tab's state so they no-op when nothing's happening. -->
+{#if active && settings.s.advancedLiveEditTheatre}
+  <StatusBar tab={active} />
+  <ResumeChip tab={active} />
+{/if}
+{#if active}
+  <TipBanner tab={active} {externalEditObserved} />
+{/if}
 
 <Settings bind:open={settingsOpen} />
 
@@ -660,6 +734,13 @@
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
+    transition: background-color 380ms ease, filter 380ms ease;
+  }
+  /* Theatre engaged: subtle global background desaturation. Filter is GPU-
+     accelerated, doesn't reflow children. */
+  .body.theatre-engaged {
+    background: var(--bg-edit, var(--bg));
+    filter: saturate(.88);
   }
   .content {
     position: relative;
@@ -667,6 +748,11 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    transform-origin: top center;
+    transition: transform 380ms cubic-bezier(.4, 0, .2, 1);
+  }
+  .content.theatre-content {
+    transform: scale(var(--theatre-zoom, 1));
   }
   /* File button & menu */
   .file-btn .caret { font-size: 9px; margin-left: .25em; opacity: .7; }

@@ -1,5 +1,11 @@
 import { api } from "./api";
 import { settings } from "./settings-store.svelte";
+import type { Turn, TheatrePhase, SelectedView } from "./theatre/types";
+import {
+  onBeforeExternalEdit,
+  onAfterExternalEdit,
+  disposeTab as disposeTheatreForTab,
+} from "./theatre/store.svelte";
 
 export interface Tab {
   id: string;
@@ -12,12 +18,49 @@ export interface Tab {
   scrollPos: number;
   /** Bumped each time the file changes on disk so the Viewer can live-follow. */
   diskTick: number;
+
+  // ─── Live Edit Theatre state (v0.4.0+, in-memory only) ──────────────────
+  /** Theatre state machine phase for this tab. Default "off". */
+  theatrePhase: TheatrePhase;
+  /** Ring buffer of completed AI turns, newest first, capped at 10. */
+  turns: Turn[];
+  /** Source snapshot taken at the moment the current turn started. Lives
+   *  between phases "engaging" / "engaged" / "done"; nulled at "off". */
+  pendingTurnBefore: string | null;
+  /** Which view the diff sidebar is showing. "live" means the in-flight turn;
+   *  a number is a completed turn ID; "since-open" is current vs baselineSource. */
+  selectedView: SelectedView;
+  /** Sidebar open/closed. Persists across tab switches per-tab. */
+  sidebarOpen: boolean;
+  /** True after the user clicks the X on the post-dismiss highlight chip —
+   *  highlights are hidden. */
+  highlightsHidden: boolean;
+  /** True after the user dismisses the discoverability tip for this tab.
+   *  Prevents re-showing on every external edit. */
+  tipDismissed: boolean;
 }
 
 function newId(): string {
   return (typeof crypto !== "undefined" && "randomUUID" in crypto)
     ? crypto.randomUUID()
     : `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Default theatre fields for a newly-created tab. Stripped out of openOrFocus
+ *  and restore to keep those paths readable. All fields are in-memory only. */
+function freshTheatreState(): Pick<
+  Tab,
+  "theatrePhase" | "turns" | "pendingTurnBefore" | "selectedView" | "sidebarOpen" | "highlightsHidden" | "tipDismissed"
+> {
+  return {
+    theatrePhase: "off",
+    turns: [],
+    pendingTurnBefore: null,
+    selectedView: "live",
+    sidebarOpen: false,
+    highlightsHidden: false,
+    tipDismissed: false,
+  };
 }
 
 class TabsStore {
@@ -44,6 +87,7 @@ class TabsStore {
       dirty: false,
       scrollPos: 0,
       diskTick: 0,
+      ...freshTheatreState(),
     };
     this.tabs = [...this.tabs, tab];
     this.activeId = tab.id;
@@ -55,6 +99,7 @@ class TabsStore {
   close(id: string) {
     const idx = this.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return;
+    disposeTheatreForTab(id);
     const next = this.tabs.filter((t) => t.id !== id);
     this.tabs = next;
     if (this.activeId === id) {
@@ -116,9 +161,14 @@ class TabsStore {
   setActiveSourceFromDisk(s: string) {
     const t = this.active;
     if (!t) return;
+    if (t.source === s) return; // no-op, don't trigger theatre
+    // Theatre hook: notify the state machine before/after the source flips so
+    // it can capture pendingTurnBefore and arm/reset the idle debounce.
+    onBeforeExternalEdit(t);
     t.source = s;
     t.dirty = false;
     t.diskTick = Date.now();
+    onAfterExternalEdit(t);
   }
 
   setActiveScrollPos(pos: number) {
@@ -155,6 +205,7 @@ class TabsStore {
             dirty: false,
             scrollPos: 0,
             diskTick: 0,
+            ...freshTheatreState(),
           },
         ];
       } catch { /* file moved/deleted — skip */ }

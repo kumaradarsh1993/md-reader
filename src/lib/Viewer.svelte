@@ -13,6 +13,9 @@
     lastChangeFromDisk?: number;
     /** Source content the diff-mode baseline compares against. */
     baselineSource?: string;
+    /** Theatre yellow-highlight ranges (1-based line numbers in the
+     *  current source). Painted whenever the prop is non-empty. v0.4.0+. */
+    theatreHighlightRanges?: Array<{ from: number; to: number }>;
   }
   let {
     source = "",
@@ -20,6 +23,7 @@
     mode = "view",
     lastChangeFromDisk = 0,
     baselineSource = "",
+    theatreHighlightRanges = [],
   }: Props = $props();
 
   let container: HTMLDivElement;
@@ -105,6 +109,11 @@
         } else {
           clearDiffHighlight(container);
         }
+
+        // Theatre yellow highlights — driven by the in-flight or selected
+        // turn's changed-line ranges. Independent of diff-mode. Cleared
+        // automatically when the prop becomes empty.
+        applyTheatreHighlight(container, theatreHighlightRanges);
       }
       prevSource = src;
       prevDiskTick = diskTick;
@@ -158,6 +167,46 @@
       el.classList.remove("diff-changed"),
     );
   }
+
+  /** Paint Live Edit Theatre's yellow highlights on elements whose
+   *  data-sourcepos range overlaps any of the given line ranges. */
+  function applyTheatreHighlight(
+    root: HTMLElement,
+    ranges: Array<{ from: number; to: number }>,
+  ) {
+    clearTheatreHighlight(root);
+    if (!ranges || ranges.length === 0) return;
+    const els = root.querySelectorAll<HTMLElement>("[data-sourcepos]");
+    for (const el of els) {
+      const sp = el.dataset.sourcepos;
+      if (!sp) continue;
+      const m = /^(\d+):\d+-(\d+):\d+$/.exec(sp);
+      if (!m) continue;
+      const from = +m[1];
+      const to = +m[2];
+      for (const r of ranges) {
+        // Range overlap check — element covers any line within a changed range.
+        if (from <= r.to && to >= r.from) {
+          el.classList.add("theatre-changed");
+          break;
+        }
+      }
+    }
+  }
+
+  function clearTheatreHighlight(root: HTMLElement) {
+    root.querySelectorAll(".theatre-changed").forEach((el) =>
+      el.classList.remove("theatre-changed"),
+    );
+  }
+
+  // Re-paint theatre highlights when ONLY the ranges prop changes (e.g.
+  // user picks a different turn in the sidebar dropdown — source stays
+  // the same). The main $effect above already handles source changes.
+  $effect(() => {
+    const ranges = theatreHighlightRanges;
+    if (container) applyTheatreHighlight(container, ranges);
+  });
 
   function maybeFollowToLine(line: number) {
     if (!container) return;
@@ -608,6 +657,20 @@
   :global(html[data-theme="dark"]) .viewer :global(.diff-changed) {
     background-color: rgba(63, 185, 80, 0.14);
     box-shadow: inset 3px 0 0 #3fb950;
+  }
+
+  /* ─── Live Edit Theatre: yellow highlights on changed regions ──── */
+  .viewer :global(.theatre-changed) {
+    background-color: rgba(255, 211, 0, 0.18);
+    box-shadow: inset 3px 0 0 #f5b800;
+    border-radius: 4px;
+    padding-left: 8px;
+    margin-left: -11px;
+    transition: background-color 200ms ease;
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.theatre-changed) {
+    background-color: rgba(255, 211, 0, 0.10);
+    box-shadow: inset 3px 0 0 #d49c00;
   }
 
   /* ─── Mermaid ──────────────────────────────────────────── */
