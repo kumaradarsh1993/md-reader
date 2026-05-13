@@ -239,6 +239,100 @@ If the user agrees with this split: next steps are to write up Phase A as a shor
 
 ---
 
+## Locked decisions (2026-05-13 debate)
+
+After back-and-forth on the versioning model, here's what's locked:
+
+### Detection model (resolves: "how do we know AI vs human?")
+
+We **do not distinguish** AI edits from any other external edit. The signal is simply: "file changed on disk while md-reader is open." Whatever wrote to the file (Claude, Cursor, another editor, a script, OneDrive sync) is treated identically. No fingerprinting, no fake intelligence. Honest and reliable.
+
+Theatre only engages when md-reader is in **view** or **rawEdit** mode. If the user is in **smart edit** mode and an external change arrives, we follow current behaviour (ignore while dirty; reload while clean) — no theatre. Trying to merge AI edits with active user editing is out of scope.
+
+### Turn history model (resolves: "where do previous AI turns go?")
+
+A **ring buffer of the last 10 turns**, in-memory only, per open tab:
+
+```ts
+type Turn = {
+  id: number;                  // monotonic per tab
+  startedAt: number;           // first change detected
+  finishedAt: number;          // 5s of idle after last change
+  snapshotBefore: string;      // file state when turn started
+  snapshotAfter: string;       // file state when turn ended
+  changedRanges: Range[];      // computed once, cached
+  llmSummary?: string;         // populated lazily on user request
+};
+
+// tabs-store.svelte.ts gains:
+type Tab = {
+  // ... existing fields
+  turns: Turn[];               // capped at 10, oldest evicted
+  selectedTurnId: number | null;  // which turn the sidebar is showing
+};
+```
+
+Lost on app close. The file on disk is the source of truth. md-reader is a *viewer of changes*, not a version control system — no branching, merging, or restore.
+
+### Overlap semantics (resolves: "v1 and v2 both changed line 50")
+
+**Snapshot-based, not cumulative.** Selecting `v1` in the sidebar dropdown renders the diff of `v1.snapshotBefore → v1.snapshotAfter`, frozen as it was at v1's completion. v2's later changes to the same line don't affect v1's view — each turn is its own artefact.
+
+A separate dropdown option, **"Since file opened"**, gives the cumulative view (current state vs the file as it was when this tab opened).
+
+### Sidebar UX (locked)
+
+```
+┌─ Changes ─────────────────────────────────────┐
+│                                                │
+│  Show changes from: [v3 — 2 min ago ▾]         │
+│  ──────────────────────────                    │
+│    v3 — 2 min ago                              │
+│    v2 — 8 min ago                              │
+│    v1 — 22 min ago                             │
+│    ──                                          │
+│    Since file opened                           │
+│                                                │
+│  ─────────────────────────────────────────     │
+│                                                │
+│  Section: ## Background                        │
+│  3 lines changed                               │
+│  [Naive ▼] [✨ LLM summary]                    │
+│                                                │
+│  - Old: This project started in April          │
+│    2026 as a side bet.                         │
+│  + New: This project started as a weekend      │
+│    experiment in April 2026 to bridge a gap    │
+│    in AI-markdown tooling.                     │
+│                                                │
+│  ─────────────────────────────────────────     │
+│                                                │
+│  Section: ## Why this matters                  │
+│  …                                             │
+└────────────────────────────────────────────────┘
+```
+
+### Memory + performance bounds (resolves: "lightweight concern")
+
+- Per file: 2 snapshots × 10 turns × avg 50 KB = **1 MB ceiling per tab**
+- 5 active tabs: **5 MB ceiling total** — negligible
+- Snapshot cost: ~1 ms (string copy)
+- Diff cost: ~5 ms for 50 KB via diff-match-patch
+- Bundle delta: ~30 KB (diff-match-patch only)
+- Zero disk writes, zero sidecar files
+- App startup unchanged (history empty on open)
+
+### Opt-in model (resolves: "niche feature")
+
+The whole Theatre + Diff system lives behind `settings.advanced.liveEditTheatre`, **off by default**. Toolbar buttons removed entirely; nothing happens for users who haven't opted in. They get a quieter app than today (since current Track/Diff buttons are also being removed in Phase A).
+
+For users who opt in: a small `🎬 AI editing` badge appears in the toolbar *only when* an external edit is currently happening; status bar bottom-left during a turn; sidebar via `Ctrl+Shift+D` once highlights exist.
+
+### Toolbar exposure for non-opt-in users
+
+When external edits arrive to a user who hasn't enabled Theatre, we surface **one** subtle one-time tip: a small inline banner "Did you know? Enable Live Edit Theatre to watch AI edits in cinema view → Settings". Dismissible; won't appear again. This is how the feature gets discovered.
+
 ## Status log
 
-- **2026-05-13**: Initial draft. Awaiting user feedback on the open questions and the phasing recommendation.
+- **2026-05-13 (draft)**: Initial proposal written.
+- **2026-05-13 (debated)**: Versioning model debated and locked. Snapshot-based ring buffer of 10 turns per tab, in-memory, lost on close. Detection = disk-watcher only, no AI fingerprinting. Sidebar shows per-turn frozen diffs + a "Since file opened" cumulative option. Memory ceiling ~1 MB per tab, bundle delta ~30 KB. **Ready to implement.**

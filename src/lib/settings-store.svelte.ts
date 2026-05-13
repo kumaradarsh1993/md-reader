@@ -10,14 +10,14 @@ export interface AppSettings {
   contentWidthCh: number;   // continuous: chars-wide cap on content (40..160)
   fullWidth: boolean;       // ignore contentWidthCh, use viewport
   centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
-  // Experimental — persistent accent on AI-edited regions + pulse. Off by
-  // default; surfaces a toolbar button + Ctrl+L only when enabled.
-  experimentalLiveTrack: boolean;
-  // Experimental — diff highlighting + smart-diff "Why?" summary button.
-  // Off by default; surfaces a 🔍 Diff toolbar button + Ctrl+D only when enabled.
-  experimentalDiffMode: boolean;
-  // Legacy. Kept for one release as migration sources for the experimental
-  // flags above. TODO(0.3): remove.
+  // v0.3.0+: single "Advanced features" toggle that gates the Live Edit
+  // Theatre experience (zoom-out + status bar + diff sidebar + LLM summary).
+  // Off by default. In v0.3.0 nothing happens when enabled (a teaser hint
+  // appears in Settings). v0.4.0 activates the full feature behind this flag.
+  advancedLiveEditTheatre: boolean;
+  // Legacy from v0.2.x — left here read-only so existing settings.json files
+  // still load cleanly. None of these are written by any current UI path.
+  // TODO(0.5): drop entirely.
   liveTrack: boolean;
   diffMode: boolean;
   // Default editor sub-mode when entering edit/split: WYSIWYG smart editor
@@ -46,8 +46,7 @@ const DEFAULTS: AppSettings = {
   contentWidthCh: WIDTH_DEFAULT,
   fullWidth: false,
   centerHeadings: false,
-  experimentalLiveTrack: false,
-  experimentalDiffMode: false,
+  advancedLiveEditTheatre: false,
   liveTrack: false,
   diffMode: false,
   editorMode: "smart",
@@ -77,23 +76,10 @@ class SettingsStore {
       }
     }
 
-    // Migration: promote legacy `liveTrack` / `diffMode` flags to their
-    // experimental counterparts when the new key isn't yet persisted. Existing
-    // users who enabled either feature keep it; default new installs stay opted-out.
-    const persistedExpLive = await this.store.get<boolean>("experimentalLiveTrack");
-    if (persistedExpLive === undefined || persistedExpLive === null) {
-      if (this.s.liveTrack) {
-        this.s.experimentalLiveTrack = true;
-        await this.store.set("experimentalLiveTrack", true);
-      }
-    }
-    const persistedExpDiff = await this.store.get<boolean>("experimentalDiffMode");
-    if (persistedExpDiff === undefined || persistedExpDiff === null) {
-      if (this.s.diffMode) {
-        this.s.experimentalDiffMode = true;
-        await this.store.set("experimentalDiffMode", true);
-      }
-    }
+    // (v0.2.x had a short-lived `experimentalLiveTrack` / `experimentalDiffMode`
+    // migration pair. Both are gone in v0.3.0 — the whole feature is being
+    // rebuilt as Live Edit Theatre in v0.4.0 behind `advancedLiveEditTheatre`.
+    // Users with the legacy flags persisted simply have them ignored.)
 
     this.ready = true;
   }

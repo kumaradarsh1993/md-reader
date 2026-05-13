@@ -147,8 +147,32 @@ pub fn spawn_window(file: String) -> Result<(), String> {
         cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
     }
 
-    cmd.spawn()
+    let child = cmd
+        .spawn()
         .map_err(|e| format!("spawn_window: failed to start child process: {e}"))?;
+
+    // Z-order fix: on Windows the default "foreground lock" policy buries
+    // newly-spawned process windows behind whichever window currently has
+    // focus (typically: the parent md-reader window the user just dragged
+    // a tab out of). AllowSetForegroundWindow transfers the parent's
+    // foreground privilege to the child PID so the child's window can
+    // legitimately come to the front when WebView2 finishes initialising.
+    // The child *also* explicitly calls set_focus() in lib.rs::setup — belt
+    // and braces, because either step alone is unreliable.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+        // Safety: passing a u32 PID we just got from spawn(). The Win32 call
+        // is a simple privilege grant — no pointers, no allocations, no UB.
+        unsafe {
+            AllowSetForegroundWindow(child.id());
+        }
+    }
+
+    // Explicitly drop the child handle so we don't accumulate zombie process
+    // handles in the parent (each tear-out is a fire-and-forget — the child
+    // is independent and we don't need to wait on it).
+    drop(child);
 
     Ok(())
 }

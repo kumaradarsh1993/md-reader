@@ -171,30 +171,27 @@
     </fieldset>
 
     <details class="experimental">
-      <summary>Experimental features</summary>
+      <summary>Advanced features</summary>
       <p class="hint smart-hint">
-        These may change or disappear between releases.
+        Power-user features that stay out of the way until you turn them on.
       </p>
       <label class="check">
         <input
           type="checkbox"
-          checked={settings.s.experimentalLiveTrack}
-          onchange={(e) => settings.set("experimentalLiveTrack", (e.currentTarget as HTMLInputElement).checked)}
+          checked={settings.s.advancedLiveEditTheatre}
+          onchange={(e) => settings.set("advancedLiveEditTheatre", (e.currentTarget as HTMLInputElement).checked)}
         />
         <span>
-          Live AI edit tracking
-          <small>Auto-scrolls the viewer to AI-edited lines and accents them. Adds a 📡 toolbar button + <kbd>Ctrl</kbd>+<kbd>L</kbd>.</small>
-        </span>
-      </label>
-      <label class="check">
-        <input
-          type="checkbox"
-          checked={settings.s.experimentalDiffMode}
-          onchange={(e) => settings.set("experimentalDiffMode", (e.currentTarget as HTMLInputElement).checked)}
-        />
-        <span>
-          Diff mode &amp; smart-diff
-          <small>Highlights every line changed since the file was opened. Adds a 🔍 toolbar button + <kbd>Ctrl</kbd>+<kbd>D</kbd>, plus the ✨ Why? Claude-summary action when changes exist.</small>
+          🎬 Live Edit Theatre
+          <small>
+            When an AI (Claude, ChatGPT, Cursor, …) is writing to the file you have open,
+            md-reader switches to a cinematic view: smooth zoom-out, status bar bottom-left,
+            yellow highlights on changed regions, and a right-side diff sidebar with naive
+            red/green diff or optional LLM summary per section.
+            <br><br>
+            <em>In v0.3.0 this toggle is a stub — the full Theatre lands in v0.4.0.
+            Flip it on now to be ready when the next update ships.</em>
+          </small>
         </span>
       </label>
     </details>

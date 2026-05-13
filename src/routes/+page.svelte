@@ -12,7 +12,7 @@
   import TabBar from "$lib/TabBar.svelte";
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
-  import { summariseDiff, SmartDiffError } from "$lib/smart-diff";
+  import About from "$lib/About.svelte";
 
   // "edit" picks the user's preferred sub-mode (settings.editorMode);
   // "rawEdit" forces the CodeMirror raw markdown source view.
@@ -21,21 +21,15 @@
   let mode = $state<Mode>("view");
   let findOpen = $state(false);
   let settingsOpen = $state(false);
+  let aboutOpen = $state(false);
   let fileMenuOpen = $state(false);
   let viewerEl: HTMLElement | null = $state(null);
   let unlistenChange: UnlistenFn | null = null;
   let unlistenCli: UnlistenFn | null = null;
   let unlistenDrop: UnlistenFn | null = null;
   let unlistenOpenFile: UnlistenFn | null = null;
-  // Pulses while the active file is being edited from disk (file-changed
-  // events arriving). Auto-clears 2s after the last event.
-  let editingPulse = $state(false);
-  let editingPulseTimer: ReturnType<typeof setTimeout> | null = null;
-  // Smart-diff banner state
-  let summaryText = $state<string | null>(null);
-  let summaryError = $state<string | null>(null);
-  let summaryLoading = $state(false);
-  let summaryUsage = $state<{ input?: number; output?: number } | null>(null);
+  // (live-track / diff-mode UI removed in v0.3.0; full theatre-mode UX
+  // arrives in v0.4.0 — see docs/proposals/live-edit-theatre.md)
 
   // Convenience derived state from active tab
   let active = $derived(tabs.active);
@@ -115,48 +109,6 @@
     tabs.setActiveSource(s);
   }
 
-  async function summariseChanges() {
-    if (!active) return;
-    if (!settings.s.anthropicApiKey) {
-      summaryError = "No API key. Open Settings → Smart-diff and paste your Anthropic key.";
-      summaryText = null;
-      return;
-    }
-    summaryLoading = true;
-    summaryError = null;
-    try {
-      const res = await summariseDiff(
-        active.baselineSource,
-        active.source,
-        settings.s.anthropicApiKey,
-        settings.s.anthropicModel || "claude-haiku-4-5",
-      );
-      summaryText = res.summary;
-      summaryUsage = { input: res.inputTokens, output: res.outputTokens };
-    } catch (e) {
-      const msg = e instanceof SmartDiffError ? e.message : String(e);
-      summaryError = msg;
-      summaryText = null;
-    } finally {
-      summaryLoading = false;
-    }
-  }
-
-  function dismissSummary() {
-    summaryText = null;
-    summaryError = null;
-    summaryUsage = null;
-  }
-
-  // Clear stale summary when switching tabs or resetting baseline
-  $effect(() => {
-    const _ = active?.baselineSource;
-    const __ = active?.id;
-    summaryText = null;
-    summaryError = null;
-    summaryUsage = null;
-  });
-
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickAndOpen(); }
@@ -165,22 +117,9 @@
     else if (mod && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); tabs.next(); }
     else if (mod && e.key === "Tab" && e.shiftKey) { e.preventDefault(); tabs.prev(); }
     else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); settings.set("showFiles", !settings.s.showFiles); }
-    else if (mod && e.key.toLowerCase() === "l") {
-      // Live-track is experimental and disabled by default. The shortcut only
-      // fires when the user has opted in via Settings → Experimental.
-      if (settings.s.experimentalLiveTrack) {
-        e.preventDefault();
-        settings.set("liveTrack", !settings.s.liveTrack);
-      }
-    }
-    else if (mod && e.key.toLowerCase() === "d") {
-      // Diff mode is experimental and disabled by default. The shortcut only
-      // fires when the user has opted in via Settings → Experimental.
-      if (settings.s.experimentalDiffMode) {
-        e.preventDefault();
-        settings.set("diffMode", !settings.s.diffMode);
-      }
-    }
+    // Ctrl+L and Ctrl+D removed in v0.3.0. The features they toggled
+    // (liveTrack, diffMode) are being repackaged as Live Edit Theatre in
+    // v0.4.0 with a new shortcut surface. See docs/proposals/live-edit-theatre.md.
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
@@ -230,11 +169,9 @@
           const refreshed = await api.openFile(active.path);
           if (refreshed.content !== active.source) {
             tabs.setActiveSourceFromDisk(refreshed.content);
-            // Pulse the "live" badge: shown while edits are streaming, fades
-            // 2s after the last received change.
-            editingPulse = true;
-            if (editingPulseTimer) clearTimeout(editingPulseTimer);
-            editingPulseTimer = setTimeout(() => { editingPulse = false; }, 2000);
+            // (The "📡 live" pulse badge was removed in v0.3.0. v0.4.0
+            // re-introduces an external-edit signal via the Live Edit
+            // Theatre mode's status bar — see docs/proposals/live-edit-theatre.md.)
           }
         } catch { /* atomic-save transient */ }
       }
@@ -354,58 +291,38 @@
           aria-label="Toggle outline panel"
         >📑</button>
       </div>
-      {#if settings.s.experimentalLiveTrack}
-        <button
-          class="track-btn"
-          class:active={settings.s.liveTrack}
-          onclick={() => settings.set("liveTrack", !settings.s.liveTrack)}
-          title="Live-track AI edits — keep changed sections highlighted (Ctrl+L)"
-          aria-label="Toggle live-track mode"
-        >📡 Track</button>
-      {/if}
-      {#if settings.s.experimentalDiffMode}
-        <button
-          class="track-btn"
-          class:active={settings.s.diffMode}
-          onclick={() => settings.set("diffMode", !settings.s.diffMode)}
-          title="Diff mode — highlight everything that's changed since you opened the file (Ctrl+D)"
-          aria-label="Toggle diff mode"
-        >🔍 Diff</button>
-        {#if settings.s.diffMode && active && active.source !== active.baselineSource}
-          <button
-            class="track-btn"
-            disabled={summaryLoading}
-            onclick={summariseChanges}
-            title="Summarise what changed since baseline using Claude"
-          >
-            {summaryLoading ? "…" : "✨ Why?"}
-          </button>
-        {/if}
-      {/if}
+      <!-- Track / Diff buttons removed in v0.3.0 — repackaged as the Live
+           Edit Theatre experience in v0.4.0 (off by default, opt-in via
+           Settings → Advanced features). -->
     </div>
     <div class="middle">
       {#if path}
         <span class="path" title={path}>{path}</span>
         {#if dirty}<span class="dot" title="Unsaved">●</span>{/if}
-        {#if editingPulse}
-          <span class="live-pulse" title="File is changing on disk">📡 live</span>
-        {/if}
       {:else}
         <span class="muted">No file open — Ctrl+T to open in new tab, or drop a .md file here.</span>
       {/if}
     </div>
     <div class="right">
-      <div class="seg" title="Content width — Ctrl+[ / Ctrl+] / Ctrl+\\">
-        <button onclick={() => bumpWidth(-8)} aria-label="Narrower">‹</button>
+      <!-- Content-width group: distinct visual cluster, slightly bolder
+           border, separates the width controls from the zoom controls. -->
+      <div class="seg width-group" title="Content width — Ctrl+[ / Ctrl+] / Ctrl+\\">
+        <button onclick={() => bumpWidth(-8)} aria-label="Narrower" title="Narrower (Ctrl+[)">‹</button>
         <span class="width-badge">{settings.s.fullWidth ? "Full" : `${settings.s.contentWidthCh}ch`}</span>
-        <button onclick={() => bumpWidth(8)} aria-label="Wider">›</button>
-        <button class:active={settings.s.fullWidth} onclick={() => settings.set("fullWidth", !settings.s.fullWidth)} title="Toggle full window width">⤢</button>
+        <button onclick={() => bumpWidth(8)} aria-label="Wider" title="Wider (Ctrl+])">›</button>
+        <button class:active={settings.s.fullWidth} onclick={() => settings.set("fullWidth", !settings.s.fullWidth)} title="Toggle full window width (Ctrl+\\)" aria-label="Toggle full width">⤢</button>
       </div>
-      <button onclick={() => bumpZoom(-0.1)} title="Zoom out (Ctrl -)">−</button>
-      <span class="zoom">{Math.round(settings.s.zoom * 100)}%</span>
-      <button onclick={() => bumpZoom(0.1)} title="Zoom in (Ctrl +)">+</button>
-      <button onclick={() => (findOpen = true)} title="Find (Ctrl+F)">⌕</button>
-      <button onclick={() => (settingsOpen = true)} title="Settings">⚙</button>
+      <div class="tool-divider" aria-hidden="true"></div>
+      <!-- Zoom group: same segmented look as width, so they read as
+           "two of the same kind of control, different axes". -->
+      <div class="seg zoom-group" title="Zoom — Ctrl+ / Ctrl- / Ctrl 0">
+        <button onclick={() => bumpZoom(-0.1)} aria-label="Zoom out" title="Zoom out (Ctrl -)">−</button>
+        <span class="zoom">{Math.round(settings.s.zoom * 100)}%</span>
+        <button onclick={() => bumpZoom(0.1)} aria-label="Zoom in" title="Zoom in (Ctrl +)">+</button>
+      </div>
+      <div class="tool-divider" aria-hidden="true"></div>
+      <button class="icon-btn" onclick={() => (findOpen = true)} title="Find (Ctrl+F)" aria-label="Find">⌕</button>
+      <button class="icon-btn settings-btn" onclick={() => (settingsOpen = true)} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
     </div>
   </header>
 
@@ -419,24 +336,6 @@
       onOpenFile={(p) => openInTab(p)}
     />
     <main class="content" bind:this={viewerEl}>
-      {#if summaryText || summaryError}
-        <div class="summary-banner" class:error={!!summaryError}>
-          <div class="summary-head">
-            <span class="summary-label">{summaryError ? "⚠ Smart-diff" : "✨ What changed"}</span>
-            {#if summaryUsage?.input}
-              <span class="summary-usage">
-                {summaryUsage.input}+{summaryUsage.output} tokens
-              </span>
-            {/if}
-            <button class="summary-close" onclick={dismissSummary} aria-label="Dismiss">×</button>
-          </div>
-          {#if summaryError}
-            <div class="summary-body">{summaryError}</div>
-          {:else if summaryText}
-            <div class="summary-body">{@html summaryText.replace(/^- /gm, "• ").replace(/\n/g, "<br>")}</div>
-          {/if}
-        </div>
-      {/if}
       {#if !active}
         <div class="empty-state">
           <div class="empty-glyph">⌘</div>
@@ -500,8 +399,13 @@
     <button class="menu-item" onclick={() => { fileMenuOpen = false; settingsOpen = true; }}>
       <span>Settings…</span><span class="kbd">Ctrl ,</span>
     </button>
+    <button class="menu-item" onclick={() => { fileMenuOpen = false; aboutOpen = true; }}>
+      <span>About md-reader…</span>
+    </button>
   </div>
 {/if}
+
+<About bind:open={aboutOpen} />
 
 <style>
   /* Apple-leaning palette — quiet neutrals, system blue accent, hairline borders */
@@ -667,31 +571,25 @@
   }
   .muted { color: var(--muted); font-size: 12px; }
   .dot { color: var(--accent); font-size: 10px; line-height: 1; }
-  .live-pulse {
-    font-size: 11px;
-    color: var(--accent);
-    background: var(--accent-soft);
-    padding: 2px 8px;
-    border-radius: 99px;
-    font-weight: 500;
-    margin-left: .35rem;
-    animation: live-pulse-fade 1.5s ease-in-out infinite;
-    white-space: nowrap;
+  /* Vertical divider between right-side toolbar groups so width / zoom /
+     find / settings read as distinct clusters instead of one undifferentiated
+     row of buttons (user feedback from v0.2.0). */
+  .tool-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    margin: 0 .2rem;
+    flex-shrink: 0;
   }
-  @keyframes live-pulse-fade {
-    0%, 100% { opacity: .55; }
-    50%      { opacity: 1; }
+  /* Right-side icon buttons (find, settings). A touch larger than v0.2.0
+     to make the settings cog more clickable. */
+  .icon-btn {
+    height: 30px;
+    width: 32px;
+    padding: 0;
+    font-size: 15px;
   }
-  .track-btn {
-    margin-left: .25rem;
-    font-size: 11.5px;
-    padding: 0 .55rem;
-  }
-  .track-btn.active {
-    background: var(--accent-soft);
-    color: var(--accent);
-    border-color: var(--accent);
-  }
+  .icon-btn.settings-btn { font-size: 17px; }
   .zoom { font-size: 11px; color: var(--muted); min-width: 2.8em; text-align: center; font-variant-numeric: tabular-nums; }
   .width-badge {
     display: inline-flex;
@@ -912,54 +810,6 @@
   .empty-recent-item:hover .dim { color: rgba(255,255,255,0.85); }
   .empty-recent-item .dim { font-size: 11px; color: var(--muted); }
 
-  /* Smart-diff banner */
-  .summary-banner {
-    margin: .6rem clamp(1rem, 4vw, 2.5rem) 0;
-    padding: .85rem 1rem;
-    background: linear-gradient(180deg, var(--accent-soft), transparent);
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-md);
-    color: var(--fg);
-    flex-shrink: 0;
-  }
-  .summary-banner.error {
-    background: linear-gradient(180deg, rgba(229, 83, 75, 0.10), transparent);
-    border-color: #f85149;
-  }
-  .summary-head {
-    display: flex;
-    align-items: center;
-    gap: .5rem;
-    margin-bottom: .35rem;
-  }
-  .summary-label {
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .05em;
-    color: var(--accent);
-  }
-  .summary-banner.error .summary-label { color: #f85149; }
-  .summary-usage {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .summary-close {
-    background: none;
-    border: 0;
-    color: var(--muted);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0 .35rem;
-    height: auto;
-  }
-  .summary-close:hover { color: var(--fg); }
-  .summary-body {
-    font-size: 13.5px;
-    line-height: 1.55;
-    color: var(--fg);
-  }
+  /* (Smart-diff inline banner CSS removed in v0.3.0. v0.4.0 reintroduces
+     LLM-summarised diffs via the per-section sidebar — see proposal.) */
 </style>

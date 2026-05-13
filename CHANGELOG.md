@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.3.0 — 2026-05-13
+
+### Added
+- **About dialog** — accessible from the File menu. Shows version, repo,
+  license, and quick links to release page + bug/feature reports. Opens
+  external links in the system browser (not the webview).
+- **Advanced features** settings section — single toggle for Live Edit
+  Theatre (stub in v0.3.0, full feature lands in v0.4.0). Off by default.
+
+### Fixed
+- **Tab tear-out z-order** — when you drag a tab out of the window, the
+  new window now reliably comes to the front instead of opening behind
+  the original window. Fixed on Windows by transferring foreground rights
+  to the child PID via `AllowSetForegroundWindow` plus an explicit
+  `set_focus()` on the child side.
+
+### Changed
+- **Toolbar cleanup** — `📡 Track` and `🔍 Diff` buttons removed entirely.
+  The `Ctrl+L` and `Ctrl+D` shortcuts they backed are gone too. The
+  features are being repackaged as Live Edit Theatre in v0.4.0 — see
+  `docs/proposals/live-edit-theatre.md`.
+- **Toolbar visual structure** — content-width and zoom now sit in two
+  distinct segmented groups with a vertical divider between them and the
+  find/settings cluster. The settings cog is slightly larger and more
+  clickable.
+- The `📡 live` middle-toolbar badge (file-changing pulse) was removed.
+  v0.4.0 reintroduces the external-edit signal as the Theatre status bar.
+- **Smart-diff** banner removed from the top of the viewer. The Anthropic
+  API key in Settings stays — v0.4.0 will reuse it for the per-section
+  LLM summary in the diff sidebar.
+
+### Removed (settings)
+- `experimentalLiveTrack`, `experimentalDiffMode` setting keys. The
+  legacy `liveTrack` and `diffMode` keys are left in the schema for now
+  so existing `settings.json` files load cleanly; they're ignored.
+
 ## 0.2.0 — 2026-05-11
 
 ### Added
