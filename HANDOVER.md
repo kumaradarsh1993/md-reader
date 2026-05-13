@@ -1,110 +1,184 @@
 # Handover — md-reader
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Written 2026-05-11 right after shipping v0.2.0.
+> Last updated 2026-05-13 right after pushing v0.4.0 to CI.
 
 ## Where things stand
 
-**v0.2.0 is shipped.** Built by GitHub Actions, published as a public release with installers for Windows / macOS / Linux. The README's per-OS download badges now resolve to real downloads.
+**Two releases shipped today, on top of the previous v0.2.0:**
 
-- **Release**: <https://github.com/kumaradarsh1993/md-reader/releases/tag/v0.2.0>
+| Version | Status | Headline |
+|---|---|---|
+| **v0.2.0** | Published | Smart edit mode + user-first README + CI workflow |
+| **v0.3.0** | **Published** | Toolbar cleanup, About dialog, tab tear-out z-order fix |
+| **v0.4.0** | **Built, CI passed, publishing in progress** | Live Edit Theatre + Diff Tracker sidebar (the product wedge) |
+
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
-- **Branch**: `master` (HEAD at the v0.2.0 commit + the CI workflow commit on top)
+- **Latest release page**: <https://github.com/kumaradarsh1993/md-reader/releases>
+- **Branch**: `master`. HEAD is the v0.4.0 commit, the v0.4.0 tag points at it.
 - **Local checkout**: `D:\Claude Code Projects\md-reader`
 - **Local git identity (repo-local, not global)**: `Kumar Adarsh <kumaradarsh1993@users.noreply.github.com>`
-- **Vite dev port**: `1430` (not the Tauri default `1420` — that's used by the sibling `wispr-fox` project on this machine; `tauri.conf.json` `devUrl` matches)
+- **Vite dev port**: `1430` (wispr-fox keeps 1420)
+- **Both v0.3.0 and v0.4.0 ship installers for Win / macOS (universal) / Linux** via the `.github/workflows/release.yml` CI on every tag push.
 
-## What v0.2.0 added
+## What v0.3.0 added (Phase A — basics cleanup)
 
-The headline:
+- **Tab tear-out z-order fix.** Drag a tab out → the new window reliably comes to the front. Fixed on Windows by transferring foreground rights to the child PID via `AllowSetForegroundWindow` (new `windows-sys` Windows-only dep) plus an explicit `set_focus()` on the child side. Belt-and-braces.
+- **About dialog.** File menu → "About md-reader…". Shows version (via `getVersion()` from Tauri's app API), repo, license, quick links to releases / bug / feature pages. Opens external links in the system browser via plugin-opener.
+- **Toolbar cleanup.** `📡 Track`, `🔍 Diff`, `✨ Why?` buttons and the `Ctrl+L` / `Ctrl+D` shortcuts removed entirely. The smart-diff inline banner is gone too. Width and zoom controls now sit in two distinct segmented groups with vertical dividers from the find/settings cluster. Settings cog is larger and more clickable.
+- **Settings cleanup.** Legacy `experimentalLiveTrack` and `experimentalDiffMode` keys removed. New `advancedLiveEditTheatre` single toggle in the new **Advanced features** section (off by default).
 
-- **Smart edit mode** — WYSIWYG editor that hides every `##`, `**`, `[text](url)`. Powered by **Milkdown / Crepe** (ProseMirror-based, round-trips through remark AST so saves stay clean). New default for `Ctrl+E`. Source file: `src/lib/SmartEditor.svelte`.
-- **Smart / Raw sub-toggle** appears in the toolbar when editing — flips between WYSIWYG and the raw CodeMirror 6 source view (`src/lib/Editor.svelte`).
-- **Default-quieter toolbar** — live-track (📡) and diff-mode (🔍), plus the smart-diff ✨ Why? action, all moved to Settings → Experimental, off by default. Existing users with the legacy flags on are migrated automatically. Migration code is in `src/lib/settings-store.svelte.ts`.
-- **"Split" mode retired** — the toolbar is `View / Edit` now. Less to think about.
-- **Visual continuity** — smart edit surface mirrors the viewer's typography, content width, and side panel. Only a faint paper-tint background (`--bg-edit`) signals "you're editing." This was the main UX iteration in this cycle; Crepe's heavy "frame" theme was dropped and the Crepe CSS variables are now mapped to the app's existing theme tokens so chrome (toolbar, slash menu, block handle) follow dark / light mode.
+## What v0.4.0 added (Phase B — Live Edit Theatre)
 
-Everything else (live-reload, multi-tab, drag-tear-out, side panel, KaTeX/Mermaid/syntect, settings persistence) is unchanged.
+This is the headline feature. **Off by default** — enable via Settings → Advanced features → 🎬 Live Edit Theatre.
 
-## Files worth knowing about
+When enabled, and an external edit hits the file:
+
+- **Smooth zoom-out** of the content (CSS `transform: scale(0.78)`) + faint global background desaturation (`filter: saturate(.88)`). Reads as "an AI is working on this — watch the show."
+- **Bottom-left status bar** during the turn: live change count + pulsing dot. Morphs after 5s idle to `✅ Edits done — X changes highlighted · Dismiss · Show details`.
+- **Yellow highlights** painted on every changed region via comrak's `data-sourcepos`. Stay visible after dismiss.
+- **Floating "Show / Hide changes" chip** top-right of the viewport after dismiss. Click ✕ to clear the highlights entirely (which also resets the in-memory turn buffer).
+- **Diff sidebar** (`Ctrl+Shift+D` or "Show details" button). Word-comments-style right pane. Each changed section is a card. Per-card mode toggle:
+  - **Naive diff** — red strikethrough / green underline inline via `diff-match-patch`. Local, no network.
+  - **✨ Summary** — prose summary by Claude, fetched on demand. Reuses the existing Anthropic API key from Settings → Smart-diff.
+- **10-turn ring buffer per tab.** Sidebar dropdown lets you re-view any past turn as a frozen artefact (`v3 — 2 min ago`), plus a cumulative "Since file opened" option. In-memory only, lost on app close.
+- **Discoverability tip.** Users without Theatre enabled see a one-shot bottom-of-screen banner the first time an external edit arrives — "Did you know? Enable Live Edit Theatre to watch AI edits in cinema view → Enable / ✕".
+
+## Files worth knowing about (updated)
 
 | File | Why it matters |
 |---|---|
-| `README.md` | Rewritten user-first in this cycle. Big download badges at top, plain-English Quick Start + flows, build-from-source collapsed inside `<details>`. The `<!-- TODO: screenshot -->` placeholders are waiting for the recorded assets. |
-| `CHANGELOG.md` | Full 0.2.0 entry. |
-| `DEMO.md` | Recording playbook — recommended software (ScreenToGif for short GIFs, OBS Studio for the LinkedIn video), storyboards for the hero GIF + the LinkedIn video + the five README screenshots. **The user has not recorded these yet.** |
-| `LINKEDIN_POST.md` | Two drafts for the v0.2.0 launch post (Draft 1 = personal-story tone matching the v0.1 voice, recommended). Carousel slide briefs are at the bottom of the file. **Not yet posted.** |
-| `test-fixtures/round-trip.md` | Grab-bag fixture for verifying smart-edit round-trip fidelity. Open it, switch to Smart edit, no edits, save → should diff cleanly. |
-| `.github/workflows/release.yml` | The CI that built v0.2.0. Triggers on tag push (`v*`). Builds Win / macOS-universal / Linux, creates a *draft* release with all artifacts attached. We published v0.2.0's draft manually after a smoke-test. |
-| `.github/ISSUE_TEMPLATE/{bug,feature,config}.yml` | Friendly issue templates. Blank issues are disabled; `config.yml` routes "questions / vibes" to GitHub Discussions (which still needs to be enabled in the repo settings — see "Outstanding tasks"). |
-| `src/lib/SmartEditor.svelte` | The new WYSIWYG editor wrapping Crepe. Lazy-loaded. Drops Crepe's `frame.css` theme and maps Crepe vars to app theme. Mirrors Viewer's prose styles for visual continuity. |
-| `src/lib/settings-store.svelte.ts` | Settings schema with the new `editorMode`, `experimentalLiveTrack`, `experimentalDiffMode` fields and the legacy-flag migration logic. |
+| `README.md` | User-first landing page from v0.2.0 cycle. Per-OS download badges at top, plain-English Quick Start + flows, build-from-source collapsed inside `<details>`. Screenshot placeholders still TODO (see `DEMO.md`). |
+| `CHANGELOG.md` | Latest entries are v0.4.0 → v0.3.0 → v0.2.0. Read in that order for context. |
+| `HANDOVER.md` | **This file.** Keep it current. |
+| `DEMO.md` | Recording playbook for the README screenshots / hero GIF / LinkedIn video. Still not recorded as of 2026-05-13. |
+| `LINKEDIN_POST.md` | Two drafts for the v0.2.0 launch + a v0.4.0 update angle would be valuable to add. Not posted yet. |
+| `docs/proposals/live-edit-theatre.md` | The full design doc and locked decisions for the Theatre feature. Read this BEFORE making changes to the theatre module. |
+| `test-fixtures/round-trip.md` | Grab-bag for verifying smart-edit round-trip fidelity. Still v0.2.0 era. |
+| `.github/workflows/release.yml` | Builds Win / macOS-universal / Linux on every tag push (`v*`). Creates a *draft* release with all artifacts attached. We publish manually after smoke-test. |
+| `.github/ISSUE_TEMPLATE/{bug,feature,config}.yml` | Friendly issue templates. Discussions still need to be enabled in repo settings. |
+| `src/lib/theatre/` | **New in v0.4.0.** The entire Live Edit Theatre module. See breakdown below. |
+| `src/lib/SmartEditor.svelte` | Milkdown / Crepe WYSIWYG editor (from v0.2.0). |
+| `src/lib/Editor.svelte` | CodeMirror 6 raw markdown editor (from v0.1.x). |
+| `src/lib/Viewer.svelte` | comrak-rendered HTML view + smart-scroll + diff/theatre highlight painters. |
+| `src/lib/settings-store.svelte.ts` | Settings schema. Latest fields: `editorMode`, `advancedLiveEditTheatre`. Legacy `liveTrack`/`diffMode` keys still in schema (read-only, ignored). |
+| `src/lib/tabs-store.svelte.ts` | Per-tab state including `turns[]`, `theatrePhase`, `pendingTurnBefore`, `selectedView`, `sidebarOpen`, `highlightsHidden`, `tipDismissed`. |
+| `src/lib/smart-diff.ts` | Anthropic API wrapper. Reused by the v0.4.0 sidebar for per-section LLM summaries. |
+| `src-tauri/src/commands.rs` | `spawn_window` has the new `AllowSetForegroundWindow` call. |
+| `src-tauri/src/lib.rs` | Torn-out child windows call `set_focus()` in setup. |
+| `src-tauri/Cargo.toml` | New `windows-sys` Windows-only dep for `AllowSetForegroundWindow`. |
+
+### src/lib/theatre/ module breakdown
+
+```
+src/lib/theatre/
+  types.ts            — Turn, TheatrePhase, SelectedView types
+  diff-engine.ts      — diff-match-patch wrapper, section splitter,
+                        changedRanges computation (used by Viewer for
+                        highlight painting + sidebar for naive diff)
+  store.svelte.ts     — onBeforeExternalEdit / onAfterExternalEdit hooks
+                        (called from tabs-store), state machine, ring
+                        buffer management, dismiss / toggle helpers,
+                        viewSnapshots()
+  StatusBar.svelte    — bottom-left status bar during turn + post-turn
+                        "Edits done" state with Dismiss + Show details
+  ResumeChip.svelte   — top-right floating chip after dismiss with
+                        Show/Hide changes toggle + clear ✕
+  TipBanner.svelte    — bottom-center one-shot discoverability tip for
+                        users who haven't enabled theatre yet
+  DiffSidebar.svelte  — right-side panel: turn dropdown + per-section
+                        cards with Naive ↔ Summary mode toggle
+```
 
 ## Outstanding tasks (in priority order)
 
-### High priority (user actions, no AI work needed)
+### High priority
 
-1. **Smoke-test the published installer.** Download `md-reader_0.2.0_x64_en-US.msi` from the release page, install on this Windows machine, verify Ctrl+E → smart edit works end-to-end on a real `.md` file.
-2. **Enable GitHub Discussions** on the repo (Settings → General → Features → check "Discussions"). The `config.yml` issue template already routes "vibes" questions there.
-3. **Record the hero GIF + the five README screenshots.** Storyboards are in `DEMO.md`. Then uncomment the `<!-- TODO: screenshot -->` blocks in `README.md` (search for `TODO: screenshot`) to bring the images live. Each TODO comment has the ready-to-uncomment `![](docs/img/...)` line waiting.
-4. **Post the LinkedIn launch post.** Draft 1 in `LINKEDIN_POST.md` is the recommended take. Posting tips are in the same file (first comment gets the link, not body; Tuesday/Wednesday 8–10am their time zone; 3 hashtags max).
-5. **Post on Reddit.** `r/markdown`, `r/coolgithubprojects`, `r/ClaudeAI` are the candidates. The Reddit voice in `REDDIT_POST.md` (existing file) is the right tone — adapt the LinkedIn Draft 1 to be more "I built this thing, what would you want" and less corporate.
+1. **Publish the v0.4.0 release** once CI finishes. Currently in progress — CI was queued at the time of writing. Command: `gh release edit v0.4.0 --draft=false`. The release will auto-include all 7 installers.
+2. **Smoke-test v0.4.0 on this machine.** Install one of the .msi files, open a markdown file, enable Live Edit Theatre in Settings → Advanced features, then have Claude (or any editor) write to the file from elsewhere. Verify the zoom-out animation, status bar, highlights, and sidebar (`Ctrl+Shift+D`) all work as designed.
+3. **Local Windows builds need `CARGO_BUILD_JOBS=2`** — there's a low-memory machine quirk (parallel rustc workers exceed available RAM and get silent-killed). See "Known quirks" below.
+4. **Enable GitHub Discussions** on the repo (Settings → General → Features → check Discussions). The issue-template `config.yml` already routes "vibes" questions there.
+5. **Record demo assets.** Storyboards in `DEMO.md`. The hero GIF + 5 README screenshots are the minimum.
+6. **Post the launches.** v0.2.0 / v0.3.0 / v0.4.0 happened fast — could fold the smart-edit + theatre story into one LinkedIn launch post. Two drafts in `LINKEDIN_POST.md` are still v0.2.0-only.
 
-### Medium priority (work for next AI session if asked)
+### Medium priority (next AI session work)
 
-6. **Mac-native polish (when user has Mac access)** — currently the app uses `Ctrl + key` shortcuts that work via `e.metaKey || e.ctrlKey`, so Cmd+E works on Mac out of the box. But the Apple titlebar style (`"titleBarStyle": "Overlay"` in `tauri.conf.json`) and native File/Edit/View system menu are not yet wired. Out of scope for v0.2.0; flag as v0.3.
-7. **Add a "send feedback" link in-app.** Settings panel could grow a "Suggest a feature / report a bug" footer linking to the GitHub Issues page. Low cost, helpful for non-technical users who otherwise wouldn't know how.
-8. **Frozen-block UX for code blocks in smart edit.** Currently Crepe handles them as CodeMirror inline blocks — works but could be cleaner. Original plan (in `C:\Users\kadar\.claude\plans\there-is-a-project-linear-mccarthy.md`) called for an explicit "Edit source" popover.
+7. **Per-turn LLM summary caching across sidebar open/close.** Currently the `llmCache` lives in component-local state. Move to `Turn.llmSummary` (the type already supports it) so it survives sidebar reopens.
+8. **Multi-provider LLM support.** v0.4.0 reuses the Anthropic API key. The proposal flagged Grok / Gemini free tiers as a path for the niche. Cleanest add: a provider picker in Settings → Smart-diff.
+9. **Mac-native polish.** When the user has Mac access — verify the Theatre transform animation looks right on WKWebView, check Cmd shortcuts (`Cmd+Shift+D` etc.), titlebar style. Tauri's metaKey handling already covers it; this is visual QA.
+10. **Per-section heading anchor click → scroll to section.** The sidebar cards currently don't scroll the Viewer when clicked. Easy add — `findElementByLine(container, section.startLineAfter)?.scrollIntoView()`.
 
-### Low priority / nice-to-haves
+### Low priority
 
-9. Auto-update mechanism (Tauri 2 supports it; needs signing key generation).
-10. Code-signed Mac and Windows builds (Apple Developer = $99/yr; Windows EV cert = ~$500/yr or skip and accept SmartScreen warning).
-11. Track install counts via GitHub Release download stats. No telemetry in-app — that's a design principle.
+11. Auto-update mechanism (Tauri 2 supports it; needs signing key).
+12. Code-signed builds for Windows + Mac (out of scope until shipping to non-technical users in volume).
 
 ## Known quirks / gotchas
 
-- **Stale `C:\` paths in `target/`** — the project was moved from `C:` to `D:` at some point. Cargo cached the old absolute paths. If a local Tauri build dies with a `\\?\C:\...` "system cannot find the path specified" error, run `cd src-tauri && cargo clean` and rebuild. This already bit us once during the v0.2.0 cycle.
-- **Local `tauri build` flakiness on Windows** — during v0.2.0 release, the local Windows release build silently died twice during dep compilation with a generic "failed to build app" error and no Rust panic. Likely Windows long-path / antivirus interference on deep `target/release/build/...` paths. **The GitHub Actions build works fine** — the CI environment has cleaner filesystems and shorter paths. If a local build hangs, just rely on CI.
-- **Sibling Tauri project port collision** — `wispr-fox` (also on this machine) uses port `1420`. md-reader was moved to `1430` to coexist. Don't change either back to `1420` without checking.
-- **`Ctrl+L` and `Ctrl+D` are no-ops by default** — they only fire when the respective experimental flags are enabled. This is intentional. If the user reports "Ctrl+L stopped working," ask them to flip the toggle in Settings → Experimental.
-- **HMR full-page-reload from settings-store edits** — any edit to `src/lib/settings-store.svelte.ts` triggers a full SvelteKit reload (state files can't HMR cleanly). During dev iteration this can occasionally crash the WebView2 instance and close the Tauri window — exit code 1, no panic in logs. Just restart the dev session.
+- **Local `tauri build` requires `CARGO_BUILD_JOBS=2` on this Windows machine.** Cause: parallel rustc workers exceed available RAM (only ~2.4 GB free during testing) → workers silently killed → cargo surfaces a useless "failed to build app: failed to build app". Recommended permanent fix: create `.cargo/config.toml` with `[build] jobs = 2`. CI is unaffected (GitHub runners have plenty of RAM).
+- **Stale `C:\` paths in `target/`.** Project moved from C: to D: at some point. If a local build fails with `\\?\C:\...` path errors: `cd src-tauri && cargo clean` and rebuild.
+- **Sibling Tauri project port collision.** `wispr-fox` (also on this machine) uses port `1420`. md-reader was moved to `1430` to coexist. Don't change back without checking.
+- **HMR full-page-reload from state-store edits.** Any edit to `src/lib/settings-store.svelte.ts` or `tabs-store.svelte.ts` triggers a full SvelteKit reload. During dev iteration this can occasionally crash the WebView2 instance and close the Tauri window — exit code 1, no panic in logs. Just restart the dev session.
+- **Theatre state is in-memory only, by design.** Once you close the app, all turn history is gone for every tab. The file on disk is the source of truth. Don't try to persist turns — it would violate the "no sidecar files" design principle.
+- **Theatre triggers on ANY external edit, not just AI.** We don't fingerprint Claude vs Notepad vs OneDrive sync. The disk-watcher signal is the heuristic. Documented behaviour — if a user reports "theatre engaged when I saved from another editor", that's working as designed.
 
-## Tech stack at a glance
+## App-data reset scenario (2026-05-13)
 
-- **Backend**: Tauri 2 + Rust. Markdown rendering: `comrak` 0.43 with syntect highlighting. File watching: `notify-debouncer-full` 0.5 with mtime poll fallback for OneDrive paths (notify is flaky on reparse points).
-- **Frontend**: SvelteKit (Svelte 5 runes) + Vite 6. Smart edit via `@milkdown/crepe` 7.20 (lazy-loaded). Raw edit via CodeMirror 6 (lazy-loaded). Math via KaTeX, diagrams via Mermaid (both lazy-loaded). Settings persisted via `tauri-plugin-store`.
-- **Build**: `npm run tauri dev` for dev with HMR + native window. `npm run tauri build` for installer (works in CI; local is flaky as noted). `npm run check` for svelte-check (currently 0 errors / 0 warnings).
-- **CI**: `.github/workflows/release.yml`. Runs on tag push. Produces .msi/.exe (Win), universal .dmg (Mac), .deb/.rpm/.AppImage (Linux). Auto-creates draft release; user publishes manually after smoke-test.
+The user is about to clear app data (`%APPDATA%\md-reader\` on Windows — that's where Tauri's plugin-store keeps `settings.json`). After the clear:
+
+- All settings reset to defaults from `DEFAULTS` in `settings-store.svelte.ts`.
+- `advancedLiveEditTheatre: false` — Theatre will be invisible until re-enabled.
+- `editorMode: "smart"` — Ctrl+E lands in smart edit (Milkdown).
+- `theme: "auto"` — follows OS dark/light.
+- Anthropic API key (`anthropicApiKey`) blank — Smart-diff LLM summary disabled until pasted back.
+- Open tabs / recent files cleared.
+
+This is intentional and good for testing — it lets the user verify the v0.4.0 feature from a clean state, exactly as a new user would experience it.
+
+**To re-enable theatre after the wipe**: open Settings (`Ctrl + ,`) → Advanced features → tick `🎬 Live Edit Theatre`.
+
+## Tech stack at a glance (updated)
+
+- **Backend**: Tauri 2 + Rust. Markdown rendering via `comrak` 0.43 with syntect highlighting. File watching via `notify-debouncer-full` 0.5 with mtime poll fallback. Windows-only `windows-sys` for AllowSetForegroundWindow (z-order fix).
+- **Frontend**: SvelteKit (Svelte 5 runes) + Vite 6. Smart edit via `@milkdown/crepe` 7.20. Raw edit via CodeMirror 6. Math via KaTeX, diagrams via Mermaid. Diff via `diff-match-patch` 1.0.5. Settings persisted via `tauri-plugin-store`.
+- **Build**: `npm run tauri dev` for dev with HMR. `npm run tauri build` for installer (local: needs CARGO_BUILD_JOBS=2). `npm run check` for svelte-check (currently 0/0).
+- **CI**: `.github/workflows/release.yml`. Tag push → 3-platform build → draft release with installers. Manual publish.
 
 ## Useful commands
 
 ```bash
-# Dev mode (native Tauri window with HMR)
+# Dev (native Tauri window with HMR)
 npm run tauri dev
 
 # Type check
 npm run check
 
-# Local production build (flaky on this machine — prefer CI)
+# Local production build (Windows — needs job cap)
+$env:CARGO_BUILD_JOBS = "2"
 npm run tauri build
 
 # Cut a new release
-git tag v0.2.1 && git push --tags
-# → triggers CI, creates draft release with installers attached
-# → user reviews + clicks "Publish release" on the GitHub page
+git tag v0.X.Y
+git push --tags
+# → CI builds + creates draft release with installers
+# → User reviews + publishes manually:
+gh release edit v0.X.Y --draft=false
 
 # Check CI status
 gh run list --workflow="Build & release installers" --limit 5
-gh run view --log  # for the latest run
+gh run view --log
+
+# Publish a draft release
+gh release edit v0.X.Y --draft=false
+gh release view v0.X.Y
 ```
 
-## Open questions / decisions the next session might need to make
+## Open questions / decisions for the next session
 
-- **Should the smart-diff API key (Anthropic) be in Experimental too?** Currently it's a prominent "Smart-diff" section in Settings. Empty key = feature disabled. Not really experimental in behaviour. Leaving as-is unless the user revisits.
-- **Custom protocol handler for `obsidian://`-style deep links?** Could open `md-reader://open?path=...` from a browser link to the desktop app. Niche but slick for the AI-tools integration angle. No one's asked yet.
-- **Should `editorMode` (Smart vs Raw default) be exposed via a CLI flag?** For users who want raw mode as default forever. Currently only via Settings dialog. Low cost to add.
+- **Promotion strategy after v0.4.0.** Theatre + Diff is the product wedge. Worth re-pitching with fresh screenshots/GIF that show the zoom-out + sidebar in action. The current `LINKEDIN_POST.md` drafts are smart-edit-only — they need an update.
+- **Whether to consolidate three releases (v0.2 / v0.3 / v0.4) shipped in one week into one "Stable v2.0" message** like the user suggested earlier. Semver-wise the existing tags are right; for marketing purposes, leading with "md-reader 2.0" might land better. Decide before posting.
+- **Whether to add a `.cargo/config.toml` to bake in `jobs = 2`.** Pros: never bites again on this machine, no env-var needed. Cons: it'll also apply to CI (where the cap is wasteful). Could gate via `[target.'cfg(windows)']` somehow, but cargo config doesn't really support that for build options. Verdict: skip; document the env var.
 
 ---
 
-If you're a Claude session picking this up cold: start by reading this file, then `README.md`, then skim `CHANGELOG.md`. Then ask the user what they want to do next — the obvious choices are (a) record the demo assets, (b) post the launch, (c) start on v0.3 features, or (d) something else they have in mind.
+If you're a Claude session picking this up cold: start by reading this file, then `README.md`, then `CHANGELOG.md`. Then ask the user what they want to do next — the obvious choices are (a) finish publishing v0.4.0 if still draft, (b) record demo assets, (c) post the launch, (d) start on the next feature (per-section LLM caching, multi-provider, scroll-to-section), or (e) something they have in mind.
