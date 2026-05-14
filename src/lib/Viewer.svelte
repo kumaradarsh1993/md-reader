@@ -449,7 +449,11 @@
     font-size: .88em;
   }
   .viewer :global(pre) {
-    background: var(--code-bg);
+    /* syntect emits an inline `style="background-color:#fff"` on the <pre>
+       element, which would shadow our themed surface (especially noticeable
+       in sepia mode where the rest of the page is cream). The !important
+       isn't decorative — it's the only way to override inline styles. */
+    background: var(--code-bg) !important;
     padding: 1em 1.1em;
     border-radius: 8px;
     overflow-x: auto;

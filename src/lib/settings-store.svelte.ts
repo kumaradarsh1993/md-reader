@@ -1,6 +1,6 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 
-export type ThemeMode = "auto" | "light" | "dark";
+export type ThemeMode = "auto" | "light" | "dark" | "sepia";
 
 /** v0.5.0+: which provider drives the sidebar's "✨ Summary" mode. */
 export type LLMProvider = "groq" | "anthropic";
@@ -114,8 +114,26 @@ export const settings = new SettingsStore();
 
 export function effectiveDark(theme: ThemeMode): boolean {
   if (theme === "dark") return true;
-  if (theme === "light") return false;
+  if (theme === "light" || theme === "sepia") return false;
   return typeof window !== "undefined"
     ? window.matchMedia("(prefers-color-scheme: dark)").matches
     : false;
+}
+
+/**
+ * Resolve the user's chosen theme to the concrete data-theme attribute value
+ * applied to <html>. "auto" follows OS dark/light. Sepia is its own thing.
+ *
+ * The codebase's CSS variables key off this attribute (see :root and
+ * html[data-theme="..."] blocks in +page.svelte), so picking the right value
+ * here is what swaps the palette.
+ */
+export function effectiveThemeName(theme: ThemeMode): "light" | "dark" | "sepia" {
+  if (theme === "sepia") return "sepia";
+  if (theme === "dark") return "dark";
+  if (theme === "light") return "light";
+  return typeof window !== "undefined" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }

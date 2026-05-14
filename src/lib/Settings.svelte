@@ -28,6 +28,7 @@
       >
         <option value="auto">Auto (follow system)</option>
         <option value="light">Light</option>
+        <option value="sepia">Sepia (easy on the eyes)</option>
         <option value="dark">Dark</option>
       </select>
     </label>

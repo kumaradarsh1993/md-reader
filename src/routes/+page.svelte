@@ -3,7 +3,7 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { api } from "$lib/api";
-  import { settings, effectiveDark } from "$lib/settings-store.svelte";
+  import { settings, effectiveDark, effectiveThemeName, type ThemeMode } from "$lib/settings-store.svelte";
   import { tabs } from "$lib/tabs-store.svelte";
   import Viewer from "$lib/Viewer.svelte";
   import Editor from "$lib/Editor.svelte";
@@ -89,11 +89,17 @@
     return changedSections(snaps.before, snaps.after);
   });
 
-  // Theme application
+  // Theme application — resolves "auto" to the OS preference and lets sepia
+  // pass through. The CSS variables block at the bottom of this file keys
+  // off the data-theme attribute, so writing it here swaps the palette.
   $effect(() => {
-    const dark = effectiveDark(settings.s.theme);
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.dataset.theme = effectiveThemeName(settings.s.theme);
   });
+
+  /** Cycle/select theme from the toolbar 3-way control. */
+  function setTheme(t: ThemeMode) {
+    settings.set("theme", t);
+  }
 
   // Re-arm watcher whenever the active tab changes
   $effect(() => {
@@ -391,6 +397,27 @@
         <button onclick={() => bumpZoom(0.1)} aria-label="Zoom in" title="Zoom in (Ctrl +)">+</button>
       </div>
       <div class="tool-divider" aria-hidden="true"></div>
+      <div class="seg theme-group" title="Theme — Light / Sepia / Dark">
+        <button
+          class:active={settings.s.theme === "light"}
+          onclick={() => setTheme("light")}
+          aria-label="Light theme"
+          title="Light"
+        >☀</button>
+        <button
+          class:active={settings.s.theme === "sepia"}
+          onclick={() => setTheme("sepia")}
+          aria-label="Sepia reading theme"
+          title="Sepia (easy on the eyes)"
+        >◐</button>
+        <button
+          class:active={settings.s.theme === "dark"}
+          onclick={() => setTheme("dark")}
+          aria-label="Dark theme"
+          title="Dark"
+        >☾</button>
+      </div>
+      <div class="tool-divider" aria-hidden="true"></div>
       <button class="icon-btn" onclick={() => (findOpen = true)} title="Find (Ctrl+F)" aria-label="Find">⌕</button>
       <button class="icon-btn settings-btn" onclick={() => (settingsOpen = true)} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
     </div>
@@ -567,6 +594,38 @@
     --highlight-bg: rgba(255, 204, 0, 0.32);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+  /* Sepia — warm cream-paper palette for low-strain long reading.
+     Contrast tuned to ~6:1 (text vs bg), comfortably above WCAG AA. The
+     accent / link colours stay in the warm-umber family so the page reads
+     as a single coherent surface rather than a light page with random
+     blue links. v0.5.1+. */
+  :global(html[data-theme="sepia"]) {
+    --bg: #f4ecd8;
+    --bg-elevated: #f8f1de;
+    --bg-edit: #ede4cd;
+    --fg: #4a3f33;
+    --fg-strong: #2e2418;
+    --muted: #8c7a62;
+    --muted-strong: #5e4f3d;
+    --muted-bg: #ebe2cb;
+    --border: #d8cdb1;
+    --border-strong: #c5b994;
+    --accent: #b97f47;
+    --accent-soft: rgba(185, 127, 71, 0.16);
+    --link: #875d2f;
+    --code-bg: #ebe1c5;
+    --code-inline-bg: rgba(74, 63, 51, 0.13);
+    --blockquote-bg: rgba(74, 63, 51, 0.04);
+    --side-bg: #efe6cf;
+    --toolbar-bg: rgba(244, 236, 216, 0.85);
+    --toolbar-border: rgba(74, 63, 51, 0.10);
+    --hover-bg: rgba(74, 63, 51, 0.06);
+    --input-bg: #faf3df;
+    --zebra-bg: #ebe2cb;
+    --highlight-bg: rgba(255, 173, 51, 0.35);
+    --shadow-sm: 0 1px 2px rgba(74, 63, 51, 0.06);
+    --shadow-md: 0 8px 24px rgba(74, 63, 51, 0.12);
   }
 
   :global(html), :global(body) {

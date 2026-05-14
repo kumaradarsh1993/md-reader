@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.1 — 2026-05-15 (Nightly / Pre-release)
+
+### Added — Sepia reading theme + toolbar 3-way theme switch
+
+- **Sepia theme** — a warm cream-paper palette tuned for low-strain
+  long-form reading. Background `#f4ecd8`, text `#4a3f33` (≈6:1 contrast,
+  comfortably above WCAG AA), warm-umber accents/links so the page reads
+  as one coherent surface. Pick it from the new toolbar switch or
+  Settings → Theme.
+- **Toolbar theme switch** — a minimalistic 3-way segmented control on
+  the right side of the header: ☀ Light · ◐ Sepia · ☾ Dark. One click,
+  no menu. Stays in sync with the Settings → Theme value.
+- **Code-block surface** now reliably uses the themed `--code-bg` instead
+  of syntect's inline white — adds `!important` on `.viewer pre`
+  background so sepia (and future themes) aren't subverted by syntect's
+  hardcoded surface color.
+
+### Settings
+
+- `ThemeMode` extended to `"auto" | "light" | "dark" | "sepia"`. Existing
+  values migrate unchanged.
+- New helper `effectiveThemeName(theme)` in `settings-store.svelte.ts`
+  resolves the user choice to the concrete `data-theme` attribute value.
+
 ## 0.5.0 — 2026-05-14 (Nightly / Pre-release)
 
 Theatre v2 — addresses three real-world issues with the v0.4.0 Live Edit
