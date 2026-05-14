@@ -17,7 +17,8 @@
   import ResumeChip from "$lib/theatre/ResumeChip.svelte";
   import TipBanner from "$lib/theatre/TipBanner.svelte";
   import DiffSidebar from "$lib/theatre/DiffSidebar.svelte";
-  import { toggleSidebar, viewSnapshots, zoomFor } from "$lib/theatre/store.svelte";
+  import SidebarConnectors from "$lib/theatre/SidebarConnectors.svelte";
+  import { toggleSidebar, viewSnapshots } from "$lib/theatre/store.svelte";
   import { changedSections } from "$lib/theatre/diff-engine";
 
   // "edit" picks the user's preferred sub-mode (settings.editorMode);
@@ -45,8 +46,8 @@
   let dirty = $derived(active?.dirty ?? false);
   let cwd = $derived(path ? path.replace(/[\\/][^\\/]*$/, "") : null);
 
-  // Theatre highlight ranges for the active tab: drawn from the in-flight or
-  // selected turn (unless the user has hidden them). Empty array = no paint.
+  // Theatre stale (yellow) highlight ranges for the active tab — drawn from
+  // the in-flight or selected turn (unless the user has hidden them).
   let theatreRanges = $derived.by((): Array<{ from: number; to: number }> => {
     if (!active) return [];
     if (active.highlightsHidden) return [];
@@ -62,11 +63,31 @@
     return out;
   });
 
-  // Current zoom multiplier — animated CSS transform applied to the body content.
-  let theatreZoom = $derived(active ? zoomFor(active.theatrePhase) : 1.0);
+  // Theatre fresh (green) highlight ranges — line ranges touched in the last
+  // ~1.5s of the current turn. Only meaningful while the turn is live; once
+  // an edit settles, store.svelte's decay loop empties this set.
+  let theatreFreshRanges = $derived.by((): Array<{ from: number; to: number }> => {
+    if (!active) return [];
+    if (active.highlightsHidden) return [];
+    if (!settings.s.advancedLiveEditTheatre) return [];
+    return active.freshRanges.map((r) => ({ from: r.from, to: r.to }));
+  });
+
   let theatreEngaged = $derived(
     !!active && (active.theatrePhase === "engaging" || active.theatrePhase === "engaged" || active.theatrePhase === "done"),
   );
+
+  // Sidebar section list — derived once here so the connector overlay paints
+  // leader lines anchored to the same cards the DiffSidebar renders. The
+  // sidebar computes its own copy too; both calls are deterministic & cheap.
+  let sidebarSections = $derived.by(() => {
+    if (!active) return [];
+    if (!active.sidebarOpen) return [];
+    if (!settings.s.advancedLiveEditTheatre) return [];
+    const snaps = viewSnapshots(active);
+    if (!snaps) return [];
+    return changedSections(snaps.before, snaps.after);
+  });
 
   // Theme application
   $effect(() => {
@@ -387,7 +408,6 @@
     <main
       class="content"
       class:theatre-content={theatreEngaged}
-      style="--theatre-zoom: {theatreZoom};"
       bind:this={viewerEl}
     >
       {#if !active}
@@ -419,12 +439,17 @@
           lastChangeFromDisk={active.diskTick}
           baselineSource={active.baselineSource}
           theatreHighlightRanges={theatreRanges}
+          theatreFreshRanges={theatreFreshRanges}
         />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
     </main>
     {#if active && active.sidebarOpen && settings.s.advancedLiveEditTheatre}
       <DiffSidebar tab={active} />
+      <SidebarConnectors
+        sections={sidebarSections}
+        viewKey={String(active.selectedView)}
+      />
     {/if}
   </div>
 </div>
@@ -736,11 +761,13 @@
     min-height: 0;
     transition: background-color 380ms ease, filter 380ms ease;
   }
-  /* Theatre engaged: subtle global background desaturation. Filter is GPU-
-     accelerated, doesn't reflow children. */
+  /* Theatre engaged: subtle global background desaturation + a slight inset
+     shadow on the content surface so the page reads as "receded into focus
+     mode" without literally shrinking the viewport (the v0.4.0 transform:
+     scale approach left a small floating box, which read as broken). */
   .body.theatre-engaged {
     background: var(--bg-edit, var(--bg));
-    filter: saturate(.88);
+    filter: saturate(.92);
   }
   .content {
     position: relative;
@@ -748,11 +775,16 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    transform-origin: top center;
-    transition: transform 380ms cubic-bezier(.4, 0, .2, 1);
+    transition: box-shadow 380ms cubic-bezier(.4, 0, .2, 1),
+                background-color 380ms ease;
   }
   .content.theatre-content {
-    transform: scale(var(--theatre-zoom, 1));
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04),
+                inset 0 24px 48px -32px rgba(0, 0, 0, .15);
+  }
+  :global(html[data-theme="dark"]) .content.theatre-content {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04),
+                inset 0 24px 48px -32px rgba(0, 0, 0, .55);
   }
   /* File button & menu */
   .file-btn .caret { font-size: 9px; margin-left: .25em; opacity: .7; }

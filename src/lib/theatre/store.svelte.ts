@@ -10,11 +10,19 @@
 
 import { settings } from "../settings-store.svelte";
 import type { Tab } from "../tabs-store.svelte";
-import type { Turn } from "./types";
+import type { Turn, FreshRange } from "./types";
+import { documentChangedRanges } from "./diff-engine";
 
 const RING_CAP = 10;
 const IDLE_MS_DEFAULT = 5000;
 const ZOOM_ANIM_MS = 380;
+/** How long a delta range stays "fresh" (green) before being demoted to
+ *  the regular turn-changed (yellow) set. Picked to feel like "the AI was
+ *  just typing here" rather than "the AI typed here ages ago". */
+const FRESH_TTL_MS = 1500;
+/** How often the global decay loop runs while any tab has fresh ranges.
+ *  200ms is fine — humans don't notice 200ms latency on a fade. */
+const FRESH_DECAY_TICK_MS = 200;
 
 // Monotonic turn IDs scoped per tab. Stored here (not on Tab) because
 // it's mechanical bookkeeping that doesn't need reactivity.
@@ -25,6 +33,11 @@ const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Per-tab phase-transition timers (engaging → engaged, resuming → off).
 const phaseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Tabs that currently have at least one fresh range. The decay loop walks
+// this set rather than scanning every open tab on every tick.
+const tabsWithFresh = new Map<string, Tab>();
+let freshDecayInterval: ReturnType<typeof setInterval> | null = null;
 
 function getIdleMs(): number {
   // Hook for future user-configurable debounce (Settings → Advanced).
@@ -44,9 +57,15 @@ export function onBeforeExternalEdit(tab: Tab): void {
   // the pre-edit source as the upcoming turn's baseline.
   if (tab.theatrePhase === "off" || tab.theatrePhase === "resuming") {
     tab.pendingTurnBefore = tab.source;
+    // Start the delta-since-last-edit chain too — first delta in a new turn
+    // is computed against the same baseline. After the chain starts,
+    // previousSourceForDelta moves forward on every tick.
+    tab.previousSourceForDelta = tab.source;
   }
   // If in "done", an incoming edit means the same turn is continuing —
   // we don't move pendingTurnBefore (still points at the original baseline).
+  // previousSourceForDelta stays where it is so the next delta is computed
+  // against the previous tick's source, not the turn baseline.
 }
 
 /** Called from tabs-store.setActiveSourceFromDisk *after* the source mutates. */
@@ -77,7 +96,70 @@ export function onAfterExternalEdit(tab: Tab): void {
       // Already in turn — just re-arm idle timer.
       break;
   }
+  // Compute the delta from the previous tick's source to the current source
+  // and mark those ranges as "fresh" (green). The decay loop demotes them
+  // to "stale" (yellow) after FRESH_TTL_MS of no further touches.
+  recordFreshDelta(tab);
   armIdle(tab);
+}
+
+/** Diff `previousSourceForDelta → source`, mark the changed AFTER-line
+ *  ranges as fresh with the current timestamp, then advance the delta
+ *  baseline so the next tick is a true incremental diff. */
+function recordFreshDelta(tab: Tab): void {
+  const prev = tab.previousSourceForDelta;
+  if (prev === null || prev === tab.source) return;
+  const deltas = documentChangedRanges(prev, tab.source);
+  if (deltas.length === 0) {
+    tab.previousSourceForDelta = tab.source;
+    return;
+  }
+  const now = Date.now();
+  // Dedup: when an incoming delta exactly matches an existing range, refresh
+  // its touchedAt instead of pushing a duplicate. Saves us a few cycles in
+  // the decay loop and keeps the array bounded for chatty external editors.
+  const next: FreshRange[] = [];
+  const seen = new Set<string>();
+  for (const r of deltas) {
+    const key = `${r.from}-${r.to}`;
+    seen.add(key);
+    next.push({ from: r.from, to: r.to, touchedAt: now });
+  }
+  for (const existing of tab.freshRanges) {
+    const key = `${existing.from}-${existing.to}`;
+    if (seen.has(key)) continue;
+    next.push(existing);
+  }
+  tab.freshRanges = next;
+  tab.previousSourceForDelta = tab.source;
+  ensureFreshDecayLoop(tab);
+}
+
+/** Start the global decay tick if it isn't already running, and register
+ *  this tab as having fresh ranges so the loop will visit it. */
+function ensureFreshDecayLoop(tab: Tab): void {
+  tabsWithFresh.set(tab.id, tab);
+  if (freshDecayInterval) return;
+  freshDecayInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [id, t] of tabsWithFresh) {
+      if (t.freshRanges.length === 0) {
+        tabsWithFresh.delete(id);
+        continue;
+      }
+      const surviving = t.freshRanges.filter((r) => now - r.touchedAt < FRESH_TTL_MS);
+      if (surviving.length !== t.freshRanges.length) {
+        t.freshRanges = surviving;
+      }
+      if (surviving.length === 0) {
+        tabsWithFresh.delete(id);
+      }
+    }
+    if (tabsWithFresh.size === 0 && freshDecayInterval) {
+      clearInterval(freshDecayInterval);
+      freshDecayInterval = null;
+    }
+  }, FRESH_DECAY_TICK_MS);
 }
 
 /** Restart the "edits-done" debounce timer for this tab. */
@@ -115,6 +197,13 @@ function finaliseTurn(tab: Tab): void {
   tab.selectedView = turn.id;
   tab.theatrePhase = "done";
   tab.pendingTurnBefore = null;
+  // Drop everything in fresh — the turn is done, so anything still fresh
+  // should now appear yellow alongside the rest of the turn's edits.
+  if (tab.freshRanges.length > 0) {
+    tab.freshRanges = [];
+    tabsWithFresh.delete(tab.id);
+  }
+  tab.previousSourceForDelta = null;
   tab.highlightsHidden = false; // newly-completed turn always shows highlights
 }
 
@@ -144,6 +233,9 @@ export function toggleHighlights(tab: Tab): void {
 /** Clear all highlights for this tab — accept the changes, reset turns. */
 export function clearHighlights(tab: Tab): void {
   tab.turns = [];
+  tab.freshRanges = [];
+  tabsWithFresh.delete(tab.id);
+  tab.previousSourceForDelta = null;
   tab.selectedView = "live";
   tab.highlightsHidden = true;
   tab.sidebarOpen = false;
@@ -159,18 +251,6 @@ export function selectView(tab: Tab, view: Turn["id"] | "since-open" | "live"): 
   tab.selectedView = view;
 }
 
-/** Used by Theatre.svelte to read the current zoom scale based on phase. */
-export function zoomFor(phase: Tab["theatrePhase"]): number {
-  switch (phase) {
-    case "engaging":
-    case "engaged":
-    case "done":
-      return 0.78;
-    default:
-      return 1.0;
-  }
-}
-
 /** Cleanup hook called when a tab closes — drop its timers + ID counter. */
 export function disposeTab(tabId: string): void {
   const it = idleTimers.get(tabId);
@@ -178,6 +258,11 @@ export function disposeTab(tabId: string): void {
   idleTimers.delete(tabId);
   clearPhaseTimer(tabId);
   nextTurnIdByTab.delete(tabId);
+  tabsWithFresh.delete(tabId);
+  if (tabsWithFresh.size === 0 && freshDecayInterval) {
+    clearInterval(freshDecayInterval);
+    freshDecayInterval = null;
+  }
 }
 
 function clearPhaseTimer(tabId: string): void {

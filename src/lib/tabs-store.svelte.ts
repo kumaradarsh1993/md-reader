@@ -1,6 +1,6 @@
 import { api } from "./api";
 import { settings } from "./settings-store.svelte";
-import type { Turn, TheatrePhase, SelectedView } from "./theatre/types";
+import type { Turn, TheatrePhase, SelectedView, FreshRange } from "./theatre/types";
 import {
   onBeforeExternalEdit,
   onAfterExternalEdit,
@@ -38,6 +38,15 @@ export interface Tab {
   /** True after the user dismisses the discoverability tip for this tab.
    *  Prevents re-showing on every external edit. */
   tipDismissed: boolean;
+  /** v0.5.0+: source snapshot taken at the *previous* external-edit tick,
+   *  used to compute delta-since-last-edit ranges. Distinct from
+   *  pendingTurnBefore (which is per-turn baseline). */
+  previousSourceForDelta: string | null;
+  /** v0.5.0+: line ranges changed in the most recent edit tick(s), each with
+   *  a timestamp. A decay loop promotes ranges older than ~1500ms out of this
+   *  list — at which point they're rendered yellow via the regular
+   *  theatreRanges path instead of green. */
+  freshRanges: FreshRange[];
 }
 
 function newId(): string {
@@ -50,7 +59,7 @@ function newId(): string {
  *  and restore to keep those paths readable. All fields are in-memory only. */
 function freshTheatreState(): Pick<
   Tab,
-  "theatrePhase" | "turns" | "pendingTurnBefore" | "selectedView" | "sidebarOpen" | "highlightsHidden" | "tipDismissed"
+  "theatrePhase" | "turns" | "pendingTurnBefore" | "selectedView" | "sidebarOpen" | "highlightsHidden" | "tipDismissed" | "previousSourceForDelta" | "freshRanges"
 > {
   return {
     theatrePhase: "off",
@@ -60,6 +69,8 @@ function freshTheatreState(): Pick<
     sidebarOpen: false,
     highlightsHidden: false,
     tipDismissed: false,
+    previousSourceForDelta: null,
+    freshRanges: [],
   };
 }
 

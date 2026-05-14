@@ -1,17 +1,17 @@
 # Handover — md-reader
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-05-13 right after pushing v0.4.0 to CI.
+> Last updated 2026-05-14: v0.4.0 published as **Pre-release / Nightly**; v0.3.0 keeps the "Latest" badge.
 
 ## Where things stand
 
-**Two releases shipped today, on top of the previous v0.2.0:**
+**Release channel policy (2026-05-14):** v0.4.0 ships on the **Nightly / Pre-release** channel. v0.3.0 remains the stable "Latest" release. All upcoming feature work continues on the nightly channel (tag releases with `--prerelease`) until the user explicitly says "promote to stable". Promotion command when approved: `gh release edit vX.Y.Z --prerelease=false --latest`.
 
 | Version | Status | Headline |
 |---|---|---|
-| **v0.2.0** | Published | Smart edit mode + user-first README + CI workflow |
-| **v0.3.0** | **Published** | Toolbar cleanup, About dialog, tab tear-out z-order fix |
-| **v0.4.0** | **Built, CI passed, publishing in progress** | Live Edit Theatre + Diff Tracker sidebar (the product wedge) |
+| **v0.2.0** | Published (stable) | Smart edit mode + user-first README + CI workflow |
+| **v0.3.0** | **Published — Latest stable** | Toolbar cleanup, About dialog, tab tear-out z-order fix |
+| **v0.4.0** | **Published — Pre-release / Nightly** | Live Edit Theatre + Diff Tracker sidebar (the product wedge) |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Latest release page**: <https://github.com/kumaradarsh1993/md-reader/releases>
@@ -94,7 +94,7 @@ src/lib/theatre/
 
 ### High priority
 
-1. **Publish the v0.4.0 release** once CI finishes. Currently in progress — CI was queued at the time of writing. Command: `gh release edit v0.4.0 --draft=false`. The release will auto-include all 7 installers.
+1. **Promote v0.4.0 from Nightly → stable Latest** once the user is satisfied with it. Command: `gh release edit v0.4.0 --prerelease=false --latest`. Remind the user once per session that v0.4.0 is awaiting promotion — don't nag.
 2. **Smoke-test v0.4.0 on this machine.** Install one of the .msi files, open a markdown file, enable Live Edit Theatre in Settings → Advanced features, then have Claude (or any editor) write to the file from elsewhere. Verify the zoom-out animation, status bar, highlights, and sidebar (`Ctrl+Shift+D`) all work as designed.
 3. **Local Windows builds need `CARGO_BUILD_JOBS=2`** — there's a low-memory machine quirk (parallel rustc workers exceed available RAM and get silent-killed). See "Known quirks" below.
 4. **Enable GitHub Discussions** on the repo (Settings → General → Features → check Discussions). The issue-template `config.yml` already routes "vibes" questions there.

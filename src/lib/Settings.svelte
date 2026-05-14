@@ -142,32 +142,77 @@
     <fieldset class="smart-diff-group">
       <legend>
         <span>Smart-diff</span>
-        <span class="value">{settings.s.anthropicApiKey ? "key set" : "disabled"}</span>
+        <span class="value">{
+          settings.s.llmProvider === "groq"
+            ? (settings.s.groqApiKey ? "Groq · key set" : "Groq · disabled")
+            : (settings.s.anthropicApiKey ? "Anthropic · key set" : "Anthropic · disabled")
+        }</span>
       </legend>
       <p class="hint smart-hint">
-        Generates a 2–4 bullet summary of what changed (powered by the Anthropic API).
-        Sends your file content to api.anthropic.com — leave the key blank to disable.
+        Generates a 2–4 bullet summary of what changed in each section of the
+        diff sidebar. Sends file content to the selected provider — leave the
+        key blank to disable.
       </p>
-      <label>
-        <span>Anthropic API key</span>
-        <input
-          type="password"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="sk-ant-..."
-          value={settings.s.anthropicApiKey}
-          onchange={(e) => settings.set("anthropicApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
-        />
-      </label>
-      <label>
-        <span>Model</span>
-        <input
-          type="text"
-          spellcheck="false"
-          value={settings.s.anthropicModel}
-          onchange={(e) => settings.set("anthropicModel", (e.currentTarget as HTMLInputElement).value.trim() || "claude-haiku-4-5")}
-        />
-      </label>
+      <div class="seg-toggle">
+        <button
+          type="button"
+          class:active={settings.s.llmProvider === "groq"}
+          onclick={() => settings.set("llmProvider", "groq")}
+          title="Free tier at console.groq.com"
+        >Groq (free)</button>
+        <button
+          type="button"
+          class:active={settings.s.llmProvider === "anthropic"}
+          onclick={() => settings.set("llmProvider", "anthropic")}
+        >Anthropic</button>
+      </div>
+
+      {#if settings.s.llmProvider === "groq"}
+        <label>
+          <span>Groq API key</span>
+          <input
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="gsk_..."
+            value={settings.s.groqApiKey}
+            onchange={(e) => settings.set("groqApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
+          />
+        </label>
+        <label>
+          <span>Model</span>
+          <select
+            value={settings.s.groqModel}
+            onchange={(e) => settings.set("groqModel", (e.currentTarget as HTMLSelectElement).value)}
+          >
+            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (default, best quality)</option>
+            <option value="meta-llama/llama-4-maverick-17b-128e-instruct">llama-4-maverick (newer Meta)</option>
+            <option value="meta-llama/llama-4-scout-17b-16e-instruct">llama-4-scout (newer Meta, lighter)</option>
+            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (fastest)</option>
+          </select>
+        </label>
+      {:else}
+        <label>
+          <span>Anthropic API key</span>
+          <input
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="sk-ant-..."
+            value={settings.s.anthropicApiKey}
+            onchange={(e) => settings.set("anthropicApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
+          />
+        </label>
+        <label>
+          <span>Model</span>
+          <input
+            type="text"
+            spellcheck="false"
+            value={settings.s.anthropicModel}
+            onchange={(e) => settings.set("anthropicModel", (e.currentTarget as HTMLInputElement).value.trim() || "claude-haiku-4-5")}
+          />
+        </label>
+      {/if}
     </fieldset>
 
     <details class="experimental">
@@ -185,12 +230,10 @@
           🎬 Live Edit Theatre
           <small>
             When an AI (Claude, ChatGPT, Cursor, …) is writing to the file you have open,
-            md-reader switches to a cinematic view: smooth zoom-out, status bar bottom-left,
-            yellow highlights on changed regions, and a right-side diff sidebar with naive
-            red/green diff or optional LLM summary per section.
-            <br><br>
-            <em>In v0.3.0 this toggle is a stub — the full Theatre lands in v0.4.0.
-            Flip it on now to be ready when the next update ships.</em>
+            md-reader switches to a focused view: subtle "receded" surface, bottom-left status bar,
+            green highlight on the block currently being edited (with a soft pulse) that fades to
+            yellow once the edit settles. Press <code>Ctrl+Shift+D</code> to open the right-side
+            diff sidebar — naive red/green diff per section, or an LLM bullet summary on demand.
           </small>
         </span>
       </label>
@@ -319,6 +362,31 @@
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
+  }
+  .seg-toggle {
+    display: inline-flex;
+    background: var(--muted-bg);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+    margin: .25rem 0 .15rem;
+  }
+  .seg-toggle button {
+    border: 0;
+    background: transparent;
+    color: var(--muted-strong);
+    padding: .2rem .65rem;
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 500;
+  }
+  .seg-toggle button:hover { color: var(--fg); }
+  .seg-toggle button.active {
+    background: var(--bg);
+    color: var(--fg-strong);
+    box-shadow: var(--shadow-sm);
   }
   .hint { display: block; margin-top: .55rem; color: var(--muted); font-size: 11px; }
   kbd {

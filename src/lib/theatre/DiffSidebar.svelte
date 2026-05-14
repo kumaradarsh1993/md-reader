@@ -12,7 +12,7 @@
   import type { Tab } from "../tabs-store.svelte";
   import { selectView, toggleSidebar, viewSnapshots } from "./store.svelte";
   import { changedSections, lineDiff, type Section } from "./diff-engine";
-  import { summariseDiff, SmartDiffError } from "../smart-diff";
+  import { summariseDiff, SmartDiffError } from "../llm";
 
   interface Props { tab: Tab; }
   let { tab }: Props = $props();
@@ -43,18 +43,24 @@
   async function fetchLlmSummary(turnId: number) {
     const turn = tab.turns.find((t) => t.id === turnId);
     if (!turn) return;
-    if (!settings.s.anthropicApiKey) {
-      llmCache[turnId] = { error: "No Anthropic API key — add one in Settings → Smart-diff." };
+    // Pre-flight: surface a friendlier message than the provider's own
+    // "no key set" error if the user hasn't pasted a key for the selected
+    // provider yet. summariseDiff would still throw — we just catch it
+    // earlier so the loading-spinner doesn't flash.
+    const provider = settings.s.llmProvider;
+    const keyMissing =
+      (provider === "groq" && !settings.s.groqApiKey) ||
+      (provider === "anthropic" && !settings.s.anthropicApiKey);
+    if (keyMissing) {
+      const where = provider === "groq" ? "Groq (console.groq.com)" : "Anthropic";
+      llmCache[turnId] = {
+        error: `No ${where} API key — add one in Settings → Smart-diff.`,
+      };
       return;
     }
     llmCache[turnId] = { loading: true };
     try {
-      const res = await summariseDiff(
-        turn.snapshotBefore,
-        turn.snapshotAfter,
-        settings.s.anthropicApiKey,
-        settings.s.anthropicModel || "claude-haiku-4-5",
-      );
+      const res = await summariseDiff(turn.snapshotBefore, turn.snapshotAfter);
       llmCache[turnId] = { summary: res.summary };
     } catch (e) {
       const msg = e instanceof SmartDiffError ? e.message : String(e);
@@ -107,7 +113,7 @@
           {@const isTurn = typeof tab.selectedView === "number"}
           {@const mode = cardMode[cardKey] ?? "naive"}
           {@const llm = isTurn ? llmCache[tab.selectedView as number] : undefined}
-          <article class="card" class:added={s.changeKind === "added"} class:removed={s.changeKind === "removed"}>
+          <article class="card" class:added={s.changeKind === "added"} class:removed={s.changeKind === "removed"} data-card-section-index={i}>
             <header class="card-head">
               <span class="kind-badge">{s.changeKind}</span>
               <span class="heading" title={s.heading}>
@@ -138,7 +144,7 @@
 
             {#if mode === "llm" && isTurn && !isVirtualView(tab.selectedView)}
               {#if llm?.loading}
-                <div class="llm-state">Asking Claude…</div>
+                <div class="llm-state">Asking {settings.s.llmProvider === "groq" ? "Groq" : "Claude"}…</div>
               {:else if llm?.error}
                 <div class="llm-state error">{llm.error}</div>
               {:else if llm?.summary}

@@ -16,6 +16,11 @@
     /** Theatre yellow-highlight ranges (1-based line numbers in the
      *  current source). Painted whenever the prop is non-empty. v0.4.0+. */
     theatreHighlightRanges?: Array<{ from: number; to: number }>;
+    /** Theatre green-highlight ranges — line ranges touched in the last
+     *  ~1.5s of the current turn. Painted on top of stale ranges with
+     *  mutual exclusion (an element matching both renders as fresh/green).
+     *  v0.5.0+. */
+    theatreFreshRanges?: Array<{ from: number; to: number }>;
   }
   let {
     source = "",
@@ -24,6 +29,7 @@
     lastChangeFromDisk = 0,
     baselineSource = "",
     theatreHighlightRanges = [],
+    theatreFreshRanges = [],
   }: Props = $props();
 
   let container: HTMLDivElement;
@@ -110,10 +116,10 @@
           clearDiffHighlight(container);
         }
 
-        // Theatre yellow highlights — driven by the in-flight or selected
-        // turn's changed-line ranges. Independent of diff-mode. Cleared
-        // automatically when the prop becomes empty.
-        applyTheatreHighlight(container, theatreHighlightRanges);
+        // Theatre highlights — yellow for stale (this turn but not in the
+        // last ~1.5s), green for fresh (currently being edited). Independent
+        // of diff-mode. Mutual exclusion: fresh wins when both match.
+        applyTheatreHighlight(container, theatreHighlightRanges, theatreFreshRanges);
       }
       prevSource = src;
       prevDiskTick = diskTick;
@@ -168,14 +174,18 @@
     );
   }
 
-  /** Paint Live Edit Theatre's yellow highlights on elements whose
-   *  data-sourcepos range overlaps any of the given line ranges. */
+  /** Paint Live Edit Theatre's highlights on elements whose data-sourcepos
+   *  range overlaps any of the given line ranges. Fresh (green) wins over
+   *  stale (yellow) when both match the same element. */
   function applyTheatreHighlight(
     root: HTMLElement,
-    ranges: Array<{ from: number; to: number }>,
+    staleRanges: Array<{ from: number; to: number }>,
+    freshRanges: Array<{ from: number; to: number }>,
   ) {
     clearTheatreHighlight(root);
-    if (!ranges || ranges.length === 0) return;
+    const hasStale = staleRanges && staleRanges.length > 0;
+    const hasFresh = freshRanges && freshRanges.length > 0;
+    if (!hasStale && !hasFresh) return;
     const els = root.querySelectorAll<HTMLElement>("[data-sourcepos]");
     for (const el of els) {
       const sp = el.dataset.sourcepos;
@@ -184,28 +194,42 @@
       if (!m) continue;
       const from = +m[1];
       const to = +m[2];
-      for (const r of ranges) {
-        // Range overlap check — element covers any line within a changed range.
-        if (from <= r.to && to >= r.from) {
-          el.classList.add("theatre-changed");
-          break;
+      let isFresh = false;
+      if (hasFresh) {
+        for (const r of freshRanges) {
+          if (from <= r.to && to >= r.from) { isFresh = true; break; }
+        }
+      }
+      if (isFresh) {
+        el.classList.add("theatre-fresh");
+        continue;
+      }
+      if (hasStale) {
+        for (const r of staleRanges) {
+          if (from <= r.to && to >= r.from) {
+            el.classList.add("theatre-changed");
+            break;
+          }
         }
       }
     }
   }
 
   function clearTheatreHighlight(root: HTMLElement) {
-    root.querySelectorAll(".theatre-changed").forEach((el) =>
-      el.classList.remove("theatre-changed"),
-    );
+    root.querySelectorAll(".theatre-changed, .theatre-fresh").forEach((el) => {
+      el.classList.remove("theatre-changed");
+      el.classList.remove("theatre-fresh");
+    });
   }
 
-  // Re-paint theatre highlights when ONLY the ranges prop changes (e.g.
+  // Re-paint theatre highlights when ONLY the ranges props change (e.g.
   // user picks a different turn in the sidebar dropdown — source stays
-  // the same). The main $effect above already handles source changes.
+  // the same, or the fresh-range decay loop just demoted a range to stale).
+  // The main $effect above already handles source changes.
   $effect(() => {
-    const ranges = theatreHighlightRanges;
-    if (container) applyTheatreHighlight(container, ranges);
+    const stale = theatreHighlightRanges;
+    const fresh = theatreFreshRanges;
+    if (container) applyTheatreHighlight(container, stale, fresh);
   });
 
   function maybeFollowToLine(line: number) {
@@ -666,11 +690,47 @@
     border-radius: 4px;
     padding-left: 8px;
     margin-left: -11px;
-    transition: background-color 200ms ease;
+    transition: background-color 350ms ease, box-shadow 350ms ease;
   }
   :global(html[data-theme="dark"]) .viewer :global(.theatre-changed) {
     background-color: rgba(255, 211, 0, 0.10);
     box-shadow: inset 3px 0 0 #d49c00;
+  }
+
+  /* ─── Live Edit Theatre: green "currently being edited" highlights ──
+     Painted on top of the stale yellow set with mutual exclusion (only
+     one class per element). A subtle pulse signals liveness; the fade
+     happens via the transition above when the decay loop demotes the
+     range to stale (yellow). v0.5.0+. */
+  .viewer :global(.theatre-fresh) {
+    background-color: rgba(74, 222, 128, 0.20);
+    box-shadow: inset 3px 0 0 #22c55e,
+                inset -1px 0 0 rgba(34, 197, 94, .35),
+                inset 0 1px 0 rgba(34, 197, 94, .25),
+                inset 0 -1px 0 rgba(34, 197, 94, .25);
+    border-radius: 4px;
+    padding-left: 8px;
+    margin-left: -11px;
+    animation: theatre-fresh-pulse 1.4s ease-in-out infinite;
+    transition: background-color 200ms ease;
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.theatre-fresh) {
+    background-color: rgba(74, 222, 128, 0.13);
+    box-shadow: inset 3px 0 0 #16a34a,
+                inset -1px 0 0 rgba(22, 163, 74, .45),
+                inset 0 1px 0 rgba(22, 163, 74, .3),
+                inset 0 -1px 0 rgba(22, 163, 74, .3);
+  }
+  @keyframes theatre-fresh-pulse {
+    0%, 100% { background-color: rgba(74, 222, 128, 0.20); }
+    50%      { background-color: rgba(74, 222, 128, 0.34); }
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.theatre-fresh) {
+    animation-name: theatre-fresh-pulse-dark;
+  }
+  @keyframes theatre-fresh-pulse-dark {
+    0%, 100% { background-color: rgba(74, 222, 128, 0.13); }
+    50%      { background-color: rgba(74, 222, 128, 0.24); }
   }
 
   /* ─── Mermaid ──────────────────────────────────────────── */

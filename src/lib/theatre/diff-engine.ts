@@ -226,6 +226,54 @@ export function lineDiff(before: string, after: string): DiffOp[] {
   })) as DiffOp[];
 }
 
+/**
+ * Whole-document line-mode diff: returns AFTER line ranges that differ from
+ * BEFORE. Coarser than `changedSections` (no heading awareness) but cheap and
+ * sufficient for delta-since-last-edit tracking driving the green/fresh
+ * highlight phase.
+ */
+export function documentChangedRanges(
+  before: string,
+  after: string,
+): Array<{ from: number; to: number }> {
+  if (before === after) return [];
+  if (!before) {
+    const lines = after.split("\n").length;
+    return [{ from: 1, to: lines }];
+  }
+
+  const a = dmp.diff_linesToChars_(before, after);
+  const diffs = dmp.diff_main(a.chars1, a.chars2, false);
+  dmp.diff_charsToLines_(diffs, a.lineArray);
+  dmp.diff_cleanupSemantic(diffs);
+
+  const ranges: Array<{ from: number; to: number }> = [];
+  let afterLine = 1;
+  let active: { from: number; to: number } | null = null;
+
+  for (const [op, text] of diffs) {
+    const linesIn = countLines(text);
+    if (op === 0) {
+      if (active) {
+        ranges.push(active);
+        active = null;
+      }
+      afterLine += linesIn;
+    } else if (op === 1) {
+      const from = afterLine;
+      const to = afterLine + linesIn - 1;
+      if (active) active.to = Math.max(active.to, to);
+      else active = { from, to };
+      afterLine += linesIn;
+    } else {
+      // Delete — text only existed in BEFORE; mark the position in AFTER.
+      if (!active) active = { from: afterLine, to: afterLine };
+    }
+  }
+  if (active) ranges.push(active);
+  return ranges;
+}
+
 /** Total line-range count across all sections of a diff — useful for status bar copy. */
 export function changedLineCount(sections: Section[]): number {
   let n = 0;

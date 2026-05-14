@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.5.0 — 2026-05-14 (Nightly / Pre-release)
+
+Theatre v2 — addresses three real-world issues with the v0.4.0 Live Edit
+Theatre, plus adds a free LLM provider option for the diff sidebar's
+summary mode.
+
+### Changed — Theatre visual rework
+
+- **Recede, don't shrink.** Replaced the v0.4.0 `transform: scale(0.78)`
+  zoom-out (which left a floating mini-viewport with empty space around it)
+  with a subtle surface "recede": gentle inset shadow + slightly muted
+  saturation. Page stays full-size, layout doesn't break, the cue is still
+  obvious without feeling like the app broke.
+- **Two-phase highlights.** Edited blocks now glow **green with a soft
+  pulse** while the AI is actively writing them, then fade to **yellow**
+  ~1.5s after the last touch — instead of everything turning yellow at once.
+  When a 100-paragraph file gets rewritten in stages, you see a wave of
+  green sweep through, leaving yellow trails. Much easier to follow what's
+  happening right now vs. what's happened earlier in this turn.
+  - Driven by a new `previousSourceForDelta` per-tab snapshot, plus a
+    decay loop that demotes fresh ranges to stale after the configured TTL.
+
+### Added — Diff sidebar leader lines
+
+- **Word-comments-style connectors.** Each card in the sidebar now draws a
+  bracket on the right edge of its matching paragraph in the viewer and a
+  thin curve back to the card. Scrolling either side keeps the connection
+  attached (rAF-throttled redraws on viewer scroll / sidebar scroll / window
+  resize). Off-screen cards or paragraphs are skipped — no leader lines
+  trailing into chrome.
+- New `src/lib/theatre/SidebarConnectors.svelte` — viewport-fixed SVG
+  overlay, driven off the existing section list and `data-card-section-index`
+  attributes on cards.
+
+### Added — Multi-provider LLM (Groq + Anthropic)
+
+- **Groq Cloud is now the default** smart-diff provider — free tier with no
+  card. Settings → Smart-diff has a provider toggle and per-provider key +
+  model fields. Defaults to `llama-3.3-70b-versatile`; other free-tier
+  Llama 4 Maverick / Scout / 3.1-8B options in the model picker.
+- **Anthropic remains** as the alternative, unchanged behaviour. Existing
+  key carries over.
+- New `src/lib/llm/` module: `types.ts`, `anthropic.ts`, `groq.ts`,
+  `index.ts` (dispatcher with FNV-1a result cache).
+- `src/lib/smart-diff.ts` removed — its sole caller (`DiffSidebar.svelte`)
+  now imports from `$lib/llm`.
+
+### Settings
+
+- New: `llmProvider` (`"groq" | "anthropic"`, default `"groq"`),
+  `groqApiKey`, `groqModel`.
+- Existing `anthropicApiKey` / `anthropicModel` unchanged.
+
+### Notes
+
+- v0.5.0 ships on the **Nightly / Pre-release** channel. v0.3.0 remains the
+  stable "Latest" badge on GitHub releases.
+
 ## 0.4.0 — 2026-05-13
 
 ### Added — Live Edit Theatre (opt-in, off by default)

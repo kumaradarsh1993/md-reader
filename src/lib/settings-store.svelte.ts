@@ -2,6 +2,9 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 
 export type ThemeMode = "auto" | "light" | "dark";
 
+/** v0.5.0+: which provider drives the sidebar's "✨ Summary" mode. */
+export type LLMProvider = "groq" | "anthropic";
+
 export interface AppSettings {
   zoom: number;
   fontSize: number;
@@ -23,8 +26,17 @@ export interface AppSettings {
   // Default editor sub-mode when entering edit/split: WYSIWYG smart editor
   // (Milkdown), or raw markdown source (CodeMirror). v1 default = "smart".
   editorMode: "smart" | "raw";
+  // ─── Smart-diff LLM provider settings (v0.5.0+) ──────────────────
+  /** Which provider drives the sidebar's per-section LLM summary. Default
+   *  "groq" since the Groq free tier covers this use case with no card. */
+  llmProvider: LLMProvider;
   anthropicApiKey: string;  // for smart-diff (LLM-summarised changes); empty = feature disabled
   anthropicModel: string;   // override model for smart-diff
+  /** Groq Cloud API key (https://console.groq.com). Free tier. */
+  groqApiKey: string;
+  /** Groq model ID. Default Llama 3.3 70B Versatile (free tier, best prose
+   *  summary quality on Groq as of 2026-05). */
+  groqModel: string;
   showToc: boolean;
   showFiles: boolean;
   panelWidth: number;
@@ -50,8 +62,11 @@ const DEFAULTS: AppSettings = {
   liveTrack: false,
   diffMode: false,
   editorMode: "smart",
+  llmProvider: "groq",
   anthropicApiKey: "",
   anthropicModel: "claude-haiku-4-5",
+  groqApiKey: "",
+  groqModel: "llama-3.3-70b-versatile",
   showToc: true,
   showFiles: false,
   panelWidth: 280,
