@@ -9,6 +9,8 @@ Re-renders as Claude, ChatGPT, or Cursor writes. Edit visually, without ever see
 [![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
 [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
 
+[Interactive website](https://kumaradarsh1993.github.io/md-reader/)
+
 [Releases](https://github.com/kumaradarsh1993/md-reader/releases) · [Report a bug](https://github.com/kumaradarsh1993/md-reader/issues/new?template=bug.md) · [Request a feature](https://github.com/kumaradarsh1993/md-reader/issues/new?template=feature.md)
 
 <!-- TODO: hero GIF (4-6s) — open a file, watch it stream, switch to smart edit, type a paragraph. Save as docs/img/hero.gif and uncomment below. -->
