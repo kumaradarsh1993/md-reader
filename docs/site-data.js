@@ -1,9 +1,11 @@
 window.PRODUCT_SITE = {
   name: "md-reader",
   mark: "MD",
-  kicker: "Free desktop app for AI-era Markdown",
-  headline: "Read AI-written Markdown while it is still being written.",
-  subhead: "Open a Markdown file once, keep it beside your AI tool, and watch it re-render live. When the output needs a human touch, switch into smart edit without leaving the app.",
+  product: "markdown",
+  kicker: "Lightweight Markdown reading for AI-heavy work",
+  headline: "A Markdown reader that lets the document use your whole screen.",
+  subhead: "md-reader started from a simple annoyance: too many Markdown viewers lock the page into a skinny column. This one opens plain .md files, lets you widen or narrow the reading surface, zoom cleanly, use tabs and a file pane, and optionally highlight what an AI agent changed.",
+  insight: "The core job is reading, not ceremony. Open the file, make the text comfortable, keep multiple docs in tabs, and only turn on experimental AI-change theatre when it helps.",
   repoUrl: "https://github.com/kumaradarsh1993/md-reader",
   scene: "markdown",
   theme: {
@@ -12,6 +14,9 @@ window.PRODUCT_SITE = {
     accent: "#2558d8",
     accent2: "#0f8b7a",
     accent3: "#c24f5a"
+  },
+  assets: {
+    logo: "images/md-reader-icon.png"
   },
   downloads: [
     {
@@ -31,7 +36,7 @@ window.PRODUCT_SITE = {
     },
     {
       label: "Beta builds",
-      note: "Advanced releases",
+      note: "Live Edit Theatre experiments",
       href: "https://github.com/kumaradarsh1993/md-reader/releases"
     }
   ],
@@ -39,52 +44,76 @@ window.PRODUCT_SITE = {
     { label: "View source", href: "https://github.com/kumaradarsh1993/md-reader" },
     { label: "All releases", href: "https://github.com/kumaradarsh1993/md-reader/releases" }
   ],
-  stage: {
-    title: "Live document cockpit",
-    status: "Stable download ready",
-    rail: [["Live", "Auto-refresh"], ["Edit", "Smart polish"], ["Keep", "Plain files"]],
-    surfaceTitle: "Markdown preview",
-    tiles: ["frontmatter", "heading", "list", "code", "quote", "table", "image", "checklist"],
-    note: "Built for the moment when AI output is good, but the raw Markdown is painful to read."
+  proof: [
+    "Open plain Markdown files directly",
+    "Widen, narrow, zoom, or use full width",
+    "Tabs, side file list, and tear-out windows",
+    "Optional beta highlights for agent edits"
+  ],
+  hero: {
+    title: "Reading surface",
+    status: "Stable reader ready",
+    files: ["project-brief.md", "release-notes.md", "agent-plan.md", "meeting-notes.md"],
+    tabs: ["brief.md", "notes.md", "diff.md"],
+    headings: ["What changed", "Why this exists", "Next steps"],
+    widthStates: ["Narrow", "Comfort", "Full width"],
+    paragraphs: [
+      "Most AI output arrives as Markdown. The reading app should get out of the way and use the space you give it.",
+      "Open a file, resize the column, zoom the text, and keep the file browser beside you when you are comparing notes.",
+      "When an agent edits the file, beta highlights can show what moved without forcing everyone into a diff tool."
+    ]
   },
-  storyTitle: "A cleaner way to read AI output",
-  storyIntro: "No workspace ceremony. No import step. It opens the file you already have and keeps up while your assistant writes.",
-  chapters: [
+  storyTitle: "Built around the reading problem",
+  storyIntro: "The headline is not live reload for its own sake. It is comfortable Markdown reading while Claude, Codex, Cursor, or another tool keeps writing and editing files nearby.",
+  beats: [
     {
-      title: "Open the file once",
-      body: "Point md-reader at a Markdown file and keep it on a second monitor or beside your browser. It follows changes as they land."
+      title: "Open the Markdown you already have",
+      body: "No vault, import step, or workspace trust prompt. Double-click a .md file or open several into tabs.",
+      tag: "Open",
+      visual: "open"
     },
     {
-      title: "Watch the render settle",
-      body: "Long AI answers become readable immediately: headings, lists, code blocks, tables, links, and images stay organized while the file changes."
+      title: "Use the horizontal space properly",
+      body: "Switch between narrow, comfortable, and full-window reading widths. Zoom in or out without trapping the document in a fixed center strip.",
+      tag: "Width",
+      visual: "width"
     },
     {
-      title: "Fix without syntax wrestling",
-      body: "Use smart edit for the small human pass: tighten wording, clean structure, and save back to the same plain Markdown file."
+      title: "Work across files without losing place",
+      body: "Keep the file pane and outline on the left, use multiple tabs, and tear a tab into its own native window when comparison needs more room.",
+      tag: "Tabs",
+      visual: "tabs"
+    },
+    {
+      title: "See agent edits when that helps",
+      body: "Beta Live Edit Theatre highlights changed regions and offers a details sidebar. It is a power feature, not the default reason to use the app.",
+      tag: "Beta",
+      visual: "diff"
     }
   ],
-  downloadTitle: "Start with the stable build",
-  downloadIntro: "The first button is the safest path for most people. Beta builds are for testing newer features before they are promoted.",
+  downloadTitle: "Download the stable reader",
+  downloadIntro: "Stable v0.3.0 is the safer daily reader. Beta builds contain the newer edit-highlighting experiments while that experience is still being shaped.",
   panels: [
     {
-      title: "Stable",
-      body: "Use this if you just want the app to work. It is the recommended build for daily Markdown reading and editing."
+      title: "Reader first",
+      body: "Clean typography, adjustable width, zoom, themes, tabs, find, and a file pane. The boring parts matter because reading is the job."
     },
     {
-      title: "Beta",
-      body: "Use beta releases when you want the newest fixes and can tolerate a little roughness. They are labeled separately on GitHub."
+      title: "AI-aware, not AI-dependent",
+      body: "The app works as a normal Markdown reader. Agent-change highlights and summaries are optional beta helpers for people working with AI-written files."
     },
     {
-      title: "Open source",
-      body: "The code, issue tracker, and release history are public, so the download path is inspectable and repeatable."
+      title: "Plain files stay plain",
+      body: "No database lock-in. Edits save back to Markdown that still opens in VS Code, Obsidian, GitHub, or any other Markdown tool."
     }
   ],
-  setupTitle: "Three-minute setup",
-  setupIntro: "Install it, open your Markdown file, and let the app follow the edits as your AI tool writes.",
+  setupTitle: "A short path to a better reader",
+  setupIntro: "Install it, open a Markdown file, then tune the page width and zoom until the document fits the screen you actually have.",
   setup: [
-    { title: "Install the app", body: "Use the stable installer for your operating system." },
-    { title: "Open a Markdown file", body: "Pick the file your AI tool is writing or the document you want to clean up." },
-    { title: "Leave it beside your workflow", body: "The preview updates as the file changes, so the reading surface stays calm." }
+    { title: "Install md-reader", body: "Use the stable build for your operating system." },
+    { title: "Open one or many .md files", body: "Use tabs and the file pane when you are moving through a folder of AI-generated notes." },
+    { title: "Set the width", body: "Choose narrow, comfortable, or full-window reading. This is the point of the app." },
+    { title: "Try beta highlights if needed", body: "Use beta builds when you specifically want to test agent-edit tracking and diff summaries." }
   ],
-  footer: "Open-source Markdown reader and editor for AI-heavy writing workflows."
+  footer: "Open-source Markdown reading and editing for AI-heavy writing workflows."
 };
