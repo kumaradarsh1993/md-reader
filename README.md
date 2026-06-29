@@ -5,11 +5,11 @@
 **A Markdown reader and editor built for the AI era.**
 Re-renders as Claude, ChatGPT, or Cursor writes. Edit visually, without ever seeing `##` or `**`.
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?logo=windows&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
-[![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
-[![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?logo=windows&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_x64-setup.exe)
+[![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_universal.dmg)
+[![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_amd64.AppImage)
 
-[Interactive website](https://kumaradarsh1993.github.io/md-reader/)
+[Interactive website](https://kumaradarsh1993.github.io/md-reader/) · [Beta builds](https://github.com/kumaradarsh1993/md-reader/releases)
 
 [Releases](https://github.com/kumaradarsh1993/md-reader/releases) · [Report a bug](https://github.com/kumaradarsh1993/md-reader/issues/new?template=bug.md) · [Request a feature](https://github.com/kumaradarsh1993/md-reader/issues/new?template=feature.md)
 

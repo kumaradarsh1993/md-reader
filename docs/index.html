@@ -53,6 +53,7 @@
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       line-height: 1.5;
       letter-spacing: 0;
+      overflow-x: hidden;
     }
     a { color: inherit; text-decoration: none; }
     button, textarea { font: inherit; }
@@ -94,11 +95,13 @@
       width: min(100%, var(--max));
       margin: 0 auto;
       position: relative;
+      z-index: 1;
       display: grid;
       grid-template-columns: minmax(300px, 510px) 1fr;
       gap: 34px;
       align-items: center;
     }
+    .hero-inner > * { min-width: 0; }
     .eyebrow {
       display: inline-flex;
       align-items: center;
@@ -129,6 +132,52 @@
     .button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
     .button:hover { transform: translateY(-1px); }
     .search-phrase { margin-top: 18px; color: #687086; font-size: 13px; }
+    .hero-canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0.72;
+      pointer-events: none;
+    }
+    .download-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(140px, 1fr));
+      gap: 10px;
+      max-width: 610px;
+      margin-top: 28px;
+    }
+    .download-button {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 62px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(25, 36, 64, 0.1);
+      font-weight: 850;
+    }
+    .download-button.primary {
+      color: #fff;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .download-button small {
+      margin-top: 2px;
+      color: currentColor;
+      opacity: 0.72;
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .secondary-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
     .demo {
       border: 1px solid rgba(20, 22, 32, 0.12);
       border-radius: 8px;
@@ -239,10 +288,16 @@
       .links a:not(.repo) { display: none; }
     }
     @media (max-width: 620px) {
-      .hero { padding-top: 92px; }
+      .hero { padding: 92px 34px 54px 18px; }
+      .hero-inner { width: 100%; max-width: 100%; }
+      .hero-inner > div:first-child { width: min(320px, calc(100vw - 96px)); max-width: min(320px, calc(100vw - 96px)); }
       h1 { font-size: 39px; }
       .lede { font-size: 17px; }
       .demo-head { height: auto; padding: 12px; align-items: flex-start; flex-direction: column; }
+      .links .repo { display: none; }
+      .hero-canvas { opacity: 0.28; }
+      .download-buttons, .demo { width: 100%; max-width: min(320px, calc(100vw - 96px)); }
+      .download-buttons { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -264,13 +319,19 @@
 
   <main id="top">
     <section class="hero" aria-labelledby="hero-title">
+      <canvas class="hero-canvas" data-three-hero data-scene="markdown" data-accent="#1266d6" data-accent-two="#12917b" data-accent-three="#bf7a10" aria-hidden="true"></canvas>
       <div class="hero-inner">
         <div>
           <span class="eyebrow">Markdown reader for AI output</span>
           <h1 id="hero-title">Watch Markdown become readable.</h1>
           <p class="lede">md-reader opens Markdown files like documents, live-renders while Claude, ChatGPT, or Cursor writes, and switches into smart edit when you want WYSIWYG changes.</p>
-          <div class="cta">
-            <a class="button primary" href="https://github.com/kumaradarsh1993/md-reader/releases">Download releases</a>
+          <div class="download-buttons" aria-label="Stable downloads">
+            <a class="download-button primary" href="https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_x64-setup.exe">Download for Windows<small>Stable setup.exe</small></a>
+            <a class="download-button" href="https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_universal.dmg">Download for Mac<small>Stable universal .dmg</small></a>
+            <a class="download-button" href="https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_amd64.AppImage">Download for Linux<small>Stable AppImage</small></a>
+          </div>
+          <div class="secondary-links">
+            <a class="button" href="https://github.com/kumaradarsh1993/md-reader/releases">Beta builds</a>
             <a class="button" href="https://github.com/kumaradarsh1993/md-reader">View source</a>
           </div>
           <p class="search-phrase">A lightweight cross-platform Markdown viewer and editor built for AI-generated Markdown.</p>
@@ -416,5 +477,7 @@
     }));
     setSample("claude");
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script type="module" src="hero-scene.js"></script>
 </body>
 </html>
