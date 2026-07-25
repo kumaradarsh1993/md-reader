@@ -28,18 +28,26 @@ releases go out as stable unless the user says otherwise.
 
 ### Release steps that still need a human
 
-Release *publishing* cannot be done from a Claude Code web session — the
-GitHub MCP tools are read-only for releases and direct `api.github.com` access
-is blocked in that environment. After CI finishes building the tag, someone
-with `gh` has to run:
+The v0.6.0 **commit is on master**, but the release itself cannot be cut from a
+Claude Code web session: the git proxy rejects tag pushes with a 403, the GitHub
+MCP tools are read-only for releases, and direct `api.github.com` access is
+blocked. So the tag has to be pushed from a normal shell, which is what triggers
+the CI build:
 
 ```bash
-# 1. Publish the v0.6.0 draft that CI created
+git fetch origin master && git checkout master && git pull
+git tag -a v0.6.0 -m "md-reader v0.6.0"
+git push origin v0.6.0        # → CI builds Win/macOS/Linux, creates a DRAFT release
+
+# once CI is green:
 gh release edit v0.6.0 --draft=false --latest
 
-# 2. Promote the last nightly to stable
+# and promote the last nightly to stable:
 gh release edit v0.5.1 --prerelease=false
 ```
+
+Note the landing site (`docs/site-data.js`, `docs/index.html`) already points at
+`v0.6.0` download URLs, so those links 404 until the release is published.
 
 ## What v0.6.0 added
 
