@@ -198,7 +198,10 @@ function changedRanges(
   return ranges;
 }
 
-function countLines(s: string): number {
+/** Count lines in a text chunk, counting a trailing partial line (no
+ *  final `\n`) as one more. Shared by the section-level diff above and the
+ *  sidebar's "N lines added/removed" captions. */
+export function countLines(s: string): number {
   if (!s) return 0;
   // Lines = number of newlines (each \n marks a line boundary). For trailing
   // text without a newline, we still count it.

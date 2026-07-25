@@ -1,6 +1,6 @@
 {
   "name": "md-reader",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Lightweight cross-platform Markdown viewer",
   "type": "module",
   "scripts": {

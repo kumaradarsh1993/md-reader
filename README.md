@@ -76,13 +76,32 @@ Drop a folder of `.md` files onto the window — each becomes a tab. Drag a tab 
 
 ### 4. Adjust how wide the content sits
 
-`Ctrl + ]` and `Ctrl + [` widen and narrow the content column. `Ctrl + \` toggles full-window width. No locked narrow band like some other readers.
+The toolbar's width control is a miniature page: the lines of text inside it are
+as wide as your real content column. Nudge it with `‹` / `›`, drag straight
+across it, or scroll over it. `⤢` fills the window. `Ctrl + ]` / `Ctrl + [` /
+`Ctrl + \` do the same from the keyboard. No locked narrow band like some other
+readers.
 
 ### 5. Side panel: file browser + outline
 
-`Ctrl + B` toggles the file browser. The outline (`📑` button) shows your document's headings — click to jump. Both can resize by dragging the right edge.
+`Ctrl + B` collapses and restores the whole panel. When it's collapsed, hover the
+window's left edge and it slides out for as long as you need it — pin it to dock
+it again. The `📁` and `📑` buttons choose which sections the panel shows.
+
+The outline tracks your position: as you scroll, the heading you're reading stays
+highlighted, so you always know where you are in a long document. Drag the divider
+between Files and Outline to give either one more room, or the panel's right edge
+to make the whole thing wider.
 
 <!-- TODO: screenshot — side panel open with file browser on top, outline below -->
+
+### 6. It remembers where you stopped reading
+
+Every tab keeps its own scroll position, so switching between open files doesn't
+scramble any of them. Close md-reader, reopen the file, and you land where you
+left off — with a quiet ribbon marking the spot, and a marker in the right gutter
+to travel back to it if you've wandered. Turn either off in Settings → Reading
+position.
 
 ## Keyboard shortcuts
 
@@ -97,21 +116,23 @@ Drop a folder of `.md` files onto the window — each becomes a tab. Drag a tab 
 | `Ctrl + S` | Save (edit mode) |
 | `Ctrl + F` | Find in document |
 | `Ctrl + ,` | Settings |
-| `Ctrl + B` | Toggle files panel |
+| `Ctrl + B` | Collapse / restore the side panel |
 | `Ctrl + +` / `Ctrl + -` / `Ctrl + 0` | Zoom in / out / reset |
 | `Ctrl + ]` / `Ctrl + [` | Wider / narrower content column |
 | `Ctrl + \` | Toggle full-window content width |
-| `Esc` | Close find / settings / file menu |
+| `Ctrl + Shift + D` | Diff sidebar (Live Edit Theatre) |
+| `Esc` | Close find / settings / file menu / diff sidebar |
 
 ## Settings worth knowing about
 
 `Ctrl + ,` to open. A few that matter:
 
-- **Theme** — Auto (follows your system), Light, or Dark.
+- **Theme** — Auto (follows your system), Light, Sepia, or Dark. The toolbar has a one-click ☀ / ◐ / ☾ switch too.
 - **Default edit mode** — Smart (WYSIWYG) or Raw (markdown source). You can always flip per-tab via the toolbar.
 - **Content width** — slider from 40 to 160 characters, or "Full window" for wide docs.
 - **Smart-diff** (optional) — paste an Anthropic API key and md-reader can summarise what changed in a file since you opened it. Off by default; nothing is sent unless you enable it.
-- **Experimental features** — for power users only. Live AI edit tracking (the 📡 toolbar button) and Diff mode (🔍) live here. Off by default to keep the toolbar calm.
+- **Reading position** — resume where you left off across sessions, and whether to mark the spot with a ribbon. Per-tab positions always persist while the app is open.
+- **Advanced features** — 🎬 **Live Edit Theatre**: when an AI is writing to the file you have open, md-reader recedes into a focused view, glows green on the block being written and fades it to yellow as it settles, and can show a per-section diff sidebar (`Ctrl + Shift + D`) with an optional LLM summary. Off by default.
 
 ## Give feedback
 
@@ -170,18 +191,23 @@ src-tauri/                      Rust backend (Tauri 2)
 
 src/                            SvelteKit frontend (Svelte 5 runes)
   routes/+page.svelte           app shell
-  lib/Viewer.svelte             rendered output + live-follow
+  lib/Viewer.svelte             rendered output + live-follow + scroll memory
   lib/SmartEditor.svelte        WYSIWYG editor (Milkdown / Crepe, lazy)
   lib/Editor.svelte             raw markdown editor (CodeMirror 6, lazy)
   lib/TabBar.svelte             tabs with drag-tear-out
-  lib/LeftPanel.svelte          Lightroom-style resizable panel
+  lib/LeftPanel.svelte          collapsible resizable panel + hover-peek
   lib/FileBrowser.svelte        single-level dir tree
-  lib/Toc.svelte                document outline
+  lib/Toc.svelte                document outline with scroll-spy
+  lib/WidthControl.svelte       visual content-width control
+  lib/ResumeRibbon.svelte       "you left off here" marker
   lib/Find.svelte               Ctrl+F search
   lib/Settings.svelte           settings panel
+  lib/outline.ts                heading parser (ATX + setext, fence-aware)
+  lib/view-nav.svelte.ts        Viewer ↔ Outline bridge (source-line based)
   lib/post-render.ts            heading id assignment + lazy KaTeX/Mermaid
   lib/tabs-store.svelte.ts      tabs state (open/close/reorder/persist)
   lib/settings-store.svelte.ts  persisted settings via tauri-plugin-store
+  lib/theatre/                  Live Edit Theatre (opt-in cinema view + diff)
 
 docs/                           GitHub Pages landing site (static)
 test-fixtures/                  round-trip fixture for smart-edit testing

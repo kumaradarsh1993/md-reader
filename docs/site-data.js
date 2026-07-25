@@ -4,7 +4,7 @@ window.PRODUCT_SITE = {
   product: "markdown",
   kicker: "Lightweight Markdown reading for AI-heavy work",
   headline: "A Markdown reader that lets the document use your whole screen.",
-  subhead: "md-reader started from a simple annoyance: too many Markdown viewers lock the page into a skinny column. This one opens plain .md files, lets you widen or narrow the reading surface, zoom cleanly, use tabs and a file pane, and optionally highlight what an AI agent changed.",
+  subhead: "md-reader started from a simple annoyance: too many Markdown viewers lock the page into a skinny column. This one opens plain .md files, lets you widen or narrow the reading surface, zoom cleanly, use tabs and a file pane, resume every file where you left it, and optionally highlight what an AI agent changed.",
   insight: "The core job is reading, not ceremony. Open the file, make the text comfortable, keep multiple docs in tabs, and only turn on experimental AI-change theatre when it helps.",
   repoUrl: "https://github.com/kumaradarsh1993/md-reader",
   scene: "markdown",
@@ -21,22 +21,22 @@ window.PRODUCT_SITE = {
   downloads: [
     {
       label: "Download for Windows",
-      note: "Stable v0.3.0 installer",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_x64-setup.exe"
+      note: "Stable v0.6.0 installer",
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.6.0/md-reader_0.6.0_x64-setup.exe"
     },
     {
       label: "Download for macOS",
       note: "Universal DMG",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_universal.dmg"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.6.0/md-reader_0.6.0_universal.dmg"
     },
     {
       label: "Download for Linux",
       note: "AppImage",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_amd64.AppImage"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.6.0/md-reader_0.6.0_amd64.AppImage"
     },
     {
-      label: "Beta builds",
-      note: "Live Edit Theatre experiments",
+      label: "All releases",
+      note: "Older builds and full notes",
       href: "https://github.com/kumaradarsh1993/md-reader/releases"
     }
   ],
@@ -47,8 +47,8 @@ window.PRODUCT_SITE = {
   proof: [
     "Open plain Markdown files directly",
     "Widen, narrow, zoom, or use full width",
-    "Tabs, side file list, and tear-out windows",
-    "Optional beta highlights for agent edits"
+    "Tabs, collapsible file pane, outline that follows you",
+    "Remembers where you stopped reading"
   ],
   hero: {
     title: "Reading surface",
@@ -80,19 +80,19 @@ window.PRODUCT_SITE = {
     },
     {
       title: "Work across files without losing place",
-      body: "Keep the file pane and outline on the left, use multiple tabs, and tear a tab into its own native window when comparison needs more room.",
+      body: "Every tab keeps its own scroll position, and reopening a file drops you back where you stopped. Keep the file pane and outline on the left, collapse them out of the way, or tear a tab into its own native window when comparison needs more room.",
       tag: "Tabs",
       visual: "tabs"
     },
     {
       title: "See agent edits when that helps",
-      body: "Beta Live Edit Theatre highlights changed regions and offers a details sidebar. It is a power feature, not the default reason to use the app.",
-      tag: "Beta",
+      body: "Live Edit Theatre highlights the block being written, fades it as the edit settles, and offers a per-section diff sidebar. It is a power feature you turn on, not the default reason to use the app.",
+      tag: "Theatre",
       visual: "diff"
     }
   ],
   downloadTitle: "Download the stable reader",
-  downloadIntro: "Stable v0.3.0 is the safer daily reader. Beta builds contain the newer edit-highlighting experiments while that experience is still being shaped.",
+  downloadIntro: "v0.6.0 is the current stable reader. It remembers where you stopped in every file, the outline tracks your position as you scroll, and Live Edit Theatre is available for anyone who wants to watch an agent work.",
   panels: [
     {
       title: "Reader first",
@@ -100,7 +100,7 @@ window.PRODUCT_SITE = {
     },
     {
       title: "AI-aware, not AI-dependent",
-      body: "The app works as a normal Markdown reader. Agent-change highlights and summaries are optional beta helpers for people working with AI-written files."
+      body: "The app works as a normal Markdown reader. Agent-change highlights and summaries are optional helpers for people working with AI-written files."
     },
     {
       title: "Plain files stay plain",

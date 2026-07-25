@@ -28,6 +28,13 @@ const FRESH_DECAY_TICK_MS = 200;
 // it's mechanical bookkeeping that doesn't need reactivity.
 const nextTurnIdByTab = new Map<string, number>();
 
+// Wall-clock ms when the *current* in-flight turn's first edit arrived.
+// Captured in onBeforeExternalEdit exactly when pendingTurnBefore is armed
+// for a brand-new turn, consumed once by finaliseTurn, then cleared. Kept
+// here rather than on Tab for the same reason as the timer maps below —
+// it's mechanical bookkeeping, not reactive UI state.
+const turnStartedAtByTab = new Map<string, number>();
+
 // Per-tab debounce timers, swapped out as new edits arrive.
 const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -61,6 +68,10 @@ export function onBeforeExternalEdit(tab: Tab): void {
     // is computed against the same baseline. After the chain starts,
     // previousSourceForDelta moves forward on every tick.
     tab.previousSourceForDelta = tab.source;
+    // This is genuinely the first edit of a new turn — timestamp it now.
+    // (Continuing an existing "done" turn does NOT hit this branch, so we
+    // never clobber the original start time with a later re-engagement.)
+    turnStartedAtByTab.set(tab.id, Date.now());
   }
   // If in "done", an incoming edit means the same turn is continuing —
   // we don't move pendingTurnBefore (still points at the original baseline).
@@ -182,12 +193,16 @@ function finaliseTurn(tab: Tab): void {
   if (tab.pendingTurnBefore === tab.source) {
     tab.theatrePhase = "off";
     tab.pendingTurnBefore = null;
+    turnStartedAtByTab.delete(tab.id);
     return;
   }
 
+  const startedAt = turnStartedAtByTab.get(tab.id) ?? Date.now();
+  turnStartedAtByTab.delete(tab.id);
+
   const turn: Turn = {
     id: nextTurnId(tab.id),
-    startedAt: Date.now() - (Date.now() - Date.now()), // (kept simple)
+    startedAt,
     finishedAt: Date.now(),
     snapshotBefore: tab.pendingTurnBefore,
     snapshotAfter: tab.source,
@@ -207,9 +222,24 @@ function finaliseTurn(tab: Tab): void {
   tab.highlightsHidden = false; // newly-completed turn always shows highlights
 }
 
-/** User dismissed the post-edit status bar. Animate back to normal view. */
+/**
+ * User dismissed the theatre (from the "done" status bar, or the escape
+ * hatch shown while a turn is still live). Animate back to normal view.
+ *
+ * If a turn is still in-flight ("engaging"/"engaged"), finalise it first —
+ * otherwise `pendingTurnBefore` stays non-null forever (finaliseTurn's phase
+ * guard rejects it once we've moved to "resuming"/"off"), which wedges
+ * `viewSnapshots` into reporting "This turn (in progress)" indefinitely and
+ * silently drops the user's in-flight edits from the ring buffer.
+ */
 export function dismiss(tab: Tab): void {
   if (tab.theatrePhase === "off") return;
+  if (tab.theatrePhase === "engaging" || tab.theatrePhase === "engaged") {
+    const idle = idleTimers.get(tab.id);
+    if (idle) clearTimeout(idle);
+    idleTimers.delete(tab.id);
+    finaliseTurn(tab);
+  }
   tab.theatrePhase = "resuming";
   clearPhaseTimer(tab.id);
   phaseTimers.set(
@@ -258,6 +288,7 @@ export function disposeTab(tabId: string): void {
   idleTimers.delete(tabId);
   clearPhaseTimer(tabId);
   nextTurnIdByTab.delete(tabId);
+  turnStartedAtByTab.delete(tabId);
   tabsWithFresh.delete(tabId);
   if (tabsWithFresh.size === 0 && freshDecayInterval) {
     clearInterval(freshDecayInterval);

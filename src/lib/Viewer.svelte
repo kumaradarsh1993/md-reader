@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { api } from "./api";
-  import { settings, effectiveDark } from "./settings-store.svelte";
+  import { settings, effectiveDark, type ScrollMark } from "./settings-store.svelte";
   import { postRender } from "./post-render";
+  import { viewNav } from "./view-nav.svelte";
+  import ResumeRibbon from "./ResumeRibbon.svelte";
 
   type Mode = "view" | "edit" | "split";
 
@@ -11,6 +13,28 @@
     basePath: string;
     mode?: Mode;
     lastChangeFromDisk?: number;
+    /** Identity of the tab being displayed. The Viewer is a single long-lived
+     *  instance shared by every tab, so this is what tells it "different
+     *  document now" — without it, tab A's scroll position bleeds into tab B. */
+    tabId?: string;
+    /** Looks up where a tab was last scrolled to. Deliberately a callback
+     *  rather than a plain prop: the Viewer *writes* this value on every
+     *  scroll, and a reactive read would feed that write straight back into
+     *  the render effect. */
+    getScrollMark?: (tabId: string) => ScrollMark | null;
+    /** Position carried over from a previous session — anchors the ribbon. */
+    resumeMark?: ScrollMark | null;
+    /** User has dismissed the ribbon for this tab. */
+    resumeDismissed?: boolean;
+    /** The cross-session position has already been applied once for this tab,
+     *  so a remount (edit ↔ view, theme change) shouldn't re-announce it. */
+    resumeApplied?: boolean;
+    /** Reports the reading position as it changes (throttled). */
+    onScrollMark?: (tabId: string, mark: ScrollMark) => void;
+    /** Fired once the cross-session position has been applied. */
+    onResumeApplied?: (tabId: string) => void;
+    /** User clicked the ribbon's dismiss affordance. */
+    onDismissResume?: (tabId: string) => void;
     /** Source content the diff-mode baseline compares against. */
     baselineSource?: string;
     /** Theatre yellow-highlight ranges (1-based line numbers in the
@@ -30,6 +54,14 @@
     baselineSource = "",
     theatreHighlightRanges = [],
     theatreFreshRanges = [],
+    tabId = "",
+    getScrollMark,
+    resumeMark = null,
+    resumeDismissed = false,
+    resumeApplied = false,
+    onScrollMark,
+    onResumeApplied,
+    onDismissResume,
   }: Props = $props();
 
   let container: HTMLDivElement;
@@ -37,6 +69,9 @@
   let lastScroll = 0;
   let prevSource = "";
   let prevDiskTick = 0;
+  /** Tab whose content is currently painted. Compared against the `tabId` prop
+   *  to tell a document swap apart from a mere re-render. */
+  let renderedTabId = "";
 
   let dark = $derived(effectiveDark(settings.s.theme));
 
@@ -78,6 +113,231 @@
     return best;
   }
 
+  // ═══ Reading position: per-tab memory, scroll-spy, resume ribbon ═══════
+  //
+  // One Viewer instance serves every tab, so all of this keys off `tabId`.
+  // The invariants that matter:
+  //   · a scroll event must never be attributed to a tab other than the one
+  //     that was on screen when it fired;
+  //   · a programmatic scroll (restore / jump / live-follow) must not be
+  //     mistaken for the reader moving, or it would overwrite the very mark
+  //     it just restored.
+
+  /** Top-level blocks with their source-line ranges, rebuilt after each
+   *  render so scroll handling is a cheap array walk rather than a DOM query. */
+  let lineIndex: Array<{ el: HTMLElement; from: number; to: number }> = [];
+  /** Same, restricted to headings — drives the outline's active-section mark. */
+  let headingIndex: Array<{ el: HTMLElement; line: number }> = [];
+
+  /** Set while we're moving the scroll position ourselves. */
+  let programmaticScroll = false;
+  let programmaticTimer: ReturnType<typeof setTimeout> | null = null;
+  let navRaf = 0;
+  let markTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The tab a pending mark write belongs to. */
+  let pendingMarkTabId = "";
+  let pendingMark: ScrollMark | null = null;
+
+  // Ribbon geometry, recomputed on scroll / render.
+  let ribbonTop = $state(0);
+  let ribbonInView = $state(true);
+  let ribbonResolved = $state(false);
+  let edgeTop = $state(0);
+  let edgeRight = $state(16);
+  /** True for a few seconds after a resume, so the ribbon can announce itself. */
+  let ribbonFresh = $state(false);
+  let freshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let ribbonVisible = $derived(
+    settings.s.resumeRibbon &&
+      settings.s.rememberScroll &&
+      !!resumeMark &&
+      !resumeDismissed &&
+      ribbonResolved &&
+      mode === "view",
+  );
+
+  function parseSourcepos(el: HTMLElement): { from: number; to: number } | null {
+    const sp = el.dataset.sourcepos;
+    if (!sp) return null;
+    const m = /^(\d+):\d+-(\d+):\d+$/.exec(sp);
+    if (!m) return null;
+    return { from: +m[1], to: +m[2] };
+  }
+
+  function buildIndexes() {
+    lineIndex = [];
+    headingIndex = [];
+    if (!container) return;
+    const prose = container.querySelector<HTMLElement>(".prose");
+    if (!prose) return;
+    for (const el of Array.from(prose.children) as HTMLElement[]) {
+      const range = parseSourcepos(el);
+      if (!range) continue;
+      lineIndex.push({ el, from: range.from, to: range.to });
+      if (/^H[1-6]$/.test(el.tagName)) headingIndex.push({ el, line: range.from });
+    }
+  }
+
+  /** The indexed block nearest the top of the viewport, and the last heading
+   *  at or above it. Both are needed: the outline highlights by heading, but
+   *  the position we remember should be the exact block being read. */
+  function topOfViewport(): { block: number | null; heading: number | null } {
+    if (!container || lineIndex.length === 0) return { block: null, heading: null };
+    const probe = container.getBoundingClientRect().top + 12;
+    let block: number | null = lineIndex[0].from;
+    for (const b of lineIndex) {
+      if (b.el.getBoundingClientRect().top <= probe) block = b.from;
+      else break;
+    }
+    let heading: number | null = null;
+    for (const h of headingIndex) {
+      if (h.el.getBoundingClientRect().top <= probe) heading = h.line;
+      else break;
+    }
+    return { block, heading };
+  }
+
+  function currentMark(): ScrollMark | null {
+    if (!container) return null;
+    const height = container.scrollHeight;
+    const { block } = topOfViewport();
+    return {
+      line: block ?? 1,
+      ratio: height > 0 ? container.scrollTop / height : 0,
+      at: Date.now(),
+    };
+  }
+
+  /** Resolve a source line to the block that contains it, preferring an exact
+   *  start-line match so a remembered heading lands on that heading. */
+  function blockForLine(line: number): HTMLElement | null {
+    let covering: HTMLElement | null = null;
+    for (const b of lineIndex) {
+      if (b.from === line) return b.el;
+      if (line >= b.from && line <= b.to) covering = b.el;
+      if (b.from > line) break;
+    }
+    return covering ?? findElementByLine(container, line);
+  }
+
+  function beginProgrammaticScroll() {
+    programmaticScroll = true;
+    if (programmaticTimer) clearTimeout(programmaticTimer);
+    // Long enough to cover a smooth-scroll animation; the flag only suppresses
+    // *writes*, so erring generous costs nothing but a stale mark for a moment.
+    programmaticTimer = setTimeout(() => {
+      programmaticScroll = false;
+      programmaticTimer = null;
+    }, 700);
+  }
+
+  /** Align a block's top with the top of the viewport (minus a little air). */
+  function scrollBlockToTop(el: HTMLElement, smooth: boolean) {
+    if (!container) return;
+    const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    beginProgrammaticScroll();
+    container.scrollTo({
+      top: Math.max(0, container.scrollTop + delta - 12),
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }
+
+  /** Restore a remembered position. The anchor line is tried first because it
+   *  survives font-size, content-width and zoom changes; the height ratio is
+   *  the fallback for when the block it named is gone. */
+  function applyMark(mark: ScrollMark, smooth = false) {
+    if (!container) return;
+    const el = mark.line > 1 ? blockForLine(mark.line) : null;
+    if (el) {
+      scrollBlockToTop(el, smooth);
+      return;
+    }
+    beginProgrammaticScroll();
+    container.scrollTop = Math.max(0, mark.ratio * container.scrollHeight);
+  }
+
+  function updateRibbonGeometry() {
+    if (!container || !resumeMark) {
+      ribbonResolved = false;
+      return;
+    }
+    const el = blockForLine(resumeMark.line);
+    if (!el) {
+      ribbonResolved = false;
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    // offsetTop is exact here: `.viewer` is position:relative, so it is the
+    // offsetParent of the content blocks.
+    ribbonTop = el.offsetTop;
+    ribbonResolved = true;
+    ribbonInView = elRect.top >= containerRect.top - 4 && elRect.top <= containerRect.bottom;
+    const trackTop = ribbonTop;
+    const fraction = container.scrollHeight > 0 ? trackTop / container.scrollHeight : 0;
+    edgeTop = containerRect.top + Math.min(Math.max(fraction, 0.02), 0.98) * containerRect.height;
+    edgeRight = Math.max(8, window.innerWidth - containerRect.right + 16);
+  }
+
+  function publishNav() {
+    if (!container) return;
+    const { block, heading } = topOfViewport();
+    const max = container.scrollHeight - container.clientHeight;
+    const progress = max > 0 ? Math.min(1, Math.max(0, container.scrollTop / max)) : 0;
+    viewNav.publish(heading, block, progress);
+  }
+
+  function onScroll() {
+    if (navRaf) return;
+    navRaf = requestAnimationFrame(() => {
+      navRaf = 0;
+      publishNav();
+      updateRibbonGeometry();
+      if (programmaticScroll) return;
+      // Per-tab retention is unconditional — it's simply correct behaviour.
+      // The `rememberScroll` setting governs only whether the mark is written
+      // to disk for the next session, which tabs-store handles.
+      const mark = currentMark();
+      if (!mark || !tabId) return;
+      pendingMark = mark;
+      pendingMarkTabId = tabId;
+      if (markTimer) clearTimeout(markTimer);
+      markTimer = setTimeout(flushMark, 220);
+    });
+  }
+
+  function flushMark() {
+    if (markTimer) clearTimeout(markTimer);
+    markTimer = null;
+    if (pendingMark && pendingMarkTabId) onScrollMark?.(pendingMarkTabId, pendingMark);
+    pendingMark = null;
+    pendingMarkTabId = "";
+  }
+
+  /** Outline entries call in through the view-nav store. */
+  const unregisterScroller = viewNav.registerScroller((line, opts) => {
+    const el = blockForLine(line);
+    if (el) scrollBlockToTop(el, opts?.smooth ?? true);
+  });
+
+  function jumpToResume() {
+    if (resumeMark) applyMark(resumeMark, true);
+  }
+
+  function dismissRibbon() {
+    if (tabId) onDismissResume?.(tabId);
+  }
+
+  onDestroy(() => {
+    unregisterScroller();
+    flushMark();
+    if (navRaf) cancelAnimationFrame(navRaf);
+    if (programmaticTimer) clearTimeout(programmaticTimer);
+    if (freshTimer) clearTimeout(freshTimer);
+    viewNav.reset();
+  });
+
   $effect(() => {
     const src = source;
     const isDark = dark;
@@ -85,22 +345,64 @@
     const currentMode = mode;
     const baseline = baselineSource;
     const diffOn = settings.s.diffMode;
+    // Read synchronously so a tab switch re-runs this effect even when the two
+    // tabs happen to hold byte-identical content.
+    const tab = tabId;
     let cancelled = false;
 
     // Compute change line BEFORE re-render, while we still have the old source on screen.
     const isDiskChange = diskTick !== prevDiskTick;
     const changedLine = isDiskChange ? firstChangedLine(prevSource, src) : null;
 
+    const isTabSwitch = tab !== renderedTabId;
+    // The outgoing tab's position must land before the incoming tab's is read,
+    // or a quick Ctrl+Tab loses the last few hundred pixels of scrolling.
+    if (isTabSwitch) {
+      flushMark();
+      viewNav.reset();
+    }
+
     (async () => {
       const rendered = await api.renderMarkdown(src, isDark);
       if (cancelled) return;
       lastScroll = container?.scrollTop ?? 0;
+      // Everything below is read post-await, i.e. outside the reactive
+      // tracking scope, so writing these values back can't retrigger a render.
+      const markToRestore = isTabSwitch ? getScrollMark?.(tab) ?? null : null;
+      const resumeToAnnounce = isTabSwitch ? resumeMark : null;
       html = rendered;
+      renderedTabId = tab;
       await tick();
       if (container) {
-        container.scrollTop = lastScroll;
+        buildIndexes();
+        if (isTabSwitch) {
+          // A switch must always place the scroll deliberately. Falling through
+          // to `lastScroll` here would hand the incoming tab the *outgoing*
+          // tab's offset — the original complaint — so an unvisited document
+          // explicitly starts at the top.
+          beginProgrammaticScroll();
+          if (markToRestore) applyMark(markToRestore);
+          else container.scrollTop = 0;
+        } else {
+          beginProgrammaticScroll();
+          container.scrollTop = lastScroll;
+        }
         await postRender(container, { dark: isDark });
         rewriteRelativeImages(container, basePath);
+        // postRender assigns heading ids and lays out math/diagrams, any of
+        // which can shift block heights. Re-anchor so a restore lands on the
+        // line it named rather than where that line used to be.
+        buildIndexes();
+        if (isTabSwitch && markToRestore) applyMark(markToRestore);
+
+        if (resumeToAnnounce && !resumeApplied && !resumeDismissed && settings.s.resumeRibbon) {
+          ribbonFresh = true;
+          if (freshTimer) clearTimeout(freshTimer);
+          freshTimer = setTimeout(() => { ribbonFresh = false; }, 5200);
+          if (tab) onResumeApplied?.(tab);
+        }
+        updateRibbonGeometry();
+        publishNav();
 
         // Live-follow: smart-scroll + flash for the most recent disk edit.
         if (isDiskChange && changedLine != null && currentMode === "view") {
@@ -299,13 +601,29 @@
   class:center-headings={settings.s.centerHeadings}
   style="--zoom: {settings.s.zoom}; --font-size: {settings.s.fontSize}px; --font-family: {settings.s.fontFamily}; --content-width: {settings.s.contentWidthCh}ch;"
   bind:this={container}
+  onscroll={onScroll}
 >
   <article class="prose">{@html html}</article>
+
+  <ResumeRibbon
+    show={ribbonVisible}
+    top={ribbonTop}
+    inView={ribbonInView}
+    {edgeTop}
+    {edgeRight}
+    fresh={ribbonFresh}
+    onJump={jumpToResume}
+    onDismiss={dismissRibbon}
+  />
 </div>
 
 <style>
-  /* Outer scroll container — full width of the parent flex slot */
+  /* Outer scroll container — full width of the parent flex slot.
+     position:relative makes it the offsetParent for content blocks, which is
+     what lets the resume ribbon and the live-follow maths use offsetTop
+     directly instead of guessing at an ancestor. */
   .viewer {
+    position: relative;
     flex: 1 1 auto;
     overflow-y: auto;
     overflow-x: hidden;
@@ -735,6 +1053,17 @@
   @keyframes theatre-fresh-pulse-dark {
     0%, 100% { background-color: rgba(74, 222, 128, 0.13); }
     50%      { background-color: rgba(74, 222, 128, 0.24); }
+  }
+
+  /* Respect the OS "reduce motion" preference: the highlights still carry
+     their colour and left-bar, they just stop moving. The information is in
+     the colour, never in the animation. */
+  @media (prefers-reduced-motion: reduce) {
+    .viewer :global(.theatre-fresh),
+    .viewer :global(.live-edit-flash),
+    .viewer :global(.live-tracked) {
+      animation: none;
+    }
   }
 
   /* ─── Mermaid ──────────────────────────────────────────── */

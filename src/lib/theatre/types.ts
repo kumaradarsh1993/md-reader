@@ -3,6 +3,16 @@
  * `docs/proposals/live-edit-theatre.md` for the full design rationale.
  */
 
+/** Sidebar per-card state for the lazily-fetched LLM summary of one section. */
+export interface CardSummaryState {
+  /** Prose summary, once fetched successfully. */
+  summary?: string;
+  /** True while the request is in flight. */
+  loading?: boolean;
+  /** Surfaced if the LLM call failed (or a friendlier pre-flight message). */
+  error?: string;
+}
+
 /** One Claude/AI turn — a contiguous burst of external edits to the file. */
 export interface Turn {
   /** Monotonic ID, unique within a tab's session. */
@@ -15,12 +25,22 @@ export interface Turn {
   snapshotBefore: string;
   /** Source content when the turn was finalised. Frozen artefact. */
   snapshotAfter: string;
-  /** Lazily populated when the user requests an LLM summary in the sidebar. */
-  llmSummary?: string;
-  /** Set true while llmSummary is being fetched. */
-  llmLoading?: boolean;
-  /** Surfaced if the LLM call failed. */
-  llmError?: string;
+  /**
+   * Per-section LLM summary cache, keyed by the section's index within this
+   * turn's `changedSections()` output (stable across re-renders because
+   * snapshotBefore/After are frozen, so the section list never reshuffles).
+   * Lives on the Turn — not on the DiffSidebar component — because the
+   * sidebar unmounts whenever `sidebarOpen` flips false, and we don't want
+   * to lose fetched summaries (or re-bill the API) on every close/reopen.
+   */
+  cardSummaries?: Record<number, CardSummaryState>;
+  /**
+   * Per-section display mode (naive diff vs LLM summary), keyed the same way
+   * as `cardSummaries`. Sticky across sidebar close/reopen for the same
+   * reason — otherwise every card silently reverts to "Naive diff" the
+   * moment you close the panel.
+   */
+  cardMode?: Record<number, "naive" | "llm">;
 }
 
 /**

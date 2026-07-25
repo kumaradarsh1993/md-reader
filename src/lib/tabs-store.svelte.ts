@@ -1,5 +1,5 @@
 import { api } from "./api";
-import { settings } from "./settings-store.svelte";
+import { settings, type ScrollMark } from "./settings-store.svelte";
 import type { Turn, TheatrePhase, SelectedView, FreshRange } from "./theatre/types";
 import {
   onBeforeExternalEdit,
@@ -15,9 +15,24 @@ export interface Tab {
    *  against this; reset via "Reset diff baseline" in the File menu. */
   baselineSource: string;
   dirty: boolean;
-  scrollPos: number;
   /** Bumped each time the file changes on disk so the Viewer can live-follow. */
   diskTick: number;
+
+  // ─── Reading position (v0.6.0+) ─────────────────────────────────────────
+  /** Where this tab is scrolled to right now. Owned by the Viewer, which
+   *  writes it on scroll and reads it back when the tab regains focus —
+   *  that's what stops tab A's position from leaking into tab B. */
+  scrollMark: ScrollMark | null;
+  /** The position this file was left at in a *previous* session, if any.
+   *  Kept separate from `scrollMark` so the resume ribbon knows which line to
+   *  mark even after the reader has scrolled away from it. */
+  resumeMark: ScrollMark | null;
+  /** True once the ribbon has been shown and dismissed (or scrolled past) —
+   *  it should announce itself once per open, not once per re-render. */
+  resumeDismissed: boolean;
+  /** Set by the Viewer after it has applied `resumeMark` on first render, so
+   *  a re-render (theme flip, external edit) doesn't yank the reader back. */
+  resumeApplied: boolean;
 
   // ─── Live Edit Theatre state (v0.4.0+, in-memory only) ──────────────────
   /** Theatre state machine phase for this tab. Default "off". */
@@ -47,6 +62,23 @@ export interface Tab {
    *  list — at which point they're rendered yellow via the regular
    *  theatreRanges path instead of green. */
   freshRanges: FreshRange[];
+}
+
+/** Reading-position fields for a freshly-opened tab. A mark stored from a
+ *  previous session becomes both the starting position and the ribbon anchor. */
+function freshScrollState(path: string): Pick<
+  Tab,
+  "scrollMark" | "resumeMark" | "resumeDismissed" | "resumeApplied"
+> {
+  const remembered = settings.scrollMarkFor(path);
+  return {
+    scrollMark: remembered,
+    // Only offer to mark the spot when it's meaningfully into the document —
+    // a ribbon two lines from the top is noise, not a service.
+    resumeMark: remembered && remembered.ratio > 0.02 ? remembered : null,
+    resumeDismissed: false,
+    resumeApplied: false,
+  };
 }
 
 function newId(): string {
@@ -96,8 +128,8 @@ class TabsStore {
       source: file.content,
       baselineSource: file.content,
       dirty: false,
-      scrollPos: 0,
       diskTick: 0,
+      ...freshScrollState(file.path),
       ...freshTheatreState(),
     };
     this.tabs = [...this.tabs, tab];
@@ -182,9 +214,25 @@ class TabsStore {
     onAfterExternalEdit(t);
   }
 
-  setActiveScrollPos(pos: number) {
-    const t = this.active;
-    if (t) t.scrollPos = pos;
+  /** Record the reading position for a tab (by id, not "active" — a scroll
+   *  event can land just after the user switched tabs). Also persists it
+   *  against the file path so the next session resumes here. */
+  setScrollMark(tabId: string, mark: ScrollMark) {
+    const t = this.tabs.find((x) => x.id === tabId);
+    if (!t) return;
+    t.scrollMark = mark;
+    settings.rememberScrollMark(t.path, mark);
+  }
+
+  /** Stop showing the resume ribbon for this tab. */
+  dismissResume(tabId: string) {
+    const t = this.tabs.find((x) => x.id === tabId);
+    if (t) t.resumeDismissed = true;
+  }
+
+  markResumeApplied(tabId: string) {
+    const t = this.tabs.find((x) => x.id === tabId);
+    if (t) t.resumeApplied = true;
   }
 
   markActiveSaved() {
@@ -214,8 +262,8 @@ class TabsStore {
             source: file.content,
             baselineSource: file.content,
             dirty: false,
-            scrollPos: 0,
             diskTick: 0,
+            ...freshScrollState(file.path),
             ...freshTheatreState(),
           },
         ];

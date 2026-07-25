@@ -10,18 +10,16 @@
    */
   import { settings } from "../settings-store.svelte";
   import type { Tab } from "../tabs-store.svelte";
+  import type { Turn } from "./types";
   import { selectView, toggleSidebar, viewSnapshots } from "./store.svelte";
-  import { changedSections, lineDiff, type Section } from "./diff-engine";
+  import { changedSections, countLines, lineDiff, type Section } from "./diff-engine";
   import { summariseDiff, SmartDiffError } from "../llm";
+  import { viewNav } from "../view-nav.svelte";
 
   interface Props { tab: Tab; }
   let { tab }: Props = $props();
 
-  // Map a turn ID to the per-card "mode" choice (naive vs LLM). Stored per
-  // turn so flipping a card stays sticky across re-renders.
-  let cardMode = $state<Record<string, "naive" | "llm">>({});
-  // Per-turn LLM summaries cached client-side. Survives sidebar close/open.
-  let llmCache = $state<Record<number, { summary?: string; error?: string; loading?: boolean }>>({});
+  let asideEl: HTMLElement | null = $state(null);
 
   // Compute the section list based on current view selection.
   let snapshots = $derived(viewSnapshots(tab));
@@ -29,6 +27,28 @@
     if (!snapshots) return [];
     return changedSections(snapshots.before, snapshots.after);
   });
+
+  // The Turn object backing the current view, when the view is a specific
+  // completed turn (not the moving-target "since-open" / "live" views). Both
+  // the per-card LLM cache and the per-card mode choice live directly on this
+  // object (see types.ts: Turn.cardSummaries / Turn.cardMode) so they survive
+  // the sidebar unmounting — this component only exists in the DOM while
+  // tab.sidebarOpen is true, so any state kept in local $state here is lost
+  // (and, for LLM summaries, silently re-fetched/re-billed) every time the
+  // user closes and reopens the panel.
+  let activeTurn = $derived.by((): Turn | undefined => {
+    if (typeof tab.selectedView !== "number") return undefined;
+    return tab.turns.find((t) => t.id === tab.selectedView);
+  });
+
+  function cardMode(i: number): "naive" | "llm" {
+    return activeTurn?.cardMode?.[i] ?? "naive";
+  }
+  function setCardMode(i: number, mode: "naive" | "llm") {
+    if (!activeTurn) return;
+    if (!activeTurn.cardMode) activeTurn.cardMode = {};
+    activeTurn.cardMode[i] = mode;
+  }
 
   // Friendly relative-time formatter for the turn-picker dropdown.
   function ago(ms: number): string {
@@ -40,8 +60,34 @@
     return `${h}h ago`;
   }
 
-  async function fetchLlmSummary(turnId: number) {
-    const turn = tab.turns.find((t) => t.id === turnId);
+  // How long the turn actually took to write (startedAt → finishedAt) —
+  // cheap to compute and gives the picker more signal than "how long ago"
+  // alone (a 3-second nudge reads very differently from a 4-minute rewrite).
+  function duration(t: Turn): string {
+    const ms = Math.max(0, t.finishedAt - t.startedAt);
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+  }
+
+  // Caption under each card heading — "N lines changed/added/removed".
+  // `changedLineRangesAfter` is already correct for "added" (whole section)
+  // and "changed" (just the differing sub-ranges); "removed" sections carry
+  // no AFTER content at all, so fall back to counting the BEFORE text.
+  function lineCountLabel(s: Section): string {
+    const n = s.changeKind === "removed"
+      ? countLines(s.beforeText)
+      : s.changedLineRangesAfter.reduce((sum, r) => sum + (r.to - r.from + 1), 0);
+    if (n <= 0) return s.changeKind;
+    const noun = n === 1 ? "line" : "lines";
+    const verb = s.changeKind === "added" ? "added" : s.changeKind === "removed" ? "removed" : "changed";
+    return `${n} ${noun} ${verb}`;
+  }
+
+  async function fetchLlmSummary(i: number, section: Section) {
+    const turn = activeTurn;
     if (!turn) return;
     // Pre-flight: surface a friendlier message than the provider's own
     // "no key set" error if the user hasn't pasted a key for the selected
@@ -51,32 +97,63 @@
     const keyMissing =
       (provider === "groq" && !settings.s.groqApiKey) ||
       (provider === "anthropic" && !settings.s.anthropicApiKey);
+    if (!turn.cardSummaries) turn.cardSummaries = {};
     if (keyMissing) {
       const where = provider === "groq" ? "Groq (console.groq.com)" : "Anthropic";
-      llmCache[turnId] = {
+      turn.cardSummaries[i] = {
         error: `No ${where} API key — add one in Settings → Smart-diff.`,
       };
       return;
     }
-    llmCache[turnId] = { loading: true };
+    turn.cardSummaries[i] = { loading: true };
     try {
-      const res = await summariseDiff(turn.snapshotBefore, turn.snapshotAfter);
-      llmCache[turnId] = { summary: res.summary };
+      // Summarise just THIS section's before/after — not the whole turn.
+      // (The previous implementation always sent turn.snapshotBefore /
+      // snapshotAfter here, so every card in a turn showed the identical
+      // whole-document summary the moment any one of them was toggled to
+      // "Summary" — the opposite of the design doc's stated goal: "quickly
+      // LLM-summarise the one paragraph you care about without burning
+      // tokens on the whole document.")
+      const res = await summariseDiff(section.beforeText, section.afterText);
+      turn.cardSummaries[i] = { summary: res.summary };
     } catch (e) {
       const msg = e instanceof SmartDiffError ? e.message : String(e);
-      llmCache[turnId] = { error: msg };
+      turn.cardSummaries[i] = { error: msg };
     }
   }
 
-  // For the "since-open" and "live" virtual views we don't cache LLM results
-  // (they're moving targets). The card switches to naive-only for those.
-  function isVirtualView(view: typeof tab.selectedView): boolean {
-    return view === "since-open" || view === "live";
+  /** Scroll the viewer to this section. No-op for removed sections — they
+   *  no longer exist in the current document, so there's nowhere to jump. */
+  function jumpToSection(section: Section) {
+    if (section.startLineAfter <= 0) return;
+    viewNav.jumpToLine(section.startLineAfter);
+  }
+
+  // Focus the panel on open so keyboard users land somewhere sensible
+  // without having to tab in from the toolbar, and so Escape (below) has an
+  // obvious target. tabindex=-1 on the <aside> makes it focusable without
+  // adding it to the normal tab order.
+  $effect(() => {
+    asideEl?.focus();
+  });
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      toggleSidebar(tab);
+    }
   }
 </script>
 
 {#if tab.sidebarOpen}
-  <aside class="diff-sidebar" aria-label="Diff sidebar">
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <aside
+    class="diff-sidebar"
+    aria-label="Diff sidebar"
+    tabindex="-1"
+    bind:this={asideEl}
+    onkeydown={onKeydown}
+  >
     <header>
       <h3>Changes</h3>
       <button class="close" onclick={() => toggleSidebar(tab)} aria-label="Close sidebar">✕</button>
@@ -96,7 +173,7 @@
           <option value="live">This turn (in progress)</option>
         {/if}
         {#each tab.turns as t}
-          <option value={String(t.id)}>v{t.id} — {ago(t.finishedAt)}</option>
+          <option value={String(t.id)}>v{t.id} — {ago(t.finishedAt)} · {duration(t)}</option>
         {/each}
         <option value="since-open">Since file opened</option>
       </select>
@@ -109,46 +186,56 @@
         <p class="empty">No changes in this view — snapshots are identical.</p>
       {:else}
         {#each sections as s, i (s.heading + ":" + i)}
-          {@const cardKey = `${tab.selectedView}:${i}`}
-          {@const isTurn = typeof tab.selectedView === "number"}
-          {@const mode = cardMode[cardKey] ?? "naive"}
-          {@const llm = isTurn ? llmCache[tab.selectedView as number] : undefined}
+          {@const mode = cardMode(i)}
+          {@const summaryState = activeTurn?.cardSummaries?.[i]}
+          {@const navigable = s.startLineAfter > 0}
           <article class="card" class:added={s.changeKind === "added"} class:removed={s.changeKind === "removed"} data-card-section-index={i}>
             <header class="card-head">
               <span class="kind-badge">{s.changeKind}</span>
-              <span class="heading" title={s.heading}>
-                {#if s.level > 0}
-                  <span class="hash">{"#".repeat(s.level)} </span>
-                {/if}
-                {s.heading}
-              </span>
+              {#if navigable}
+                <button
+                  type="button"
+                  class="heading-link"
+                  onclick={() => jumpToSection(s)}
+                  title={`Jump to "${s.heading}" in the document`}
+                >
+                  {#if s.level > 0}<span class="hash">{"#".repeat(s.level)} </span>{/if}
+                  <span class="heading-text">{s.heading}</span>
+                </button>
+              {:else}
+                <span class="heading no-jump" title="This section no longer exists in the document">
+                  {#if s.level > 0}<span class="hash">{"#".repeat(s.level)} </span>{/if}
+                  {s.heading}
+                </span>
+              {/if}
             </header>
+            <p class="count">{lineCountLabel(s)}</p>
 
-            {#if isTurn && !isVirtualView(tab.selectedView)}
+            {#if activeTurn}
               <div class="mode">
                 <button
                   class:active={mode === "naive"}
-                  onclick={() => (cardMode[cardKey] = "naive")}
+                  onclick={() => setCardMode(i, "naive")}
                 >Naive diff</button>
                 <button
                   class:active={mode === "llm"}
                   onclick={() => {
-                    cardMode[cardKey] = "llm";
-                    if (llm?.summary === undefined && !llm?.loading) {
-                      fetchLlmSummary(tab.selectedView as number);
+                    setCardMode(i, "llm");
+                    if (summaryState?.summary === undefined && !summaryState?.loading) {
+                      fetchLlmSummary(i, s);
                     }
                   }}
                 >✨ Summary</button>
               </div>
             {/if}
 
-            {#if mode === "llm" && isTurn && !isVirtualView(tab.selectedView)}
-              {#if llm?.loading}
+            {#if mode === "llm" && activeTurn}
+              {#if summaryState?.loading}
                 <div class="llm-state">Asking {settings.s.llmProvider === "groq" ? "Groq" : "Claude"}…</div>
-              {:else if llm?.error}
-                <div class="llm-state error">{llm.error}</div>
-              {:else if llm?.summary}
-                <div class="llm-summary">{@html llm.summary.replace(/\n/g, "<br>")}</div>
+              {:else if summaryState?.error}
+                <div class="llm-state error">{summaryState.error}</div>
+              {:else if summaryState?.summary}
+                <div class="llm-summary">{@html summaryState.summary.replace(/\n/g, "<br>")}</div>
               {:else}
                 <div class="llm-state">Click ✨ Summary to fetch.</div>
               {/if}
@@ -173,9 +260,15 @@
     overflow: hidden;
     animation: slide-in .25s ease both;
   }
+  .diff-sidebar:focus {
+    outline: none;
+  }
   @keyframes slide-in {
     from { transform: translateX(20px); opacity: 0; }
     to   { transform: translateX(0); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .diff-sidebar { animation: none; }
   }
   header {
     display: flex;
@@ -267,6 +360,44 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+  }
+  .heading.no-jump {
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+  /* Clickable heading — navigates the viewer to this section. Styled to
+     look like the plain heading it replaces, with just enough affordance
+     (pointer cursor, underline-on-hover, focus ring) to read as clickable. */
+  .heading-link {
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--fg);
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    height: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .heading-link:hover .heading-text,
+  .heading-link:focus-visible .heading-text {
+    text-decoration: underline;
+  }
+  .heading-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .count {
+    margin: -.2rem 0 .4rem;
+    font-size: 11px;
+    color: var(--muted);
   }
   .hash { color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
   .mode {

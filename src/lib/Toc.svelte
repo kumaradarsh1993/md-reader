@@ -1,114 +1,266 @@
 <script lang="ts">
+  import { parseHeadings, activeHeadingIndex } from "$lib/outline";
+  import { viewNav } from "$lib/view-nav.svelte";
+
   interface Props { source: string }
   let { source = "" }: Props = $props();
 
-  interface Heading {
-    level: number;
-    text: string;
-    id: string;
-  }
+  // The shared parser is the single source of truth for heading ids: it dedupes
+  // slugs exactly the way post-render.ts does, so a document with two "Notes"
+  // headings still links to the right anchors.
+  let headings = $derived(parseHeadings(source));
 
-  function slugify(text: string): string {
-    return (
-      "h-" +
-      text
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, "")
-        .trim()
-        .replace(/\s+/g, "-")
-    );
-  }
+  // Documents rarely start at h1 (many begin at h2), so indentation and weight
+  // are keyed off depth *relative to the shallowest heading present* rather
+  // than the raw level. Otherwise an all-h2 document renders fully indented
+  // and uniformly small.
+  let minLevel = $derived(
+    headings.length === 0 ? 1 : headings.reduce((m, h) => Math.min(m, h.level), 6),
+  );
 
-  let headings = $derived.by<Heading[]>(() => {
-    const out: Heading[] = [];
-    const lines = source.split(/\r?\n/);
-    let inFence = false;
-    for (const line of lines) {
-      if (/^\s*```/.test(line)) {
-        inFence = !inFence;
-        continue;
-      }
-      if (inFence) continue;
-      const m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
-      if (m) {
-        const level = m[1].length;
-        const text = m[2];
-        out.push({ level, text, id: slugify(text) });
-      }
-    }
-    return out;
+  // `topLine` tracks the top-most visible block, which moves continuously as
+  // the reader scrolls; `activeLine` only changes when a heading reaches the
+  // top. Preferring topLine is what makes the highlight travel through long
+  // sections instead of sticking until the next heading arrives.
+  let activeIdx = $derived(
+    activeHeadingIndex(headings, viewNav.topLine ?? viewNav.activeLine),
+  );
+
+  let rootEl = $state<HTMLElement | null>(null);
+  let listEl = $state<HTMLElement | null>(null);
+  /** Pointer is over the outline — never yank the list out from under it. */
+  let hovering = $state(false);
+  /** Wall-clock of the last deliberate wheel inside the outline. */
+  let userActiveAt = $state(0);
+
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Attached imperatively: these are scroll-following heuristics, not user
+  // interactions, and putting mouse handlers on the markup would only earn a
+  // spurious a11y warning on an element that isn't a control.
+  $effect(() => {
+    const el = rootEl;
+    if (!el) return;
+    const enter = () => (hovering = true);
+    const leave = () => (hovering = false);
+    const wheel = () => (userActiveAt = Date.now());
+    el.addEventListener("pointerenter", enter);
+    el.addEventListener("pointerleave", leave);
+    el.addEventListener("wheel", wheel, { passive: true });
+    return () => {
+      el.removeEventListener("pointerenter", enter);
+      el.removeEventListener("pointerleave", leave);
+      el.removeEventListener("wheel", wheel);
+    };
   });
 
-  function jump(id: string) {
-    const el = document.getElementById(id);
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Follow the reading position, but only nudge: `block: "nearest"` leaves the
+  // list alone while the active row is already on screen, which keeps the
+  // outline from twitching on every scroll tick.
+  $effect(() => {
+    const idx = activeIdx;
+    if (idx < 0 || !listEl) return;
+    if (hovering) return;
+    if (Date.now() - userActiveAt < 1500) return;
+    const row = listEl.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
+    row?.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+  });
+
+  function jump(line: number, id: string) {
+    // Line-based jumps survive duplicate heading text; the slug is only a
+    // fallback for when no Viewer is mounted (edit mode).
+    viewNav.jumpToLine(line, id);
   }
 </script>
 
-<aside class="toc">
-  <div class="toc-title">Outline</div>
+<div class="toc" bind:this={rootEl}>
+  <!-- Reading-progress rail: a 2px scrubber pinned to the section edge. It
+       lives outside the scroller so it reads as document progress, not list
+       progress. -->
+  <div class="rail" aria-hidden="true">
+    <div class="rail-fill" style="height: {Math.round(viewNav.progress * 1000) / 10}%"></div>
+  </div>
+
   {#if headings.length === 0}
     <div class="toc-empty">No headings</div>
   {:else}
-    <ul>
-      {#each headings as h}
-        <li style="--lvl: {h.level}">
-          <button onclick={() => jump(h.id)}>{h.text}</button>
-        </li>
+    <nav class="list" bind:this={listEl} aria-label="Document outline">
+      {#each headings as h (h.index)}
+        <button
+          class="row d{Math.min(h.level - minLevel, 3)}"
+          class:active={h.index === activeIdx}
+          class:above={h.index < activeIdx}
+          style="--depth: {Math.min(h.level - minLevel, 5)}"
+          data-idx={h.index}
+          aria-current={h.index === activeIdx ? "location" : undefined}
+          title={h.text}
+          onclick={() => jump(h.line, h.id)}
+        >
+          <!-- The pill is a child rather than the button's own background so it
+               can start at the indent guide instead of the pane edge — that's
+               what makes the active row's depth readable at a glance. -->
+          <span class="pill"><span class="label">{h.text}</span></span>
+        </button>
       {/each}
-    </ul>
+    </nav>
   {/if}
-</aside>
+</div>
 
 <style>
   .toc {
-    width: 256px;
-    flex: 0 0 256px;
-    border-right: 1px solid var(--border);
-    background: var(--side-bg);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* Clears the progress rail and lines the level-0 guide up with the section
+       header's text, so the whole pane shares one left margin. */
+    padding-left: 9px;
+  }
+
+  .rail {
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .rail-fill {
+    width: 100%;
+    background: var(--accent);
+    opacity: .5;
+    border-radius: 1px;
+    transition: height 120ms linear;
+  }
+
+  .list {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
-    padding: 1.25rem .85rem 2rem;
-    font-size: 12.5px;
-    line-height: 1.45;
+    overflow-x: hidden;
+    padding: .25rem .5rem 1rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
   }
-  .toc-title {
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    font-size: 10.5px;
-    color: var(--muted);
-    font-weight: 600;
-    margin: 0 .25rem .65rem;
-  }
+
   .toc-empty {
     color: var(--muted);
     font-style: italic;
-    padding: .25rem .5rem;
-    font-size: 12px;
+    padding: .6rem .65rem;
+    font-size: 11.5px;
   }
-  ul { list-style: none; margin: 0; padding: 0; }
-  li {
-    padding-left: calc((var(--lvl) - 1) * 0.85rem);
-    margin: 1px 0;
-  }
-  button {
+
+  .row {
+    position: relative;
+    display: block;
+    width: 100%;
     background: none;
     border: 0;
-    padding: .3rem .55rem;
-    color: var(--muted-strong);
-    text-align: left;
     cursor: pointer;
-    width: 100%;
-    border-radius: 5px;
+    text-align: left;
     font: inherit;
-    font-size: inherit;
-    line-height: 1.4;
-    transition: background-color 100ms ease, color 100ms ease;
-    white-space: normal;
-    word-break: break-word;
+    /* Depth is expressed as indentation *plus* a guide line (see ::before);
+       raw padding alone made deep outlines read as a shapeless ragged edge. */
+    padding: 0 8px 0 calc(var(--depth) * 11px);
+    color: var(--muted-strong);
+    transition: color 90ms ease;
   }
-  button:hover {
-    background: var(--hover-bg);
+  /* One guide segment per row, sitting exactly on the pill's left edge.
+     Consecutive rows at the same depth stack into a continuous vertical line,
+     and the same element doubles as the active accent bar — so the indicator is
+     always precisely where the eye expects it. */
+  .row::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--depth) * 11px);
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--border);
+    opacity: 0;
+    transition: opacity 90ms ease, background-color 90ms ease;
+    z-index: 1;
+  }
+  .row:not(.d0)::before { opacity: .85; }
+
+  .pill {
+    display: block;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background-color 90ms ease, box-shadow 90ms ease;
+  }
+  .label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Level-aware typography: top-level entries carry the document's structure,
+     deeper ones recede so the shape is legible at a glance. */
+  .row.d0 {
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: -.005em;
     color: var(--fg);
+    line-height: 1.45;
   }
-  button:active { background: var(--accent-soft); }
+  .row.d1 {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted-strong);
+    line-height: 1.4;
+  }
+  .row.d2 {
+    font-size: 11.5px;
+    font-weight: 450;
+    color: var(--muted-strong);
+    line-height: 1.4;
+  }
+  .row.d3 {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* Already-read entries dim slightly, so the highlight sits at the boundary
+     between "behind me" and "ahead of me". Opacity rather than a colour keeps
+     it correct in all three palettes. */
+  .row.above:not(.active) { opacity: .62; }
+
+  .row:hover { color: var(--fg-strong); opacity: 1; }
+  .row:hover .pill { background: var(--hover-bg); }
+  .row:hover::before { background: var(--border-strong); opacity: 1; }
+  .row:active .pill { background: var(--accent-soft); }
+  .row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 6px;
+  }
+
+  .row.active { color: var(--fg-strong); }
+  .row.active .pill {
+    /* A dedicated fill rather than --accent-soft: at 12–18% the soft tint is
+       nearly invisible on a dark surface. An earlier pass added a 1px accent
+       ring to compensate, but a fully-ringed rounded rect reads as a text
+       input, not as "you are here" — the row needs a band, not a control.
+       --accent-active is defined per-theme in +page.svelte. */
+    background: var(--accent-active);
+  }
+  .row.active::before {
+    background: var(--accent);
+    opacity: 1;
+  }
+  .row.active.d0 { font-weight: 650; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .row, .row::before, .pill, .rail-fill { transition: none; }
+  }
 </style>

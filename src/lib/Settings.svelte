@@ -4,6 +4,8 @@
   interface Props { open: boolean }
   let { open = $bindable(false) }: Props = $props();
 
+  let markCount = $derived(Object.keys(settings.s.scrollMemory ?? {}).length);
+
   const widthPresets = [
     { label: "Narrow", value: 56 },
     { label: "Default", value: WIDTH_DEFAULT },
@@ -108,6 +110,48 @@
         onchange={(e) => settings.set("showToc", (e.currentTarget as HTMLInputElement).checked)}
       />
       <span>Show outline sidebar</span>
+    </label>
+
+    <fieldset class="reading-group">
+      <legend>
+        <span>Reading position</span>
+        <span class="value">{markCount === 0 ? "nothing saved" : `${markCount} ${markCount === 1 ? "file" : "files"}`}</span>
+      </legend>
+      <p class="hint smart-hint">
+        Every tab keeps its own scroll position while md-reader is open. These
+        options control whether that position also survives closing the app.
+      </p>
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={settings.s.rememberScroll}
+          onchange={(e) => settings.set("rememberScroll", (e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>Resume where I left off <small>(across sessions)</small></span>
+      </label>
+      <label class="check">
+        <input
+          type="checkbox"
+          disabled={!settings.s.rememberScroll}
+          checked={settings.s.resumeRibbon}
+          onchange={(e) => settings.set("resumeRibbon", (e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>Mark the spot with a ribbon <small>(subtle "you left off here" line)</small></span>
+      </label>
+      <div class="presets">
+        <button type="button" onclick={() => settings.clearScrollMemory()} disabled={markCount === 0}>
+          Forget saved positions
+        </button>
+      </div>
+    </fieldset>
+
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={settings.s.panelHoverPeek}
+        onchange={(e) => settings.set("panelHoverPeek", (e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>Peek the side panel on left-edge hover <small>(when collapsed)</small></span>
     </label>
 
     <label class="check">
@@ -286,6 +330,7 @@
   }
   fieldset.width-group,
   fieldset.smart-diff-group,
+  fieldset.reading-group,
   fieldset.editor-mode-group {
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -335,13 +380,18 @@
     font-family: ui-monospace, Menlo, Consolas, monospace;
     font-size: 12px;
   }
-  fieldset.width-group legend {
+  fieldset.width-group legend,
+  fieldset.reading-group legend {
     display: inline-flex;
     gap: .5rem;
     align-items: baseline;
     padding: 0 .35rem;
     font-size: 13px;
   }
+  fieldset.reading-group .check { margin: .5rem 0; }
+  fieldset.reading-group .check small { color: var(--muted); font-size: 11px; }
+  fieldset.reading-group input[type="checkbox"]:disabled + span { opacity: .5; }
+  .presets button[disabled] { opacity: .45; cursor: default; }
   .value { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
   .presets {
     display: flex;

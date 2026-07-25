@@ -3,9 +3,16 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { api } from "$lib/api";
-  import { settings, effectiveDark, effectiveThemeName, type ThemeMode } from "$lib/settings-store.svelte";
+  import {
+    settings,
+    effectiveThemeName,
+    WIDTH_MIN,
+    WIDTH_MAX,
+    type ThemeMode,
+  } from "$lib/settings-store.svelte";
   import { tabs } from "$lib/tabs-store.svelte";
   import Viewer from "$lib/Viewer.svelte";
+  import WidthControl from "$lib/WidthControl.svelte";
   import Editor from "$lib/Editor.svelte";
   import SmartEditor from "$lib/SmartEditor.svelte";
   import LeftPanel from "$lib/LeftPanel.svelte";
@@ -168,8 +175,36 @@
 
   function bumpWidth(delta: number) {
     if (settings.s.fullWidth) settings.set("fullWidth", false);
-    const w = Math.min(160, Math.max(40, settings.s.contentWidthCh + delta));
+    const w = Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, settings.s.contentWidthCh + delta));
     settings.set("contentWidthCh", w);
+  }
+
+  /** Collapse / restore the whole left pane, ChatGPT-style. Which sections are
+   *  enabled is left untouched, so expanding gives back exactly what you had. */
+  function togglePane() {
+    const next = !settings.s.panelCollapsed;
+    settings.set("panelCollapsed", next);
+    // Expanding with nothing enabled inside would look broken. Fall back to
+    // the outline, which is the more useful of the two for a reader.
+    if (!next && !settings.s.showFiles && !settings.s.showToc) {
+      settings.set("showToc", true);
+    }
+  }
+
+  /** The 📁 / 📑 buttons toggle a section, and additionally undo a collapse —
+   *  asking for a section while the pane is hidden plainly means "show me it". */
+  function revealSection(key: "showFiles" | "showToc") {
+    const other = key === "showFiles" ? "showToc" : "showFiles";
+    if (settings.s.panelCollapsed) {
+      settings.set("panelCollapsed", false);
+      settings.set(key, true);
+      return;
+    }
+    const next = !settings.s[key];
+    settings.set(key, next);
+    // Turning off the last visible section collapses the pane rather than
+    // leaving a stub of chrome behind.
+    if (!next && !settings.s[other]) settings.set("panelCollapsed", true);
   }
 
   function onEditorChange(s: string) {
@@ -183,7 +218,10 @@
     else if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); closeActiveTab(); }
     else if (mod && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); tabs.next(); }
     else if (mod && e.key === "Tab" && e.shiftKey) { e.preventDefault(); tabs.prev(); }
-    else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); settings.set("showFiles", !settings.s.showFiles); }
+    // Ctrl+B is the near-universal "toggle the sidebar" binding (VS Code,
+    // ChatGPT, Obsidian). In v0.5.x it toggled the Files section specifically,
+    // which was a less useful thing to give the most memorable shortcut to.
+    else if (mod && e.key.toLowerCase() === "b") { e.preventDefault(); togglePane(); }
     // Ctrl+L and Ctrl+D removed in v0.3.0. The features they toggled
     // (liveTrack, diffMode) are being repackaged as Live Edit Theatre in
     // v0.4.0 with a new shortcut surface. See docs/proposals/live-edit-theatre.md.
@@ -218,9 +256,16 @@
         try { (getCurrentWebview() as any).openDevtools?.(); } catch { /* noop */ }
       });
     } else if (e.key === "Escape") {
-      findOpen = false;
-      settingsOpen = false;
-      fileMenuOpen = false;
+      // Close one layer at a time, outermost first, so Escape never dismisses
+      // more than the user was looking at.
+      if (findOpen || settingsOpen || fileMenuOpen || aboutOpen) {
+        findOpen = false;
+        settingsOpen = false;
+        fileMenuOpen = false;
+        aboutOpen = false;
+      } else if (active?.sidebarOpen) {
+        active.sidebarOpen = false;
+      }
     }
   }
 
@@ -287,6 +332,15 @@
 
     window.addEventListener("keydown", onKey);
 
+    // Reading positions are written on a short debounce; make sure the window
+    // closing (or being hidden) never beats that timer to the punch.
+    flushOnExit = () => { void settings.flushPendingWrites(); };
+    window.addEventListener("beforeunload", flushOnExit);
+    window.addEventListener("pagehide", flushOnExit);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushOnExit?.();
+    });
+
     // Initial-state determination, in priority order:
     // 1. Explorer file-association launch → take_initial_files returns the
     //    path; we open it and SKIP session restore (intent is "open this
@@ -313,6 +367,7 @@
   });
 
   let dragSwallowers: ((e: DragEvent) => void) | null = null;
+  let flushOnExit: (() => void) | null = null;
 
   onDestroy(() => {
     unlistenCli?.();
@@ -320,6 +375,11 @@
     unlistenDrop?.();
     unlistenOpenFile?.();
     window.removeEventListener("keydown", onKey);
+    if (flushOnExit) {
+      window.removeEventListener("beforeunload", flushOnExit);
+      window.removeEventListener("pagehide", flushOnExit);
+      flushOnExit();
+    }
     if (dragSwallowers) {
       window.removeEventListener("dragover", dragSwallowers);
       window.removeEventListener("drop", dragSwallowers);
@@ -353,16 +413,39 @@
           >Raw</button>
         </div>
       {/if}
-      <div class="seg panel-toggles" title="Toggle side-panel sections">
+      <!-- One button for the whole pane, then two for what's inside it. The
+           split matters: previously the only way to get the sidebar out of the
+           way was to switch off both sections individually, which then lost
+           your choice of sections. -->
+      <button
+        class="icon-btn pane-btn"
+        class:pane-open={!settings.s.panelCollapsed}
+        onclick={togglePane}
+        title={settings.s.panelCollapsed
+          ? "Show side panel (Ctrl+B) — or hover the left edge for a peek"
+          : "Hide side panel (Ctrl+B)"}
+        aria-label="Toggle side panel"
+        aria-expanded={!settings.s.panelCollapsed}
+      >
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+          <rect x="1.25" y="2.25" width="13.5" height="11.5" rx="2.25"
+                fill="none" stroke="currentColor" stroke-width="1.3" />
+          <line x1="6.25" y1="2.25" x2="6.25" y2="13.75"
+                stroke="currentColor" stroke-width="1.3" />
+          <rect class="fill" x="1.25" y="2.25" width="5" height="11.5"
+                rx="2.25" fill="currentColor" />
+        </svg>
+      </button>
+      <div class="seg panel-toggles" title="Choose what the side panel shows">
         <button
-          class:active={settings.s.showFiles}
-          onclick={() => settings.set("showFiles", !settings.s.showFiles)}
-          title="Files (Ctrl+B)"
+          class:active={settings.s.showFiles && !settings.s.panelCollapsed}
+          onclick={() => revealSection("showFiles")}
+          title="Files"
           aria-label="Toggle files panel"
         >📁</button>
         <button
-          class:active={settings.s.showToc}
-          onclick={() => settings.set("showToc", !settings.s.showToc)}
+          class:active={settings.s.showToc && !settings.s.panelCollapsed}
+          onclick={() => revealSection("showToc")}
           title="Outline"
           aria-label="Toggle outline panel"
         >📑</button>
@@ -380,14 +463,9 @@
       {/if}
     </div>
     <div class="right">
-      <!-- Content-width group: distinct visual cluster, slightly bolder
-           border, separates the width controls from the zoom controls. -->
-      <div class="seg width-group" title="Content width — Ctrl+[ / Ctrl+] / Ctrl+\\">
-        <button onclick={() => bumpWidth(-8)} aria-label="Narrower" title="Narrower (Ctrl+[)">‹</button>
-        <span class="width-badge">{settings.s.fullWidth ? "Full" : `${settings.s.contentWidthCh}ch`}</span>
-        <button onclick={() => bumpWidth(8)} aria-label="Wider" title="Wider (Ctrl+])">›</button>
-        <button class:active={settings.s.fullWidth} onclick={() => settings.set("fullWidth", !settings.s.fullWidth)} title="Toggle full window width (Ctrl+\\)" aria-label="Toggle full width">⤢</button>
-      </div>
+      <!-- Content width — a miniature page whose text column mirrors the real
+           one. See WidthControl.svelte for why the old "86ch" badge went. -->
+      <WidthControl />
       <div class="tool-divider" aria-hidden="true"></div>
       <!-- Zoom group: same segmented look as width, so they read as
            "two of the same kind of control, different axes". -->
@@ -467,6 +545,14 @@
           baselineSource={active.baselineSource}
           theatreHighlightRanges={theatreRanges}
           theatreFreshRanges={theatreFreshRanges}
+          tabId={active.id}
+          getScrollMark={(id) => tabs.tabs.find((t) => t.id === id)?.scrollMark ?? null}
+          resumeMark={active.resumeMark}
+          resumeDismissed={active.resumeDismissed}
+          resumeApplied={active.resumeApplied}
+          onScrollMark={(id, mark) => tabs.setScrollMark(id, mark)}
+          onResumeApplied={(id) => tabs.markResumeApplied(id)}
+          onDismissResume={(id) => tabs.dismissResume(id)}
         />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
@@ -550,6 +636,10 @@
     --border-strong: #d4d4d8;
     --accent: #007aff;
     --accent-soft: rgba(0, 122, 255, 0.12);
+    /* Fill for the "you are here" row in the outline. A touch stronger than
+       --accent-soft, and defined per-theme rather than derived with
+       color-mix() so it renders on older WebKitGTK too. */
+    --accent-active: rgba(0, 122, 255, 0.15);
     --link: #0066cc;
     --code-bg: #f7f7f8;
     --code-inline-bg: rgba(120, 120, 128, 0.16);
@@ -581,6 +671,7 @@
     --border-strong: #48484a;
     --accent: #0a84ff;
     --accent-soft: rgba(10, 132, 255, 0.18);
+    --accent-active: rgba(10, 132, 255, 0.26);
     --link: #64b5f6;
     --code-bg: #2c2c2e;
     --code-inline-bg: rgba(120, 120, 128, 0.32);
@@ -613,6 +704,7 @@
     --border-strong: #c5b994;
     --accent: #b97f47;
     --accent-soft: rgba(185, 127, 71, 0.16);
+    --accent-active: rgba(185, 127, 71, 0.22);
     --link: #875d2f;
     --code-bg: #ebe1c5;
     --code-inline-bg: rgba(74, 63, 51, 0.13);
@@ -749,16 +841,19 @@
   }
   .icon-btn.settings-btn { font-size: 17px; }
   .zoom { font-size: 11px; color: var(--muted); min-width: 2.8em; text-align: center; font-variant-numeric: tabular-nums; }
-  .width-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0 .55rem;
-    height: 24px;
-    font-size: 11px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    min-width: 4.2em;
-    justify-content: center;
+
+  /* Side-panel toggle — the filled rail in the icon tracks the pane's state,
+     so the button reads as a state indicator rather than a bare action. */
+  .pane-btn { color: var(--muted-strong); }
+  .pane-btn:hover { color: var(--fg); }
+  .pane-btn svg .fill {
+    opacity: 0;
+    transition: opacity 140ms ease;
+  }
+  .pane-btn.pane-open { color: var(--accent); }
+  .pane-btn.pane-open svg .fill { opacity: .22; }
+  @media (prefers-reduced-motion: reduce) {
+    .pane-btn svg .fill { transition: none; }
   }
 
   /* All toolbar buttons share a common shape */

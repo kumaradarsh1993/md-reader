@@ -27,7 +27,9 @@
     <span class="label">
       🎬 AI editing — {liveChanges || "…"} {liveChanges === 1 ? "change" : "changes"} so far
     </span>
-    <span class="hint">pause to dismiss</span>
+    <button class="action" onclick={() => dismiss(tab)}>
+      Dismiss
+    </button>
   </div>
 {:else if tab.theatrePhase === "done"}
   <div class="status-bar done" role="status">
@@ -100,10 +102,6 @@
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
-  .hint {
-    color: var(--muted);
-    font-size: 11.5px;
-  }
   .action {
     background: transparent;
     border: 0;
@@ -121,4 +119,9 @@
     color: white;
   }
   .action.primary:hover { filter: brightness(1.08); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .status-bar { animation: none; }
+    .dot-pulse { animation: none; box-shadow: 0 0 0 3px rgba(10, 132, 255, .25); }
+  }
 </style>

@@ -1,6 +1,156 @@
 # Changelog
 
-## 0.5.1 — 2026-05-15 (Nightly / Pre-release)
+## 0.6.0 — 2026-07-25 (Stable)
+
+Reading-comfort release. Every tab keeps its own place, the outline tells you
+where you are, the side panel gets out of the way when you want it to, and the
+content-width control finally shows what it does.
+
+### Added — Reading position memory + resume ribbon
+
+- **Per-tab scroll positions.** Each tab now owns its scroll offset. Reading
+  the bottom of one file and switching to another no longer drags the second
+  file's view along with it — the long-standing complaint. Switching back puts
+  you exactly where you were.
+- **Resume across sessions.** Close md-reader, reopen the file, and you land
+  where you stopped reading. Positions are stored per file path, capped at 200
+  entries with the oldest evicted first.
+  - Each position records *two* coordinates: the source line of the top-most
+    visible block, and the scroll ratio. The line anchor is what survives a
+    font-size, zoom or content-width change, and edits made below your reading
+    position; the ratio is the fallback for when that block no longer exists.
+- **The ribbon.** On resume, a hairline accent rule marks the spot with a small
+  "you left off here" tag. It's bright for a few seconds, then settles to a
+  whisper so it stays findable without competing with the text. Click the tag
+  to dismiss it.
+- **Gutter marker.** Once the ribbon has scrolled out of view, a slim marker
+  appears in the right gutter at the mark's depth — click it to travel back.
+  Same job as Word's scrollbar bookmark.
+- Both are controlled in Settings → Reading position, along with a "Forget
+  saved positions" button. Per-tab retention is unconditional; the setting
+  governs only whether positions are written to disk for the next session.
+
+### Added — Outline scroll-spy and visual rework
+
+- **The outline follows you.** As you scroll, the heading whose section you're
+  reading stays highlighted and the highlight travels with you. The active
+  entry auto-scrolls into view within the outline when it drifts off.
+- **New heading parser** (`src/lib/outline.ts`) — handles setext headings
+  (`Title` over `===`), skips fenced code blocks, strips inline markdown from
+  entry labels, and dedupes slugs exactly the way `post-render.ts` assigns
+  them. Recognising setext isn't cosmetic: the renderer emits those as real
+  `<h1>`/`<h2>`, so a parser that missed them desynchronised the outline from
+  the document.
+- **Navigation is line-based, not slug-based.** Clicking an entry resolves
+  through comrak's `data-sourcepos`, so duplicate heading text now jumps to the
+  right occurrence instead of always the first one.
+- New `src/lib/view-nav.svelte.ts` carries active-line / progress state between
+  the Viewer and the outline, using source lines as the shared coordinate.
+
+### Fixed
+
+- **"Outline" was rendered twice** in the side panel — the panel's section
+  header and the outline component both drew the title.
+
+### Added — Side panel: collapse, hover-peek, movable dividers
+
+- **One button for the whole panel**, ChatGPT-style, at the left of the
+  toolbar. Collapsing keeps your section choices intact so expanding restores
+  exactly what you had. Previously the only way to clear the panel was to
+  switch both sections off individually — which then lost those choices.
+- **Hover-peek.** While collapsed, hover the window's left edge and the panel
+  slides out over the content for as long as you need it, with a grace period
+  so a diagonal mouse path doesn't kill it mid-reach. A pin button docks it.
+- **Movable Files / Outline divider** — drag to give either section more room,
+  double-click to reset.
+- **Better width resizer** — pointer capture so fast drags don't drop the grab,
+  double-click to reset, arrow-key resizing.
+- The 📁 / 📑 buttons keep their existing job of choosing *what* the panel
+  shows, and now also un-collapse it when you ask for a section.
+
+### Changed
+
+- **`Ctrl+B` now collapses / restores the side panel** rather than toggling the
+  Files section specifically. It's the near-universal binding for that action
+  (VS Code, ChatGPT, Obsidian), and the panel is the more useful thing to give
+  the most memorable shortcut to.
+- **`Esc` closes one layer at a time**, outermost first, and now also closes
+  the diff sidebar.
+
+### Changed — Content width control
+
+- The `86ch` badge is gone. In its place is a miniature page with lines of text
+  on it, where the text block is exactly as wide as your real content column.
+  You read the current state at a glance and the mapping to the ‹ › buttons is
+  self-evident — no unit vocabulary required.
+- Three ways to drive it: the buttons (8ch steps), dragging across the page
+  glyph, and the wheel. Double-click resets to the default. The number is still
+  there, shown on hover, where it informs rather than clutters.
+- Keyboard support on the glyph itself (arrows, Home/End, Enter for full width),
+  with proper `role="slider"` semantics.
+
+### Fixed — Live Edit Theatre audit
+
+A full pass over the Theatre module. Everything below was a real defect.
+
+- **Per-card LLM summaries showed the whole document.** The sidebar's ✨ Summary
+  button always sent `snapshotBefore` / `snapshotAfter` for the entire turn and
+  cached the result against the turn id — so the moment you asked one card for a
+  summary, *every* card showed the same whole-document text. It now summarises
+  that section's own before/after and caches per section, which is what the
+  design doc asked for: summarise the one paragraph you care about without
+  burning tokens on the whole file.
+- **Leader lines only moved once every 400ms.** `SidebarConnectors` attached its
+  scroll listener to `.content`, which isn't the scroll container (`.viewer`
+  is), and scroll events don't bubble — so the listener never fired and the
+  connectors relied entirely on a polling fallback. Fixed, and the always-on
+  `setInterval` is replaced by a `ResizeObserver` + `MutationObserver` pair that
+  costs nothing when the document is idle.
+- **Summaries and per-card mode were lost on close.** Both lived in the
+  sidebar's local state, and the sidebar unmounts whenever it closes — so every
+  reopen re-fetched (and re-billed) the API. They now live on the `Turn`.
+- **`Turn.startedAt` was always equal to `finishedAt`** (`Date.now() -
+  (Date.now() - Date.now())`). The real turn-start timestamp is now captured
+  when the turn opens, and the sidebar's turn picker shows how long the turn
+  took — a 3-second nudge reads very differently from a 4-minute rewrite.
+- **Dismissing mid-turn wedged the state machine.** `dismiss()` left
+  `pendingTurnBefore` set, which made `finaliseTurn`'s phase guard reject the
+  turn forever: the in-flight edits never reached the ring buffer and the
+  sidebar reported "This turn (in progress)" indefinitely. Dismissing now
+  finalises the turn first.
+- **There was nothing to dismiss.** The status bar said "pause to dismiss"
+  during an active turn while offering no control. It now has a real Dismiss
+  button — which is what made the bug above reachable in the first place.
+- **`ResumeChip`'s visibility test carried a clause that could never be true**
+  once the preceding condition had been asserted. Reduced to what it meant.
+
+### Added — Live Edit Theatre
+
+- **Sidebar cards navigate.** Click a card's heading and the document scrolls to
+  that section. Removed sections render as non-interactive with an explanation
+  rather than a dead link.
+- **Per-card change counts** — "6 lines changed", "12 lines added".
+- Focus lands in the sidebar when it opens, and `Esc` closes it.
+
+### Accessibility
+
+- `prefers-reduced-motion` is now honoured throughout: the theatre's pulsing
+  highlights, status-bar dot, chip and banner animations, the side panel's
+  hover-peek slide, the resume ribbon's reveal, and the width control's
+  transitions all stop moving. None of them carried information in the motion.
+- Keyboard support on the new controls: arrow keys on the width glyph and on
+  both panel dividers, `Home`/`End`, `aria-valuenow` / `aria-current` where
+  they belong.
+
+### Internal
+
+- New `--accent-active` palette token (per-theme) for the outline's current-row
+  fill. Defined per theme rather than derived with `color-mix()`, which isn't
+  available on the older WebKitGTK that some Linux users will have — a silently
+  dropped declaration there would have taken the dark-mode highlight with it.
+- `npm run check` is at 0 errors, 0 warnings.
+
+## 0.5.1 — 2026-05-15
 
 ### Added — Sepia reading theme + toolbar 3-way theme switch
 
@@ -24,7 +174,7 @@
 - New helper `effectiveThemeName(theme)` in `settings-store.svelte.ts`
   resolves the user choice to the concrete `data-theme` attribute value.
 
-## 0.5.0 — 2026-05-14 (Nightly / Pre-release)
+## 0.5.0 — 2026-05-14
 
 Theatre v2 — addresses three real-world issues with the v0.4.0 Live Edit
 Theatre, plus adds a free LLM provider option for the diff sidebar's

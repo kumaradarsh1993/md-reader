@@ -89,4 +89,8 @@
     height: auto;
   }
   .dismiss:hover { color: var(--fg); background: var(--hover-bg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tip { animation: none; }
+  }
 </style>

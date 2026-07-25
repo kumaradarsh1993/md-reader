@@ -13,11 +13,13 @@
 
   // Show the chip only when we have completed turns to manage AND theatre is
   // not actively engaged. Phase "done" still shows the status bar instead.
-  let visible = $derived(
-    tab.theatrePhase === "off" &&
-    tab.turns.length > 0 &&
-    !(tab.turns.length === 0 || tab.highlightsHidden && tab.sidebarOpen === false && tab.turns.length === 0),
-  );
+  //
+  // (This used to be padded out with `!(tab.turns.length === 0 || ...)` —
+  // a clause that can never be true once `tab.turns.length > 0` has already
+  // been asserted above, so it reduced to exactly these two conditions.
+  // Simplified to what it actually means: dead code removed, no behaviour
+  // change.)
+  let visible = $derived(tab.theatrePhase === "off" && tab.turns.length > 0);
 </script>
 
 {#if visible}
@@ -90,4 +92,9 @@
   .sep { color: var(--muted); }
   .x { padding: .25rem .45rem; color: var(--muted); }
   .x:hover { color: var(--fg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .resume-chip { animation: none; }
+    .toggle .dot { transition: none; }
+  }
 </style>

@@ -75,7 +75,14 @@
   }
 
   function compute() {
-    const viewer = document.querySelector<HTMLElement>(".content");
+    // ".viewer" (bound in Viewer.svelte) is the actual scroll container —
+    // it's the element with overflow-y:auto and the one whose scrollTop
+    // moves paragraphs. ".content" is just its non-scrolling flex parent;
+    // querying it for scroll events never fires (they don't bubble from a
+    // different element) and its rect can drift from the true visible band
+    // if content ever adds its own padding/chrome. ".viewer" is the correct
+    // reference for both.
+    const viewer = document.querySelector<HTMLElement>(".viewer");
     const sidebar = document.querySelector<HTMLElement>(".diff-sidebar");
     if (!viewer || !sidebar) {
       paths = [];
@@ -148,27 +155,52 @@
     schedule();
   });
 
-  // Wire scroll / resize listeners. The sidebar body element doesn't exist
-  // until after first paint, so query inside the effect (it'll re-run if
-  // sidebarOpen state changes and forces a re-mount).
+  // Wire scroll / resize listeners plus a couple of observers that replace
+  // the old always-on 400ms setInterval poll. The sidebar body element
+  // doesn't exist until after first paint, so query inside the effect
+  // (this component only mounts while sidebarOpen is true, so there's no
+  // separate re-mount to react to — one setup/teardown per open is enough).
+  //
+  // The interval used to justify itself by covering three cases that don't
+  // fire a scroll/resize event:
+  //   1. External edits adding/removing paragraphs (viewer's DOM structure
+  //      changes) → covered by the MutationObserver on `viewer`.
+  //   2. Font-size / zoom / theme changes shifting line heights (the prose
+  //      block's own height changes even though the viewport doesn't)
+  //      → covered by the ResizeObserver on `.prose` (and `viewer` itself,
+  //      in case a scrollbar appears/disappears).
+  //   3. Mermaid diagrams finishing async layout (they mutate the DOM and
+  //      change height once they've rendered) → covered by both observers.
+  // None of these require polling once we're watching the right things, and
+  // both observers are quiescent (zero callbacks) when nothing is changing.
   $effect(() => {
-    const viewer = document.querySelector(".content");
-    const sidebar = document.querySelector(".diff-sidebar");
-    const sidebarBody = sidebar?.querySelector(".body");
+    const viewer = document.querySelector<HTMLElement>(".viewer");
+    const sidebar = document.querySelector<HTMLElement>(".diff-sidebar");
+    const sidebarBody = sidebar?.querySelector<HTMLElement>(".body");
+    if (!viewer) return;
+
     const onAny = () => schedule();
-    viewer?.addEventListener("scroll", onAny, { passive: true });
+    viewer.addEventListener("scroll", onAny, { passive: true });
     sidebarBody?.addEventListener("scroll", onAny, { passive: true });
     window.addEventListener("resize", onAny);
-    // A low-frequency tick catches DOM mutations that don't fire scroll —
-    // e.g. new external edits adding paragraphs, theme/font changes shifting
-    // line heights, mermaid diagrams finishing async layout.
-    const tick = setInterval(schedule, 400);
+
+    const resizeObserver = new ResizeObserver(onAny);
+    const prose = viewer.querySelector<HTMLElement>(".prose");
+    if (prose) resizeObserver.observe(prose);
+    resizeObserver.observe(viewer);
+    if (sidebarBody) resizeObserver.observe(sidebarBody);
+
+    const mutationObserver = new MutationObserver(onAny);
+    mutationObserver.observe(viewer, { childList: true, subtree: true });
+    if (sidebarBody) mutationObserver.observe(sidebarBody, { childList: true, subtree: true });
+
     schedule();
     return () => {
-      viewer?.removeEventListener("scroll", onAny);
+      viewer.removeEventListener("scroll", onAny);
       sidebarBody?.removeEventListener("scroll", onAny);
       window.removeEventListener("resize", onAny);
-      clearInterval(tick);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
       if (rafHandle) cancelAnimationFrame(rafHandle);
     };
   });
