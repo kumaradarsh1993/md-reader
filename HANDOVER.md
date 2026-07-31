@@ -1,15 +1,18 @@
 # Handover — md-reader
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-07-25: **v0.6.0** cut. Everything up to and including
-> v0.6.0 is intended to sit on the **stable** channel.
+> Last updated 2026-07-31: **v0.7.0-nightly.1** cut — a visual/UX overhaul plus
+> a batch of renderer fixes. **v0.6.0 remains the stable `latest`.**
 
 ## Where things stand
 
-**Release channel policy (2026-07-25):** the nightly experiment is over. The
-user asked for everything to be promoted to stable, so v0.5.1 and v0.6.0 are
-both meant to carry no pre-release flag, with v0.6.0 as `latest`. Future
-releases go out as stable unless the user says otherwise.
+**Release channel policy (2026-07-31):** v0.6.0 was already published as
+stable `latest` (verified — `isPrerelease: false`, all seven platform
+artifacts attached), so there was nothing to promote. v0.7.0 therefore opens a
+fresh **nightly** line so the visual changes can be smoke-tested on a real
+install before they become the default. Promote with
+`gh release edit v0.7.0-nightly.1 --prerelease=false --latest` once the owner
+is happy, or re-cut as a clean `v0.7.0` tag.
 
 | Version | Status | Headline |
 |---|---|---|
@@ -17,12 +20,13 @@ releases go out as stable unless the user says otherwise.
 | v0.3.0 | Published (stable) | Toolbar cleanup, About dialog, tab tear-out z-order fix |
 | v0.4.0 | Published | Live Edit Theatre + Diff Tracker sidebar |
 | v0.5.0 | Published | Theatre v2: recede-not-shrink, fresh/stale highlights, leader lines, Groq |
-| v0.5.1 | Published — **promote to stable** | Sepia reading theme + toolbar 3-way theme switch |
-| **v0.6.0** | **This release** | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
+| v0.5.1 | Published | Sepia reading theme + toolbar 3-way theme switch |
+| v0.6.0 | **Published — stable `latest`** | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
+| **v0.7.0** | **This release — nightly** | Chrome/paper redesign, focus mode, right-click menus, breadcrumb, renderer + typography fixes, security baseline |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
-- **Branch**: `master`. v0.6.0 work was committed straight to master at the
-  user's explicit request.
+- **Branch**: `master`. v0.6.0 and v0.7.0 work was committed straight to master
+  at the user's explicit request.
 - **Vite dev port**: `1430` (a sibling Tauri project keeps 1420)
 - **Local git identity (repo-local, not global)**: `Kumar Adarsh <kumaradarsh1993@users.noreply.github.com>`
 
@@ -48,6 +52,60 @@ gh release edit v0.5.1 --prerelease=false
 
 Note the landing site (`docs/site-data.js`, `docs/index.html`) already points at
 `v0.6.0` download URLs, so those links 404 until the release is published.
+
+## What v0.7.0 added
+
+Full detail in `CHANGELOG.md`; this is the orientation.
+
+**The brief.** The owner's verdict on v0.6 was "95% there, but it still looks
+developer-y — I want it to look general-consumer-y", with three specific
+complaints: the side panel *"looks too similar to the text I'm reading"*, the
+tab bar *"mixes too much with the text"*, and the toolbar showed a raw
+`D:\...\file.md` path. Plus two feature asks (a fullscreen/focus button, and
+right-click menus that mean something) and one platform ask (the black Windows
+title bar should follow the app theme).
+
+**The diagnosis, which is worth keeping.** The first two complaints were not
+matters of taste and were not fixed by "more contrast":
+
+- `--side-bg` and `--bg` were **the same colour in dark mode** (`#1c1c1e`). The
+  panel *was* the document surface.
+- The tab strip drew from `--muted-bg`, a token shared with in-document table
+  headers. In dark mode that made it the brightest surface in the window.
+
+The resolution is a **two-material model**: `--chrome-bg` for everything that
+is not the document, and the document as a sheet floating on it (one rounded
+corner, hairline ring, faint shadow). Light mode's tonal gap was *reduced*
+(6.7% → 3.5%) and warmed — separation now comes from the edge, not the tone.
+If you change one thing here, keep chrome tokens and document tokens
+**separate**; merging them is what caused this.
+
+**Architecture worth knowing:**
+
+| File | Role |
+|---|---|
+| `src/lib/Icon.svelte` | The whole icon set, inlined Lucide-idiom geometry. Emoji are no longer used as UI anywhere. Stroke scales with size. |
+| `src/lib/context-menu.svelte.ts` | Right-click menu store. `contextMenu.open(event, items)` — it calls `preventDefault()` for you. |
+| `src/lib/ContextMenu.svelte` | The renderer. Mounted once, at the root of `+page.svelte`. Positions after measuring, hence the `.placed` class. |
+| `src/lib/focus-mode.svelte.ts` | Focus mode state. Hides chrome **and** goes native-fullscreen; either alone is unsatisfying. |
+| `src/lib/platform.ts` | `isMac`, `MOD`, `sk()` for shortcut labels, `copyText`, `revealInFileManager`. Every user-visible shortcut string goes through `sk()`. |
+| `src/lib/Breadcrumb.svelte` | The document location. Elides from the left. |
+
+**Two traps to not re-introduce:**
+
+1. **`onMount` ordering in `+page.svelte` is load-bearing.** Local wiring
+   (keyboard, context menu, drag-drop) is registered *before* the first
+   `await`. It used to sit after a chain of Tauri calls, so one rejection
+   silently removed every keyboard shortcut in the app. Do not move it back.
+2. **`post-render.ts`'s table wrapper must copy `data-sourcepos`.** The Viewer
+   indexes `.prose` children by that attribute; a wrapper without it drops
+   every table out of scroll-restore, live-follow, diff mode and Theatre
+   highlighting at once.
+
+**Slug algorithm lives in two files** — `post-render.ts` (assigns ids) and
+`outline.ts` (predicts them). They must stay byte-identical. Both now match
+GitHub's, so `#anchor` links in hand-written tables of contents finally
+resolve; the old `h-` prefix meant none of them ever did.
 
 ## What v0.6.0 added
 
@@ -152,13 +210,21 @@ src/lib/theatre/
 
 ### High priority
 
-1. **Publish the v0.6.0 draft release and clear v0.5.1's pre-release flag.**
-   Commands above. Needs a shell with `gh`.
-2. **Smoke-test v0.6.0 on a real install.** Specifically: open two long files
-   in tabs, scroll each to a different place, switch back and forth; close and
-   reopen the app and confirm you land where you were with the ribbon showing;
-   collapse the panel and hover the left edge; drag the Files/Outline divider;
-   drag the width glyph.
+1. **Smoke-test v0.7.0-nightly.1 on a real install.** This release changed how
+   the app *looks* more than how it works, and none of it has been seen in a
+   real Tauri window — it was verified in the Vite dev server (computed styles,
+   DOM state) plus `npm run check` and `cargo check`. Specifically worth
+   checking: all three themes; the Windows title bar picking up the theme
+   colour (and following a light↔dark↔sepia switch); focus mode `F11` and its
+   top-edge peek; right-click in each region; a document with a wide table; a
+   document with YAML front matter; clicking an external link.
+2. **Finish the Tauri security baseline: API keys → OS keyring.** CSP, the tag
+   filter and the `fs`-plugin removal all landed in v0.7.0. The remaining item
+   is `anthropicApiKey` / `groqApiKey`, which sit in plaintext in
+   `settings.json` via plugin-store. Needs `keyring-rs` plus get/set/delete
+   commands and a one-time migration on read. Deliberately deferred out of this
+   release because it adds a native dependency with three-platform CI risk, and
+   the point of this nightly was to get the visual work testable.
 3. **Local Windows builds need `CARGO_BUILD_JOBS=2`** — low-memory machine
    quirk, see "Known quirks".
 4. **Enable GitHub Discussions** (Settings → General → Features). The
@@ -171,8 +237,17 @@ src/lib/theatre/
 ### Medium priority
 
 7. **Multi-provider LLM support** beyond Groq/Anthropic (Gemini free tier).
-8. **Mac-native polish** — verify the Theatre recede animation on WKWebView,
-   Cmd shortcuts, titlebar style, and the hover-peek gesture with a trackpad.
+8. **Mac-native polish** — v0.7.0 did the code-level pass (every shortcut label
+   is platform-aware via `sk()`, focus mode uses ⌃⌘F, no traffic-light gutter
+   because the title bar stays native), but *nobody has ever run a macOS
+   build*. Still unverified there: the Theatre recede animation on WKWebView,
+   the hover-peek gesture with a trackpad, `-webkit-scrollbar` styling against
+   macOS overlay scrollbars, elastic overscroll versus the scroll-position
+   restore maths, and whether tab tear-out works at all from inside a `.app`
+   bundle (`spawn_window` re-execs `current_exe()`).
+9. **Make the breadcrumb's `…` clickable** — a menu of the elided ancestors,
+   each opening that folder in the Files panel. The context-menu primitive
+   already exists.
 9. **Nested folder tree** in the file browser (currently single-level).
 10. **Outline drag-to-reorder sections** would be a natural next step now that
     the outline knows exact source lines for every heading.

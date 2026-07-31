@@ -22,15 +22,31 @@ export interface Heading {
   index: number;
 }
 
+/**
+ * GitHub's heading-slug algorithm.
+ *
+ * Must stay byte-identical to `slugify()` in post-render.ts — that one assigns
+ * the DOM ids, this one predicts them, and a divergence silently breaks
+ * outline navigation.
+ *
+ * Two deliberate changes in v0.7.0:
+ *  - **The `h-` prefix is gone.** It made every hand-written table of contents
+ *    dead on arrival: authors (and every AI that writes one) emit
+ *    `[Vertical rhythm](#vertical-rhythm)` per GitHub convention, and the ids
+ *    were `h-vertical-rhythm`, so no anchor in any document ever resolved.
+ *  - **Unicode-aware.** `\w` is ASCII-only, so `## Résumé`, `## 概要` and
+ *    `## 日本語` all reduced to the empty string and then collided with each
+ *    other as `h-`, `h--1`, `h--2`.
+ */
 function baseSlug(text: string): string {
-  return (
-    "h-" +
-    text
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .trim()
-      .replace(/\s+/g, "-")
-  );
+  const slug = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  // A heading of pure punctuation ("## ---") would otherwise produce an empty
+  // id, which is not a valid anchor target.
+  return slug || "section";
 }
 
 /**

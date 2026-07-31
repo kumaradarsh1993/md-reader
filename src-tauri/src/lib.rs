@@ -53,7 +53,6 @@ pub fn run() {
     let result = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(WatcherState::new())
         .manage(InitialFiles(Mutex::new(initial_files)))
@@ -84,6 +83,7 @@ pub fn run() {
             commands::spawn_window,
             commands::is_torn_out_window,
             commands::take_initial_files,
+            commands::set_titlebar_theme,
         ])
         .run(tauri::generate_context!());
 

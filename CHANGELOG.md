@@ -1,5 +1,205 @@
 # Changelog
 
+## 0.7.0 — 2026-07-31 (Nightly)
+
+The "stop looking like a developer tool" release. v0.6 was, in the owner's
+words, 95% there — but it read as something built for the person who built it.
+This pass is mostly about the other 5%: what the app appears to be made of,
+where its boundaries are, and what happens when you right-click.
+
+It also fixes a set of renderer defects found by a source audit, several of
+which had been silently wrong since v0.1.
+
+### Changed — chrome and content are now different materials
+
+The complaint behind most of this release was that the side panel "looks too
+similar to the text I'm reading" and the tab bar "mixes too much with the
+text". Both were true, and the cause was measurable rather than a matter of
+taste:
+
+- **In dark mode the side panel and the document were the same colour.**
+  `--side-bg` and `--bg` were both `#1c1c1e` — byte-identical. There was no
+  surface boundary to see, only a hairline.
+- **The tab strip was painted from a token shared with the document** (table
+  headers, `<kbd>`). In dark mode that made the tab strip the *brightest*
+  surface in the window — brighter than the page being read.
+
+The fix is not a louder border. The application shell is now its own material
+(`--chrome-bg`), and the document is a **sheet resting on top of it**: one
+rounded corner where it meets the panel and the tab strip, a hairline ring, and
+a whisper of shadow. In dark mode the sheet is *lighter* than the shell, which
+is the convention every modern dark interface converged on.
+
+Counter-intuitively the light-mode tonal gap got **smaller** (6.7% → ~3.5%),
+not bigger. The field separates chrome from content with an edge, not with
+tone; a large tonal step is what reads as "IDE". The palette also moved warm —
+blue now sits a few points below red in every surface token.
+
+- **The glass toolbar is gone.** It carried `backdrop-filter: blur(20px)` over
+  an opaque fill, as a flex sibling of the content — so there was never
+  anything behind it to blur. It cost a compositor layer and a stacking context
+  (which the File menu had to be teleported out of) for zero pixels of effect.
+- **Tabs are rounded chips** on the shell, with the active one filled in the
+  *paper* colour so it reads as a hole punched through to the document. The 1px
+  dividers between tabs and the 2px accent stripe on the active one — the
+  strongest "developer tool" tells in the window — are gone.
+- **The tab strip now belongs to the document column** rather than spanning the
+  whole window above the side panel, so the panel is full height and every tab
+  sits directly above the page it opens.
+- **Emoji are no longer used as icons.** The folder, outline, gear, magnifier
+  and theme glyphs are a real inlined icon set now. Emoji cannot inherit
+  `currentColor`, so a "muted" toolbar button was rendering a full-saturation
+  yellow folder.
+- **Section headers are sentence case** ("Files", "Outline") instead of 10.5px
+  uppercase micro-labels, and each section's dismiss control appears on
+  approach rather than sitting there permanently.
+- The side-panel toggle is now the leftmost control in the toolbar, ahead of
+  the File menu — it governs window layout, and layout controls belong at the
+  outside edge.
+- Find and Settings are larger, and Settings is a sliders glyph rather than a
+  cog that read as a circle at 17px.
+
+### Added — the document's location, as a breadcrumb
+
+The toolbar used to print the raw path. That is a string a developer reads and
+everyone else skips: the one part that matters is buried at the end. It is now
+a breadcrumb — muted ancestors, chevron separators, weighted file name, elided
+from the *left*, because the drive letter never carries meaning.
+
+### Added — Focus mode
+
+`F11` (⌃⌘F on macOS, where F11 belongs to Mission Control) hides the toolbar,
+the tab strip and the side panel, and takes the window fullscreen. `Esc` or the
+same key leaves. Pushing the pointer to the very top edge slides the toolbar
+back down for as long as you need it — the difference between a focus mode and
+a trap — and a one-shot toast on entry says how to get out.
+
+### Added — real right-click menus
+
+Right-clicking anywhere used to produce the WebView's own page menu: Back,
+Reload, **Save as**, Print, Inspect. Every entry was either meaningless in a
+document reader or actively wrong. That menu is suppressed app-wide now and
+replaced with contextual ones:
+
+| Where | What you get |
+|---|---|
+| A tab | Close / close others / close to the right, open in new window, copy name or path, reveal in Explorer |
+| The tab strip | Open file, close all |
+| The document | Copy selection, find selection, open or copy a link, copy a link to the section, back to top, reload from disk |
+| A file row | Open, open in new window, copy name or path, reveal |
+| The file list | Up, refresh, copy folder path, reveal |
+| An outline entry | Jump, copy heading text, copy link to section |
+| The breadcrumb | Copy file name / full path / folder path, reveal |
+
+Text fields keep the native menu on purpose — it is the only place "Paste"
+lives.
+
+### Fixed — renderer defects
+
+- **YAML front matter rendered as a giant `<h2>`.** With no front-matter
+  delimiter configured, comrak parsed the closing `---` as a *setext underline*
+  for the metadata above it. Every document with front matter opened with a
+  heading reading "title: … author: …", which also became the first entry in
+  the outline.
+- **Every in-document anchor link was dead.** Heading ids carried an `h-`
+  prefix, so a hand-written table of contents — standard in long AI-written
+  documents — linked to `#vertical-rhythm` while the id was
+  `h-vertical-rhythm`. Nothing ever resolved. Slugs now match GitHub's
+  algorithm and are Unicode-aware, so `## Résumé` and `## 概要` no longer
+  collapse to the same empty slug.
+- **External links navigated the entire app away.** There was no click handler
+  on the rendered document at all. One misclick in a README replaced the app
+  with a web page, in a window with no address bar, no Back button and no
+  reload — recoverable only by closing the window. Links now open in the real
+  browser, relative `.md` links open as a tab, and `#anchors` scroll.
+- **Wide tables were clipped and unreachable.** `overflow-x: auto` does nothing
+  on `display: table`, and the viewport clips. Tables are wrapped in a real
+  scroller now (which inherits `data-sourcepos`, so scroll-restore, live-follow
+  and diff highlighting still see them).
+- **GFM column alignment was silently discarded.** `:---:` and `---:` produce
+  `align=` attributes, which a blanket `text-align: left` beat every time.
+- **Long inline code and URLs overflowed the column and were clipped**, with no
+  way to scroll to them. A 62-character Windows path is ~80% of the text
+  column.
+- **Sepia used the light syntax-highlighting theme**, calibrated for white, on
+  a cream background. It has its own now.
+- **Task list items sat on a different left edge than plain bullets** in mixed
+  lists.
+- **Badge rows stacked vertically** — the `p > img` rule never matched the
+  standard `[![alt](badge)](link)` shape, because the image's parent is the
+  link, not the paragraph.
+- **`<div align="center">` half-worked**: a `!important` text-align kept the
+  heading hard-left while everything around it centred.
+- Settings failing to load no longer aborts the rest of startup — which
+  previously took the entire keyboard with it.
+
+### Changed — typography
+
+- **Vertical rhythm.** There was not one adjacent-sibling rule in the prose
+  stylesheet; every gap was decided in isolation and resolved by margin
+  collapsing. An `h2` followed by its own first `h3` opened a 33px gulf, lists
+  did not group with the sentence introducing them, and consecutive list items
+  sat 3px apart while the lines *inside* an item sat 26px apart.
+- **The type scale stopped flatlining.** h5 was exactly body size with weight
+  600 and a strong colour — character-for-character how `**bold**` is styled,
+  so `##### Heading` and a bold lead-in were pixel-identical. h4 now outweighs
+  `strong`, and h5/h6 differ by shape (small caps) rather than by size.
+- **Default measure 86ch → 76ch**, and the column's gutter is no longer
+  subtracted from it. The old setting delivered ~95 characters of type and
+  drifted as the window resized.
+- **Tables** use horizontal rules instead of a full grid plus zebra striping.
+  The zebra was a 1.6% step in light mode (invisible), and in sepia the header
+  fill and the zebra fill were *the same value*, so the header vanished into
+  the body.
+- **Blockquotes are full-contrast.** In these documents blockquotes carry the
+  highest-stakes content; muting them inverted the author's emphasis, and
+  failed WCAG AA in sepia at 3.5:1.
+- **Links are underlined.** Colour alone was the only cue, at ~1.8:1 against
+  body text in sepia.
+- **GFM alert colours** were GitHub's *dark* tokens used in all three themes —
+  all five failed contrast in light and sepia.
+- Code blocks get a language label and a copy button.
+- `<details>` / `<summary>` are styled rather than falling back to UA defaults.
+- Definition lists, superscript, subscript and relaxed task markers (`[-]`,
+  `[~]`) are enabled — two of them had matching CSS sitting dead in the
+  stylesheet since v0.1.
+- Added a print stylesheet.
+
+### Added — the title bar follows the theme
+
+The one strip of the window the app doesn't draw was being coloured by the OS,
+so a dark Windows with the app in sepia produced a black bar above a cream
+page. Windows now gets exact caption, text and border colours via DWM; macOS
+gets a matching light/dark appearance. Sepia counts as light.
+
+### Fixed — macOS
+
+Every user-visible shortcut label was hardcoded to "Ctrl" and now renders ⌘ on
+macOS. The traffic-light gutter was deliberately *not* added: the window keeps
+a native title bar, so the lights sit above the toolbar and reserving space for
+them would open an empty hole. Focus mode uses ⌃⌘F there rather than F11, which
+belongs to Mission Control.
+
+### Security
+
+The workspace Tauri baseline, which was owed on this project before its next
+stable:
+
+- **CSP was `null`; it is a strict policy now.** Combined with unfiltered raw
+  HTML, that was a real execution path rather than a theoretical one — this app
+  opens arbitrary `.md` files from disk.
+- **GFM's tag filter is on**, neutralising `<script>`, `<iframe>` and friends.
+  Everything raw HTML is actually wanted for — `<details>`, `<div align>`,
+  badges, comments — still renders.
+- **The `fs` plugin and its unscoped read/write capabilities are gone.** The
+  frontend never imported it; all file access goes through commands using
+  `std::fs`. Granting the webview filesystem access bought nothing and,
+  alongside the two items above, completed an exfiltration path.
+
+Still outstanding for the baseline: API keys are stored in plaintext in the
+settings store and should move to the OS keyring.
+
+
 ## 0.6.0 — 2026-07-25 (Stable)
 
 Reading-comfort release. Every tab keeps its own place, the outline tells you

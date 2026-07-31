@@ -8,6 +8,8 @@
   } from "./settings-store.svelte";
   import Toc from "./Toc.svelte";
   import FileBrowser from "./FileBrowser.svelte";
+  import Icon from "./Icon.svelte";
+  import { sk } from "./platform";
 
   interface Props {
     source: string;
@@ -200,7 +202,9 @@
       >
         <header class="section-head">
           <span class="title">Files</span>
-          <button class="hide" onclick={() => hideSection("showFiles")} title="Hide files">×</button>
+          <button class="hide" onclick={() => hideSection("showFiles")} title="Hide files" aria-label="Hide files">
+            <Icon name="x" size={12} />
+          </button>
         </header>
         <div class="section-body">
           <FileBrowser {cwd} {activePath} onOpen={onOpenFile} />
@@ -241,7 +245,9 @@
       >
         <header class="section-head">
           <span class="title">Outline</span>
-          <button class="hide" onclick={() => hideSection("showToc")} title="Hide outline">×</button>
+          <button class="hide" onclick={() => hideSection("showToc")} title="Hide outline" aria-label="Hide outline">
+            <Icon name="x" size={12} />
+          </button>
         </header>
         <div class="section-body">
           <Toc {source} />
@@ -305,7 +311,10 @@
       >
         <div class="peek-bar">
           <span class="peek-hint">Side panel</span>
-          <button class="pin" onclick={dock} title="Keep the panel open (Ctrl+B)">Keep open</button>
+          <button class="pin" onclick={dock} title={`Keep the panel open (${sk("Mod", "B")})`}>
+            <Icon name="pin" size={12} />
+            Keep open
+          </button>
         </div>
         {@render stack()}
       </aside>
@@ -334,10 +343,11 @@
     min-width: 0;
     background: var(--side-bg);
   }
+  /* No border-right: the paper's own edge (its ring + rounded corner) is the
+     boundary now, and two lines a pixel apart read as a rendering fault. */
   .panel.docked {
     position: relative;
     width: 100%;
-    border-right: 1px solid var(--border);
   }
 
   /* ─── Peek overlay ─────────────────────────────────────────────────── */
@@ -374,28 +384,30 @@
     align-items: center;
     justify-content: space-between;
     gap: .5rem;
-    padding: .3rem .4rem .3rem .85rem;
-    border-bottom: 1px solid var(--border);
+    padding: .35rem .45rem .35rem .8rem;
+    border-bottom: 1px solid var(--chrome-border);
     flex-shrink: 0;
   }
   .peek-hint {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: .09em;
+    font-size: 12.5px;
     font-weight: 600;
-    color: var(--muted);
+    color: var(--chrome-fg);
+    opacity: .65;
   }
   .pin {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
     background: none;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 11px;
+    border: 1px solid var(--chrome-border);
+    border-radius: 6px;
+    cursor: default;
+    font-size: 11.5px;
     line-height: 1;
-    padding: 3px 6px;
-    color: var(--fg);
+    padding: 4px 7px;
+    color: var(--chrome-fg);
   }
-  .pin:hover { background: var(--hover-bg); border-color: var(--border-strong); }
+  .pin:hover { background: var(--chrome-hover); color: var(--fg-strong); }
   .pin:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   /* ─── Sections ─────────────────────────────────────────────────────── */
@@ -418,33 +430,41 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: .5rem .5rem .3rem .85rem;
+    padding: .55rem .45rem .35rem .8rem;
     flex-shrink: 0;
   }
+  /* Sentence case at near-body size, not a 10.5px uppercase micro-label.
+     All-caps with tracking is the 2018 sidebar idiom and it is one of the
+     things that made this panel read as a developer tool; it is also slower
+     to read, because capitals share more letter shapes. */
   .title {
-    font-size: 10.5px;
+    font-size: 12.5px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    color: var(--muted);
+    letter-spacing: 0;
+    color: var(--chrome-fg);
+    opacity: .68;
   }
   .hide {
     background: none;
     border: 0;
-    color: var(--muted);
-    cursor: pointer;
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    font-size: 14px;
+    color: var(--chrome-fg);
+    cursor: default;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
     line-height: 1;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: .7;
+    opacity: 0;
+    transition: opacity 90ms ease, background-color 90ms ease;
   }
-  .hide:hover { background: var(--hover-bg); color: var(--fg-strong); opacity: 1; }
+  /* Revealed on approach — a permanent × on every section header is four
+     dismissal affordances competing with the content for attention. */
+  .section-head:hover .hide,
+  .hide:focus-visible { opacity: .75; }
+  .hide:hover { background: var(--chrome-hover); color: var(--fg-strong); opacity: 1; }
   .hide:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
   .section-body {
     flex: 1 1 auto;

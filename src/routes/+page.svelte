@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import { api } from "$lib/api";
@@ -20,6 +21,12 @@
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
   import About from "$lib/About.svelte";
+  import Icon from "$lib/Icon.svelte";
+  import Breadcrumb from "$lib/Breadcrumb.svelte";
+  import ContextMenu from "$lib/ContextMenu.svelte";
+  import { contextMenu, type MenuEntry } from "$lib/context-menu.svelte";
+  import { focus } from "$lib/focus-mode.svelte";
+  import { isMac, sk, MOD, copyText, revealInFileManager } from "$lib/platform";
   import StatusBar from "$lib/theatre/StatusBar.svelte";
   import ResumeChip from "$lib/theatre/ResumeChip.svelte";
   import TipBanner from "$lib/theatre/TipBanner.svelte";
@@ -103,6 +110,60 @@
     document.documentElement.dataset.theme = effectiveThemeName(settings.s.theme);
   });
 
+  /**
+   * Push the palette out to the native title bar.
+   *
+   * The one strip of the window the app doesn't draw was being coloured by the
+   * OS, so a dark Windows with the app in sepia gave you a black bar above a
+   * cream page — two programs stacked. Reading the resolved chrome colour back
+   * out of the CSS means there is exactly one definition of it: change
+   * `--chrome-bg` in the palette above and the title bar follows.
+   */
+  $effect(() => {
+    const name = effectiveThemeName(settings.s.theme);
+    // Read after the attribute write above has been applied.
+    queueMicrotask(() => {
+      const css = getComputedStyle(document.documentElement);
+      const caption = cssColorToRgbInt(css.getPropertyValue("--chrome-bg"));
+      const text = cssColorToRgbInt(css.getPropertyValue("--chrome-fg"));
+      if (caption === null || text === null) return;
+      // Windows: exact caption/text/border colours via DWM.
+      invoke("set_titlebar_theme", { dark: name === "dark", caption, text })
+        .catch(() => { /* dev mode / unsupported platform — the CSS is unaffected */ });
+      // macOS: there is no per-colour title bar API, but the window's
+      // light/dark appearance is settable, and that is what decides whether
+      // the native bar is near-white or near-black. Sepia counts as light.
+      import("@tauri-apps/api/window")
+        .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(name === "dark" ? "dark" : "light"))
+        .catch(() => { /* not running under Tauri */ });
+    });
+  });
+
+  /**
+   * "#f6f5f2" | "rgb(246, 245, 242)" -> 0xF6F5F2.
+   *
+   * getComputedStyle returns whatever form the author wrote for a custom
+   * property (unlike a real colour property, which normalises to rgb()), so
+   * both spellings have to be handled.
+   */
+  function cssColorToRgbInt(value: string): number | null {
+    const v = value.trim();
+    if (!v) return null;
+    const hex = /^#([0-9a-f]{6})$/i.exec(v);
+    if (hex) return parseInt(hex[1], 16);
+    const short = /^#([0-9a-f]{3})$/i.exec(v);
+    if (short) {
+      const [r, g, b] = short[1].split("");
+      return parseInt(`${r}${r}${g}${g}${b}${b}`, 16);
+    }
+    const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(v);
+    if (rgb) {
+      const [r, g, b] = rgb.slice(1, 4).map((n) => Math.round(Number(n)) & 0xff);
+      return (r << 16) | (g << 8) | b;
+    }
+    return null;
+  }
+
   /** Cycle/select theme from the toolbar 3-way control. */
   function setTheme(t: ThemeMode) {
     settings.set("theme", t);
@@ -162,6 +223,18 @@
     await openInTab(p);
   }
 
+  /** Re-read the active file, discarding nothing the user typed (view mode
+   *  only path — the context menu offering this is on the rendered view). */
+  async function reloadFromDisk() {
+    if (!active) return;
+    try {
+      const refreshed = await api.openFile(active.path);
+      tabs.setActiveSourceFromDisk(refreshed.content);
+    } catch (e) {
+      console.error("[md-reader] reload failed", e);
+    }
+  }
+
   function setMode(m: Mode) { mode = m; }
   // Ctrl+E: cycle view → smart edit → view. Power-users can still get the raw
   // CodeMirror source via the toolbar sub-toggle, Settings → Default edit mode,
@@ -211,6 +284,93 @@
     tabs.setActiveSource(s);
   }
 
+  // ─── Focus mode ──────────────────────────────────────────────────────
+  //
+  // F11 is the Windows/Linux convention. It is *not* Mac's — there F11 is
+  // "Show Desktop" and the system binding for fullscreen is ⌃⌘F — so Mac gets
+  // that instead, and the tooltip says whichever one actually applies.
+  const FOCUS_KEY = isMac ? "⌃⌘F" : "F11";
+
+  /** Pointer within this many px of the top edge re-reveals the toolbar. */
+  const FOCUS_PEEK_PX = 4;
+  /** …and it stays down until the pointer drops below this, so the toolbar
+   *  doesn't flicker away the moment you move toward the button you wanted. */
+  const FOCUS_PEEK_RELEASE_PX = 52;
+
+  function onPointerMove(e: PointerEvent) {
+    if (!focus.active) return;
+    if (focus.peeking) {
+      if (e.clientY > FOCUS_PEEK_RELEASE_PX) focus.setPeek(false);
+    } else if (e.clientY <= FOCUS_PEEK_PX) {
+      focus.setPeek(true);
+    }
+  }
+
+  // ─── Context menus ───────────────────────────────────────────────────
+
+  /** Right-click on the breadcrumb / document location. */
+  function docPathMenu(): MenuEntry[] {
+    if (!path) return [];
+    const p = path;
+    const name = p.split(/[\\/]/).pop() ?? p;
+    const dir = p.replace(/[\\/][^\\/]*$/, "");
+    return [
+      { label: "Copy file name", icon: "copy", action: () => copyText(name) },
+      { label: "Copy full path", icon: "copy", action: () => copyText(p) },
+      { label: "Copy folder path", icon: "folder", action: () => copyText(dir) },
+      { separator: true },
+      {
+        label: isMac ? "Reveal in Finder" : "Show in folder",
+        icon: "external-link",
+        action: () => revealInFileManager(p),
+      },
+    ];
+  }
+
+  /**
+   * The app-wide fallback menu, for right-clicks that land on chrome nobody
+   * has claimed (the toolbar background, gaps between controls). Without it
+   * those spots would fall through to the WebView's own page menu, which is
+   * the exact thing this feature exists to remove.
+   */
+  function onShellContextMenu(e: MouseEvent) {
+    const t = e.target as HTMLElement | null;
+    // Real text fields keep the native menu on purpose: it is the only place
+    // the user can *paste*, and reimplementing paste would mean asking for
+    // clipboard-read permission to solve a problem nobody has.
+    if (t?.closest("input, textarea, [contenteditable='true']")) return;
+    // Anything that built its own menu already stopped propagation.
+    if (e.defaultPrevented) return;
+    contextMenu.open(e, [
+      {
+        label: "Open file…",
+        icon: "folder-open",
+        shortcut: sk("Mod", "O"),
+        action: pickAndOpen,
+      },
+      { separator: true },
+      {
+        label: settings.s.panelCollapsed ? "Show side panel" : "Hide side panel",
+        icon: "panel-left",
+        shortcut: sk("Mod", "B"),
+        action: togglePane,
+      },
+      {
+        label: focus.active ? "Exit focus mode" : "Focus mode",
+        icon: focus.active ? "shrink" : "expand",
+        shortcut: FOCUS_KEY,
+        action: () => focus.toggle(),
+      },
+      { separator: true },
+      {
+        label: "Settings…",
+        icon: "settings",
+        shortcut: sk("Mod", ","),
+        action: () => (settingsOpen = true),
+      },
+    ]);
+  }
+
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickAndOpen(); }
@@ -250,14 +410,23 @@
         e.preventDefault();
         save();
       }
-    } else if (e.key === "F12") {
+    }
+    // Focus mode. F11 everywhere; ⌃⌘F additionally on Mac, where F11 belongs
+    // to Mission Control and pressing it here would show the desktop instead.
+    else if (e.key === "F11" || (isMac && e.ctrlKey && e.metaKey && e.key.toLowerCase() === "f")) {
+      e.preventDefault();
+      focus.toggle();
+    }
+    else if (e.key === "F12") {
       e.preventDefault();
       import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
         try { (getCurrentWebview() as any).openDevtools?.(); } catch { /* noop */ }
       });
     } else if (e.key === "Escape") {
       // Close one layer at a time, outermost first, so Escape never dismisses
-      // more than the user was looking at.
+      // more than the user was looking at. The context menu is handled in
+      // ContextMenu.svelte's own capture-phase listener, so by the time we get
+      // here it has already consumed the key.
       if (findOpen || settingsOpen || fileMenuOpen || aboutOpen) {
         findOpen = false;
         settingsOpen = false;
@@ -265,11 +434,61 @@
         aboutOpen = false;
       } else if (active?.sidebarOpen) {
         active.sidebarOpen = false;
+      } else if (focus.active) {
+        // Last, because leaving focus mode is the biggest change of the lot —
+        // Escape should never drop you out of it while a dialog was what you
+        // meant to close.
+        focus.exit();
       }
     }
   }
 
   onMount(async () => {
+    // ── Local wiring first, and unconditionally ──────────────────────────
+    //
+    // Ordering here is load-bearing, not stylistic. All of this used to sit
+    // *after* a run of awaited Tauri calls, so a single rejection anywhere in
+    // that chain aborted the rest of onMount and silently took the entire
+    // keyboard with it — every shortcut in the app, gone, with no error the
+    // user could see. Nothing below depends on the backend, so nothing below
+    // should be able to be cancelled by it.
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointermove", onPointerMove);
+
+    // Kill the WebView's own page menu app-wide, once, in the capture phase.
+    // Components that want a real menu call contextMenu.open(), which itself
+    // calls preventDefault — so this listener's only job is making sure the
+    // browser menu never appears in the gaps nobody thought about.
+    // Text fields are exempt: their native menu is where "Paste" lives.
+    suppressNativeMenu = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, [contenteditable='true']")) return;
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", suppressNativeMenu, { capture: true });
+
+    // Belt-and-suspenders: HTML5-level dragover preventDefault so the OS-level
+    // Tauri drop handler always wins over any in-page drag-drop machinery.
+    dragSwallowers = (e: DragEvent) => {
+      const items = e.dataTransfer?.items;
+      if (!items) return;
+      for (const it of Array.from(items)) {
+        if (it.kind === "file") { e.preventDefault(); return; }
+      }
+    };
+    window.addEventListener("dragover", dragSwallowers);
+    window.addEventListener("drop", dragSwallowers);
+
+    // Reading positions are written on a short debounce; make sure the window
+    // closing (or being hidden) never beats that timer to the punch.
+    flushOnExit = () => { void settings.flushPendingWrites(); };
+    window.addEventListener("beforeunload", flushOnExit);
+    window.addEventListener("pagehide", flushOnExit);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushOnExit?.();
+    });
+
+    // ── Backend wiring ───────────────────────────────────────────────────
     await settings.init();
 
     unlistenCli = await api.onOpenFromCli((paths) => {
@@ -318,29 +537,6 @@
       }
     });
 
-    // Belt-and-suspenders: HTML5-level dragover preventDefault so the OS-level
-    // Tauri drop handler always wins over any in-page drag-drop machinery.
-    dragSwallowers = (e: DragEvent) => {
-      const items = e.dataTransfer?.items;
-      if (!items) return;
-      for (const it of Array.from(items)) {
-        if (it.kind === "file") { e.preventDefault(); return; }
-      }
-    };
-    window.addEventListener("dragover", dragSwallowers);
-    window.addEventListener("drop", dragSwallowers);
-
-    window.addEventListener("keydown", onKey);
-
-    // Reading positions are written on a short debounce; make sure the window
-    // closing (or being hidden) never beats that timer to the punch.
-    flushOnExit = () => { void settings.flushPendingWrites(); };
-    window.addEventListener("beforeunload", flushOnExit);
-    window.addEventListener("pagehide", flushOnExit);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") flushOnExit?.();
-    });
-
     // Initial-state determination, in priority order:
     // 1. Explorer file-association launch → take_initial_files returns the
     //    path; we open it and SKIP session restore (intent is "open this
@@ -368,6 +564,7 @@
 
   let dragSwallowers: ((e: DragEvent) => void) | null = null;
   let flushOnExit: (() => void) | null = null;
+  let suppressNativeMenu: ((e: MouseEvent) => void) | null = null;
 
   onDestroy(() => {
     unlistenCli?.();
@@ -375,6 +572,10 @@
     unlistenDrop?.();
     unlistenOpenFile?.();
     window.removeEventListener("keydown", onKey);
+    window.removeEventListener("pointermove", onPointerMove);
+    if (suppressNativeMenu) {
+      window.removeEventListener("contextmenu", suppressNativeMenu, { capture: true });
+    }
     if (flushOnExit) {
       window.removeEventListener("beforeunload", flushOnExit);
       window.removeEventListener("pagehide", flushOnExit);
@@ -391,11 +592,38 @@
   <title>md-reader</title>
 </svelte:head>
 
-<div class="shell">
-  <header class="toolbar">
+<!-- The shell owns the fallback right-click menu: a context menu is only
+     convincing if there is no seam in it, and the seams are exactly the
+     places (toolbar background, empty chrome) that no component claims.
+     svelte-ignore is right here — this is a passive catch-all on a layout
+     div, not an interactive control. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="shell" class:focus-mode={focus.active} oncontextmenu={onShellContextMenu}>
+  <header
+    class="toolbar"
+    class:mac={isMac}
+    class:focus-hidden={focus.active}
+    class:focus-peek={focus.active && focus.peeking}
+  >
     <div class="left">
+      <!-- Leftmost, ahead of the File menu: this button governs the whole
+           window's layout, and layout controls belong at the outside edge —
+           the same place VS Code, ChatGPT and Obsidian put it. -->
+      <button
+        class="icon-btn pane-btn"
+        class:pane-open={!settings.s.panelCollapsed}
+        onclick={togglePane}
+        title={settings.s.panelCollapsed
+          ? `Show side panel (${sk("Mod", "B")}) — or hover the left edge for a peek`
+          : `Hide side panel (${sk("Mod", "B")})`}
+        aria-label="Toggle side panel"
+        aria-expanded={!settings.s.panelCollapsed}
+      >
+        <Icon name="panel-left" size={17} />
+      </button>
+      <div class="tool-divider" aria-hidden="true"></div>
       <button class="file-btn" onclick={() => (fileMenuOpen = !fileMenuOpen)} title="File menu" aria-haspopup="menu" aria-expanded={fileMenuOpen}>
-        File <span class="caret">▾</span>
+        File <Icon name="chevron-down" size={11} class="caret" />
       </button>
       <div class="seg">
         <button class:active={mode === "view"} onclick={() => setMode("view")}>View</button>
@@ -413,42 +641,22 @@
           >Raw</button>
         </div>
       {/if}
-      <!-- One button for the whole pane, then two for what's inside it. The
-           split matters: previously the only way to get the sidebar out of the
-           way was to switch off both sections individually, which then lost
-           your choice of sections. -->
-      <button
-        class="icon-btn pane-btn"
-        class:pane-open={!settings.s.panelCollapsed}
-        onclick={togglePane}
-        title={settings.s.panelCollapsed
-          ? "Show side panel (Ctrl+B) — or hover the left edge for a peek"
-          : "Hide side panel (Ctrl+B)"}
-        aria-label="Toggle side panel"
-        aria-expanded={!settings.s.panelCollapsed}
-      >
-        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-          <rect x="1.25" y="2.25" width="13.5" height="11.5" rx="2.25"
-                fill="none" stroke="currentColor" stroke-width="1.3" />
-          <line x1="6.25" y1="2.25" x2="6.25" y2="13.75"
-                stroke="currentColor" stroke-width="1.3" />
-          <rect class="fill" x="1.25" y="2.25" width="5" height="11.5"
-                rx="2.25" fill="currentColor" />
-        </svg>
-      </button>
+      <!-- …and these two choose what goes *inside* the pane. Keeping them
+           adjacent to, but visually distinct from, the pane button is what
+           makes the whole/parts relationship readable. -->
       <div class="seg panel-toggles" title="Choose what the side panel shows">
         <button
           class:active={settings.s.showFiles && !settings.s.panelCollapsed}
           onclick={() => revealSection("showFiles")}
           title="Files"
           aria-label="Toggle files panel"
-        >📁</button>
+        ><Icon name="folder" size={14} /></button>
         <button
           class:active={settings.s.showToc && !settings.s.panelCollapsed}
           onclick={() => revealSection("showToc")}
           title="Outline"
           aria-label="Toggle outline panel"
-        >📑</button>
+        ><Icon name="list-tree" size={14} /></button>
       </div>
       <!-- Track / Diff buttons removed in v0.3.0 — repackaged as the Live
            Edit Theatre experience in v0.4.0 (off by default, opt-in via
@@ -456,10 +664,9 @@
     </div>
     <div class="middle">
       {#if path}
-        <span class="path" title={path}>{path}</span>
-        {#if dirty}<span class="dot" title="Unsaved">●</span>{/if}
+        <Breadcrumb {path} {dirty} onContextMenu={(e) => contextMenu.open(e, docPathMenu())} />
       {:else}
-        <span class="muted">No file open — Ctrl+T to open in new tab, or drop a .md file here.</span>
+        <span class="muted">No file open — {sk("Mod", "T")} to open, or drop a .md file here.</span>
       {/if}
     </div>
     <div class="right">
@@ -469,10 +676,10 @@
       <div class="tool-divider" aria-hidden="true"></div>
       <!-- Zoom group: same segmented look as width, so they read as
            "two of the same kind of control, different axes". -->
-      <div class="seg zoom-group" title="Zoom — Ctrl+ / Ctrl- / Ctrl 0">
-        <button onclick={() => bumpZoom(-0.1)} aria-label="Zoom out" title="Zoom out (Ctrl -)">−</button>
+      <div class="seg zoom-group" title={`Zoom — ${sk("Mod", "+")} / ${sk("Mod", "-")} / ${sk("Mod", "0")}`}>
+        <button onclick={() => bumpZoom(-0.1)} aria-label="Zoom out" title={`Zoom out (${sk("Mod", "-")})`}><Icon name="minus" size={13} /></button>
         <span class="zoom">{Math.round(settings.s.zoom * 100)}%</span>
-        <button onclick={() => bumpZoom(0.1)} aria-label="Zoom in" title="Zoom in (Ctrl +)">+</button>
+        <button onclick={() => bumpZoom(0.1)} aria-label="Zoom in" title={`Zoom in (${sk("Mod", "+")})`}><Icon name="plus" size={13} /></button>
       </div>
       <div class="tool-divider" aria-hidden="true"></div>
       <div class="seg theme-group" title="Theme — Light / Sepia / Dark">
@@ -481,35 +688,52 @@
           onclick={() => setTheme("light")}
           aria-label="Light theme"
           title="Light"
-        >☀</button>
+        ><Icon name="sun" size={14} /></button>
         <button
           class:active={settings.s.theme === "sepia"}
           onclick={() => setTheme("sepia")}
           aria-label="Sepia reading theme"
           title="Sepia (easy on the eyes)"
-        >◐</button>
+        ><Icon name="contrast" size={14} /></button>
         <button
           class:active={settings.s.theme === "dark"}
           onclick={() => setTheme("dark")}
           aria-label="Dark theme"
           title="Dark"
-        >☾</button>
+        ><Icon name="moon" size={14} /></button>
       </div>
       <div class="tool-divider" aria-hidden="true"></div>
-      <button class="icon-btn" onclick={() => (findOpen = true)} title="Find (Ctrl+F)" aria-label="Find">⌕</button>
-      <button class="icon-btn settings-btn" onclick={() => (settingsOpen = true)} title="Settings (Ctrl+,)" aria-label="Settings">⚙</button>
+      <button
+        class="icon-btn lg"
+        onclick={() => focus.toggle()}
+        title={`Focus mode — just the document (${FOCUS_KEY})`}
+        aria-label="Focus mode"
+        aria-pressed={focus.active}
+      ><Icon name={focus.active ? "shrink" : "expand"} size={18} /></button>
+      <button class="icon-btn lg" onclick={() => (findOpen = true)} title={`Find (${sk("Mod", "F")})`} aria-label="Find"><Icon name="search" size={18} /></button>
+      <button class="icon-btn lg" onclick={() => (settingsOpen = true)} title={`Settings (${sk("Mod", ",")})`} aria-label="Settings"><Icon name="settings" size={18} /></button>
     </div>
   </header>
 
-  <TabBar onNewTab={pickAndOpen} />
-
-  <div class="body" class:theatre-engaged={theatreEngaged}>
-    <LeftPanel
-      {source}
-      {cwd}
-      activePath={path}
-      onOpenFile={(p) => openInTab(p)}
-    />
+  <div class="body" class:theatre-engaged={theatreEngaged} class:focus-body={focus.active}>
+    {#if !focus.active}
+      <LeftPanel
+        {source}
+        {cwd}
+        activePath={path}
+        onOpenFile={(p) => openInTab(p)}
+      />
+    {/if}
+    <!-- The tab strip belongs to the document column, not to the window. Up
+         to v0.6 it spanned the full width above the side panel too, which cut
+         the panel off at the knees and left the tabs floating above a surface
+         that isn't the one they switch between. Nesting it here makes the
+         side panel full-height (the shape every modern app has settled on)
+         and puts each tab directly above the paper it opens. -->
+    <div class="doc-col">
+      {#if !focus.active}
+        <TabBar onNewTab={pickAndOpen} />
+      {/if}
     <main
       class="content"
       class:theatre-content={theatreEngaged}
@@ -519,7 +743,7 @@
         <div class="empty-state">
           <div class="empty-glyph">⌘</div>
           <h2>No file open</h2>
-          <p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> to open one, or drop a <code>.md</code> file onto the window.</p>
+          <p>Press <kbd>{MOD}</kbd>+<kbd>T</kbd> to open one, or drop a <code>.md</code> file onto the window.</p>
           {#if settings.s.recentFiles.length > 0}
             <div class="empty-recent">
               <div class="empty-label">Recent</div>
@@ -553,10 +777,14 @@
           onScrollMark={(id, mark) => tabs.setScrollMark(id, mark)}
           onResumeApplied={(id) => tabs.markResumeApplied(id)}
           onDismissResume={(id) => tabs.dismissResume(id)}
+          onOpenRelative={(p) => openInTab(p)}
+          onFindSelection={() => (findOpen = true)}
+          onReloadRequest={reloadFromDisk}
         />
       {/if}
       <Find bind:open={findOpen} target={viewerEl} />
     </main>
+    </div>
     {#if active && active.sidebarOpen && settings.s.advancedLiveEditTheatre}
       <DiffSidebar tab={active} />
       <SidebarConnectors
@@ -577,6 +805,19 @@
   <TipBanner tab={active} {externalEditObserved} />
 {/if}
 
+<!-- One-shot reassurance on entering focus mode. A distraction-free mode that
+     doesn't tell you how to leave is just a stuck window — this is the whole
+     reason people distrust them. -->
+{#if focus.showHint}
+  <div class="focus-hint" role="status">
+    <span>Focus mode</span>
+    <span class="focus-hint-sep">·</span>
+    <span class="focus-hint-dim">press <kbd>Esc</kbd> or <kbd>{FOCUS_KEY}</kbd> to exit</span>
+  </div>
+{/if}
+
+<ContextMenu />
+
 <Settings bind:open={settingsOpen} />
 
 <!-- File menu rendered at root level so it escapes the toolbar's
@@ -585,10 +826,10 @@
   <div class="menu-backdrop" onclick={() => (fileMenuOpen = false)} role="presentation"></div>
   <div class="menu file-menu" role="menu">
     <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
-      <span>Open file…</span><span class="kbd">Ctrl O</span>
+      <span>Open file…</span><span class="kbd">{sk("Mod", "O")}</span>
     </button>
     <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
-      <span>New tab</span><span class="kbd">Ctrl T</span>
+      <span>New tab</span><span class="kbd">{sk("Mod", "T")}</span>
     </button>
     {#if settings.s.recentFiles.length > 0}
       <div class="menu-sep"></div>
@@ -606,10 +847,10 @@
     </button>
     <div class="menu-sep"></div>
     <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; closeActiveTab(); }}>
-      <span>Close tab</span><span class="kbd">Ctrl W</span>
+      <span>Close tab</span><span class="kbd">{sk("Mod", "W")}</span>
     </button>
     <button class="menu-item" onclick={() => { fileMenuOpen = false; settingsOpen = true; }}>
-      <span>Settings…</span><span class="kbd">Ctrl ,</span>
+      <span>Settings…</span><span class="kbd">{sk("Mod", ",")}</span>
     </button>
     <button class="menu-item" onclick={() => { fileMenuOpen = false; aboutOpen = true; }}>
       <span>About md-reader…</span>
@@ -620,20 +861,39 @@
 <About bind:open={aboutOpen} />
 
 <style>
-  /* Apple-leaning palette — quiet neutrals, system blue accent, hairline borders */
+  /* ═══ Palette ═══════════════════════════════════════════════════════
+     Two surfaces, and the distinction between them is the whole design.
+
+     `--bg` is PAPER: the document sheet, and nothing else. `--chrome-bg` is
+     the application shell — toolbar, tab strip, side panel — which sits
+     *behind* the paper and is deliberately a different material.
+
+     Up to v0.6 these were within a couple of percent of each other in light
+     mode and byte-identical in dark (`--side-bg: #1c1c1e` == `--bg`), which
+     is exactly why the side panel "looked like the text you're reading":
+     there was no surface boundary to see, only a hairline. The fix is not a
+     louder border — it is giving the chrome its own material and floating the
+     paper on top of it with a rounded edge and a real shadow. In dark mode
+     the paper is *lighter* than the chrome, which is the convention every
+     modern dark UI converged on (a dark sheet on a darker desk).
+
+     `--paper-*` are the elevation tokens for that sheet. */
   :global(:root) {
     --bg: #ffffff;
     --bg-elevated: #ffffff;
     /* Subtle warm-paper tint for the smart-edit surface — distinguishes
        "I'm editing" from "I'm reading" without screaming. */
     --bg-edit: #fbfaf6;
-    --fg: #18181b;
-    --fg-strong: #09090b;
-    --muted: #71717a;
-    --muted-strong: #52525b;
-    --muted-bg: #f5f5f7;
-    --border: #e4e4e7;
-    --border-strong: #d4d4d8;
+    --fg: #1b1a18;
+    --fg-strong: #0b0a09;
+    --muted: #75736d;
+    --muted-strong: #55534d;
+    /* Document-side subtle fill (table headers, <kbd>). Distinct from the
+       chrome tokens on purpose — v0.6 used one `--muted-bg` for both, which is
+       how the tab strip ended up brighter than the page it sat above. */
+    --muted-bg: #f1f0ed;
+    --border: #e5e3de;
+    --border-strong: #d5d2cb;
     --accent: #007aff;
     --accent-soft: rgba(0, 122, 255, 0.12);
     /* Fill for the "you are here" row in the outline. A touch stronger than
@@ -641,50 +901,79 @@
        color-mix() so it renders on older WebKitGTK too. */
     --accent-active: rgba(0, 122, 255, 0.15);
     --link: #0066cc;
-    --code-bg: #f7f7f8;
-    --code-inline-bg: rgba(120, 120, 128, 0.16);
-    --blockquote-bg: transparent;
-    --side-bg: #fafafa;
-    --toolbar-bg: rgba(255, 255, 255, 0.78);
-    --toolbar-border: rgba(0, 0, 0, 0.07);
-    --hover-bg: rgba(0, 0, 0, 0.045);
+    --code-bg: #f7f6f3;
+    --code-inline-bg: rgba(120, 118, 110, 0.16);
+    --blockquote-bg: rgba(60, 56, 45, 0.035);
+    /* The shell. Everything that is not the document.
+       Warm, and only ~3.5% off paper — the field (VS Code 2.7%, Notion 3.8%,
+       shadcn 2%) separates chrome with an *edge*, not with tone. A bigger
+       tonal step reads as "IDE", and a cool-grey step reads as "developer
+       tool"; blue sits a few points below red in every token here. */
+    --chrome-bg: #f6f5f2;
+    --chrome-fg: #4a4841;
+    --chrome-border: #e7e5e0;
+    --chrome-hover: rgba(60, 56, 45, 0.06);
+    --chrome-raised: #ffffff;
+    /* Recessed track for segmented controls, a shade *below* the chrome. */
+    --chrome-sunken: #eceae5;
+    --side-bg: var(--chrome-bg);
+    --toolbar-bg: var(--chrome-bg);
+    --toolbar-border: transparent;
+    --hover-bg: rgba(60, 56, 45, 0.05);
     --input-bg: #ffffff;
-    --zebra-bg: #fafafa;
+    --zebra-bg: #faf9f7;
     --highlight-bg: rgba(255, 214, 0, 0.45);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+    /* Elevation for the paper sheet against the chrome behind it. */
+    --paper-radius: 10px;
+    --paper-shadow: 0 0 0 1px rgba(0, 0, 0, 0.055), 0 1px 3px rgba(0, 0, 0, 0.05);
     --radius-sm: 5px;
     --radius-md: 8px;
     --radius-lg: 12px;
   }
   :global(html[data-theme="dark"]) {
-    --bg: #1c1c1e;
-    --bg-elevated: #2c2c2e;
+    /* Paper is deliberately LIGHTER than the chrome here — content sits at
+       the extreme of the range and chrome recedes toward mid-grey, which is
+       the same rule as light mode read in the other direction. v0.6 had
+       `--side-bg: #1c1c1e` and `--bg: #1c1c1e` — the same colour — so in dark
+       mode the side panel and the document were literally one surface. */
+    --bg: #1e1e1d;
+    --bg-elevated: #2a2a28;
     /* Slightly lighter than --bg, reads as a "card" surface in dark mode. */
-    --bg-edit: #232326;
-    --fg: #f5f5f7;
+    --bg-edit: #232322;
+    --fg: #f2f1ee;
     --fg-strong: #ffffff;
-    --muted: #98989f;
-    --muted-strong: #c7c7cc;
-    --muted-bg: #2c2c2e;
-    --border: #38383a;
-    --border-strong: #48484a;
+    --muted: #96948d;
+    --muted-strong: #c4c2bb;
+    --muted-bg: #2a2a28;
+    --border: #343432;
+    --border-strong: #464643;
     --accent: #0a84ff;
     --accent-soft: rgba(10, 132, 255, 0.18);
     --accent-active: rgba(10, 132, 255, 0.26);
     --link: #64b5f6;
-    --code-bg: #2c2c2e;
-    --code-inline-bg: rgba(120, 120, 128, 0.32);
-    --blockquote-bg: transparent;
-    --side-bg: #1c1c1e;
-    --toolbar-bg: rgba(28, 28, 30, 0.78);
-    --toolbar-border: rgba(255, 255, 255, 0.08);
+    --code-bg: #262625;
+    --code-inline-bg: rgba(150, 148, 141, 0.22);
+    --blockquote-bg: rgba(255, 255, 255, 0.04);
+    --chrome-bg: #171716;
+    --chrome-fg: #a8a69f;
+    --chrome-border: #2a2a28;
+    --chrome-hover: rgba(255, 255, 255, 0.06);
+    --chrome-raised: #2e2e2c;
+    --chrome-sunken: #101010;
+    --side-bg: var(--chrome-bg);
+    --toolbar-bg: var(--chrome-bg);
+    --toolbar-border: transparent;
     --hover-bg: rgba(255, 255, 255, 0.06);
-    --input-bg: #2c2c2e;
-    --zebra-bg: #232325;
+    --input-bg: #2a2a28;
+    --zebra-bg: #232322;
     --highlight-bg: rgba(255, 204, 0, 0.32);
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+    /* No outer glow in dark mode — a light halo around a dark sheet reads as
+       a rendering artefact. The sheet separates by being lighter instead. */
+    --paper-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
   }
   /* Sepia — warm cream-paper palette for low-strain long reading.
      Contrast tuned to ~6:1 (text vs bg), comfortably above WCAG AA. The
@@ -692,32 +981,41 @@
      as a single coherent surface rather than a light page with random
      blue links. v0.5.1+. */
   :global(html[data-theme="sepia"]) {
-    --bg: #f4ecd8;
+    /* Paper lifted a shade so the cream sheet still reads as *paper* against
+       the warmer desk behind it. */
+    --bg: #f7f0dd;
     --bg-elevated: #f8f1de;
-    --bg-edit: #ede4cd;
+    --bg-edit: #efe6cf;
     --fg: #4a3f33;
     --fg-strong: #2e2418;
     --muted: #8c7a62;
     --muted-strong: #5e4f3d;
-    --muted-bg: #ebe2cb;
-    --border: #d8cdb1;
+    --muted-bg: #e6dcc2;
+    --border: #ddd2b6;
     --border-strong: #c5b994;
     --accent: #b97f47;
     --accent-soft: rgba(185, 127, 71, 0.16);
     --accent-active: rgba(185, 127, 71, 0.22);
     --link: #875d2f;
-    --code-bg: #ebe1c5;
+    --code-bg: #ede3c8;
     --code-inline-bg: rgba(74, 63, 51, 0.13);
     --blockquote-bg: rgba(74, 63, 51, 0.04);
-    --side-bg: #efe6cf;
-    --toolbar-bg: rgba(244, 236, 216, 0.85);
-    --toolbar-border: rgba(74, 63, 51, 0.10);
+    --chrome-bg: #ebe1c7;
+    --chrome-fg: #5a4b39;
+    --chrome-border: #d9cdb0;
+    --chrome-hover: rgba(74, 63, 51, 0.07);
+    --chrome-raised: #f7f0dd;
+    --chrome-sunken: #e2d7b9;
+    --side-bg: var(--chrome-bg);
+    --toolbar-bg: var(--chrome-bg);
+    --toolbar-border: transparent;
     --hover-bg: rgba(74, 63, 51, 0.06);
     --input-bg: #faf3df;
-    --zebra-bg: #ebe2cb;
+    --zebra-bg: #eee5cd;
     --highlight-bg: rgba(255, 173, 51, 0.35);
     --shadow-sm: 0 1px 2px rgba(74, 63, 51, 0.06);
     --shadow-md: 0 8px 24px rgba(74, 63, 51, 0.12);
+    --paper-shadow: 0 0 0 1px rgba(74, 63, 51, 0.09), 0 1px 3px rgba(74, 63, 51, 0.07);
   }
 
   :global(html), :global(body) {
@@ -772,23 +1070,39 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    /* The desk the paper sits on. */
+    background: var(--chrome-bg);
   }
 
-  /* Toolbar — taller, calmer, glassy */
+  /* ─── Toolbar ────────────────────────────────────────────────────────
+     Opaque, not glass. The v0.6 toolbar carried `backdrop-filter: blur(20px)`
+     over a 78%-opaque fill — but it is a flex *sibling* of the content, not an
+     overlay, so there was never anything behind it to blur. All the filter
+     did was cost a compositor layer and open a stacking context that the File
+     menu had to be teleported out of (see the note by .file-menu). Chrome that
+     is honestly a surface needs no trick. */
   .toolbar {
     display: flex;
     align-items: center;
-    gap: .85rem;
-    padding: .5rem .85rem;
-    height: 44px;
+    gap: .7rem;
+    padding: 0 .6rem;
+    height: 46px;
     background: var(--toolbar-bg);
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    border-bottom: 1px solid var(--toolbar-border);
+    color: var(--chrome-fg);
     user-select: none;
     -webkit-app-region: drag;
     flex-shrink: 0;
+    position: relative;
+    z-index: 3;
   }
+  /* No macOS traffic-light gutter here, deliberately. The window keeps
+     `decorations: true`, so on macOS the traffic lights live in a real native
+     title bar *above* this toolbar and never overlap it — reserving 68px
+     would just open an empty hole at the left of the toolbar on the one
+     platform that doesn't need it. If the window is ever switched to an
+     overlay/unified title bar, that padding comes back with it, not before.
+     `isMac` is still used, for shortcut *labels* (⌘ vs Ctrl). */
+
   /* Mark all interactive zones as no-drag so click events reach buttons.
      The .middle (centered title) stays as the drag-region. */
   .toolbar .left,
@@ -799,9 +1113,9 @@
   .left, .right {
     display: flex;
     align-items: center;
-    gap: .25rem;
+    gap: .2rem;
   }
-  .right { gap: .15rem; }
+  .right { gap: .1rem; }
   .middle {
     flex: 1 1 auto;
     display: flex;
@@ -809,61 +1123,53 @@
     justify-content: center;
     gap: .4rem;
     min-width: 0;
-    padding: 0 .5rem;
+    padding: 0 .75rem;
   }
-  .path {
-    font-size: 12px;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-variant-numeric: tabular-nums;
-  }
-  .muted { color: var(--muted); font-size: 12px; }
-  .dot { color: var(--accent); font-size: 10px; line-height: 1; }
-  /* Vertical divider between right-side toolbar groups so width / zoom /
-     find / settings read as distinct clusters instead of one undifferentiated
-     row of buttons (user feedback from v0.2.0). */
+  .muted { color: var(--chrome-fg); opacity: .7; font-size: 12px; }
+  /* Vertical divider between toolbar groups so the clusters read as distinct
+     rather than one undifferentiated row of buttons (v0.2.0 feedback). */
   .tool-divider {
     width: 1px;
-    height: 18px;
-    background: var(--border);
-    margin: 0 .2rem;
+    height: 16px;
+    background: var(--chrome-border);
+    margin: 0 .25rem;
     flex-shrink: 0;
   }
-  /* Right-side icon buttons (find, settings). A touch larger than v0.2.0
-     to make the settings cog more clickable. */
   .icon-btn {
     height: 30px;
-    width: 32px;
+    width: 30px;
     padding: 0;
-    font-size: 15px;
+    color: var(--chrome-fg);
   }
-  .icon-btn.settings-btn { font-size: 17px; }
-  .zoom { font-size: 11px; color: var(--muted); min-width: 2.8em; text-align: center; font-variant-numeric: tabular-nums; }
+  /* The three standalone actions on the right — focus, find, settings. They
+     were 15–17px glyphs in a 32px box, which read as small marks floating in
+     space rather than as buttons. */
+  .icon-btn.lg {
+    height: 32px;
+    width: 32px;
+  }
+  .icon-btn:hover { color: var(--fg-strong); }
+  .zoom {
+    font-size: 11px;
+    color: var(--chrome-fg);
+    min-width: 2.9em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
 
-  /* Side-panel toggle — the filled rail in the icon tracks the pane's state,
-     so the button reads as a state indicator rather than a bare action. */
-  .pane-btn { color: var(--muted-strong); }
-  .pane-btn:hover { color: var(--fg); }
-  .pane-btn svg .fill {
-    opacity: 0;
-    transition: opacity 140ms ease;
-  }
-  .pane-btn.pane-open { color: var(--accent); }
-  .pane-btn.pane-open svg .fill { opacity: .22; }
-  @media (prefers-reduced-motion: reduce) {
-    .pane-btn svg .fill { transition: none; }
-  }
+  /* Side-panel toggle — tinted when the pane is open, so the button reads as
+     a state indicator rather than a bare action. */
+  .pane-btn.pane-open { color: var(--accent); background: var(--accent-soft); }
+  .pane-btn.pane-open:hover { color: var(--accent); }
 
   /* All toolbar buttons share a common shape */
   button {
     background: transparent;
     border: 1px solid transparent;
-    color: var(--fg);
-    padding: 0 .55rem;
+    color: inherit;
+    padding: 0 .5rem;
     height: 28px;
-    border-radius: var(--radius-sm);
+    border-radius: 6px;
     cursor: pointer;
     font: inherit;
     font-size: 13px;
@@ -873,8 +1179,12 @@
     align-items: center;
     justify-content: center;
   }
-  button:hover { background: var(--hover-bg); }
+  button:hover { background: var(--chrome-hover); }
   button:active { background: var(--accent-soft); }
+
+  .file-btn { gap: .25rem; color: var(--chrome-fg); }
+  .file-btn:hover { color: var(--fg-strong); }
+  .file-btn :global(.caret) { opacity: .6; }
 
   .edit-sub {
     font-size: 11px;
@@ -882,38 +1192,54 @@
   }
   .edit-sub button { padding: 0 .55rem; }
 
-  /* Pill segmented control */
+  /* Pill segmented control. The track is a *recess* in the chrome (a shade
+     darker) and the selected item is a raised chip — the physical metaphor
+     macOS and iOS both use. v0.6 lifted the selected chip to `--bg`, which is
+     now the paper colour, so the control would have looked like a scrap of
+     document lying in the toolbar. */
   .seg {
     display: inline-flex;
     align-items: center;
-    background: var(--muted-bg);
-    border-radius: 7px;
+    background: var(--chrome-sunken);
+    border-radius: 8px;
     padding: 2px;
     gap: 2px;
   }
   .seg button {
     border: 0;
-    height: 22px;
-    padding: 0 .65rem;
+    height: 23px;
+    padding: 0 .6rem;
     font-size: 12px;
-    color: var(--muted-strong);
-    border-radius: 5px;
+    color: var(--chrome-fg);
+    border-radius: 6px;
   }
-  .seg button:hover { background: rgba(255,255,255,0.5); color: var(--fg); }
-  :global(html[data-theme="dark"]) .seg button:hover { background: rgba(255,255,255,0.06); }
+  .seg button:hover { background: var(--chrome-hover); color: var(--fg-strong); }
   .seg button.active {
-    background: var(--bg);
+    background: var(--chrome-raised);
     color: var(--fg-strong);
     box-shadow: var(--shadow-sm);
     font-weight: 500;
   }
-  :global(html[data-theme="dark"]) .seg button.active { background: var(--border-strong); }
+  /* Icon-only segments want square cells, not text-sized ones. */
+  .panel-toggles button,
+  .theme-group button { width: 27px; padding: 0; }
 
   .body {
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
+    background: var(--chrome-bg);
     transition: background-color 380ms ease, filter 380ms ease;
+  }
+  /* Tab strip + paper, stacked. Chrome-coloured so the strip and the cut
+     corner below it are the same material. */
+  .doc-col {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    background: var(--chrome-bg);
   }
   /* Theatre engaged: subtle global background desaturation + a slight inset
      shadow on the content surface so the page reads as "receded into focus
@@ -923,25 +1249,109 @@
     background: var(--bg-edit, var(--bg));
     filter: saturate(.92);
   }
+  /* ─── The paper ──────────────────────────────────────────────────────
+     The document is a sheet resting on the chrome, not a region of the same
+     wall. One rounded corner (top-left, where the sheet meets the panel and
+     the tab strip) plus a hairline and a whisper of shadow is the entire
+     device — but it is the thing that makes the side panel stop reading as
+     "more of the text". The other three corners stay square because they meet
+     the window edge, and a sheet floating free of all four edges wastes
+     screen on a reader. */
   .content {
     position: relative;
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
     min-width: 0;
+    background: var(--bg);
+    border-top-left-radius: var(--paper-radius);
+    /* A ring rather than a border: borders participate in flex sizing and
+       would shift the text column by a pixel when the panel is toggled. */
+    box-shadow: var(--paper-shadow);
+    /* Contain the scroller so the rounded corner actually clips content. */
+    overflow: hidden;
     transition: box-shadow 380ms cubic-bezier(.4, 0, .2, 1),
                 background-color 380ms ease;
   }
   .content.theatre-content {
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .04),
+    box-shadow: var(--paper-shadow),
                 inset 0 24px 48px -32px rgba(0, 0, 0, .15);
   }
   :global(html[data-theme="dark"]) .content.theatre-content {
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04),
+    box-shadow: var(--paper-shadow),
                 inset 0 24px 48px -32px rgba(0, 0, 0, .55);
   }
+
+  /* ─── Focus mode ─────────────────────────────────────────────────────
+     Everything but the paper leaves. The toolbar is translated out rather
+     than unmounted, so pushing the pointer to the top edge can slide it back
+     without a remount (and without losing the File menu's open state). */
+  .shell.focus-mode { background: var(--bg); }
+  .focus-body { padding: 0; }
+  .focus-body .content {
+    border-top-left-radius: 0;
+    box-shadow: none;
+  }
+  .toolbar.focus-hidden {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 60;
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+    border-bottom: 1px solid var(--chrome-border);
+    box-shadow: var(--shadow-md);
+    transition: transform 180ms cubic-bezier(.32, .72, 0, 1), opacity 140ms ease;
+  }
+  .toolbar.focus-peek {
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  :global(.focus-hint) {
+    position: fixed;
+    left: 50%;
+    bottom: 34px;
+    transform: translateX(-50%);
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .5rem .9rem;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-md);
+    font-size: 12px;
+    color: var(--fg);
+    pointer-events: none;
+    animation: focus-hint-in 220ms ease-out;
+  }
+  :global(.focus-hint-sep) { color: var(--border-strong); }
+  :global(.focus-hint-dim) { color: var(--muted); }
+  :global(.focus-hint kbd) {
+    background: var(--muted-bg);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 .35em;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .85em;
+  }
+  @keyframes focus-hint-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toolbar.focus-hidden { transition: none; }
+    :global(.focus-hint) { animation: none; }
+  }
   /* File button & menu */
-  .file-btn .caret { font-size: 9px; margin-left: .25em; opacity: .7; }
+  /* The caret is an <Icon>, so its class lands inside a child component and
+     needs :global to be reachable — see the .file-btn rule above. */
   :global(.menu-backdrop) {
     position: fixed;
     inset: 0;

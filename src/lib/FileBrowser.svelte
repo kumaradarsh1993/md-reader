@@ -1,5 +1,9 @@
 <script lang="ts">
   import { api, type DirEntry } from "./api";
+  import Icon from "./Icon.svelte";
+  import { contextMenu, type MenuEntry } from "./context-menu.svelte";
+  import { isMac, copyText, revealInFileManager } from "./platform";
+  import { invoke } from "@tauri-apps/api/core";
 
   interface Props {
     cwd: string | null;
@@ -59,6 +63,71 @@
     }
   }
 
+  function entryMenu(e: DirEntry): MenuEntry[] {
+    const openable = e.is_dir || e.is_md;
+    return [
+      {
+        label: e.is_dir ? "Open folder" : "Open",
+        icon: e.is_dir ? "folder-open" : "file-text",
+        disabled: !openable,
+        action: () => clickEntry(e),
+      },
+      ...(e.is_md
+        ? [
+            {
+              label: "Open in new window",
+              icon: "external-link" as const,
+              action: async () => {
+                try {
+                  await invoke("spawn_window", { file: e.path });
+                } catch (err) {
+                  console.error("spawn_window failed", err);
+                }
+              },
+            },
+          ]
+        : []),
+      { separator: true },
+      { label: "Copy name", icon: "copy", action: () => copyText(e.name) },
+      { label: "Copy full path", icon: "copy", action: () => copyText(e.path) },
+      {
+        label: isMac ? "Reveal in Finder" : "Show in folder",
+        icon: "folder-open",
+        action: () => revealInFileManager(e.path),
+      },
+    ];
+  }
+
+  function browserMenu(): MenuEntry[] {
+    return [
+      {
+        label: "Up to parent folder",
+        icon: "arrow-up",
+        disabled: !currentDir || !hasParent,
+        action: goUp,
+      },
+      {
+        label: "Refresh",
+        icon: "refresh",
+        disabled: !currentDir,
+        action: () => currentDir && load(currentDir),
+      },
+      { separator: true },
+      {
+        label: "Copy folder path",
+        icon: "copy",
+        disabled: !currentDir,
+        action: () => currentDir && copyText(currentDir),
+      },
+      {
+        label: isMac ? "Reveal in Finder" : "Show in folder",
+        icon: "folder-open",
+        disabled: !currentDir,
+        action: () => currentDir && revealInFileManager(currentDir),
+      },
+    ];
+  }
+
   /** Leaf folder name — the crumb the user actually reads. */
   let leafName = $derived(
     currentDir ? (currentDir.split(/[\\/]/).filter(Boolean).pop() ?? currentDir) : "",
@@ -71,10 +140,11 @@
   });
 </script>
 
-<div class="file-browser">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="file-browser" oncontextmenu={(e) => contextMenu.open(e, browserMenu())}>
   <div class="cwd-bar">
-    <button class="up" onclick={goUp} title="Up to parent folder" disabled={!currentDir || !hasParent}>
-      ↑
+    <button class="up" onclick={goUp} title="Up to parent folder" aria-label="Up to parent folder" disabled={!currentDir || !hasParent}>
+      <Icon name="arrow-up" size={13} />
     </button>
     <span class="crumbs" title={currentDir ?? ""}>
       {#if currentDir}
@@ -104,10 +174,15 @@
             class:active={activePath === e.path}
             aria-current={activePath === e.path ? "true" : undefined}
             onclick={() => clickEntry(e)}
+            oncontextmenu={(ev) => contextMenu.open(ev, entryMenu(e))}
             disabled={!e.is_dir && !e.is_md}
             title={e.path}
           >
-            <span class="icon" aria-hidden="true">{e.is_dir ? "📁" : e.is_md ? "📄" : "·"}</span>
+            <span class="icon">
+              {#if e.is_dir}<Icon name="folder" size={13} />
+              {:else if e.is_md}<Icon name="file-text" size={13} />
+              {:else}<span class="inert-dot" aria-hidden="true"></span>{/if}
+            </span>
             <span class="name">{e.name}</span>
           </button>
         </li>
@@ -221,13 +296,21 @@
   .entry[disabled] { cursor: default; }
   .icon {
     flex-shrink: 0;
-    width: 1.15em;
-    text-align: center;
-    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
     color: var(--muted);
-    line-height: 1;
   }
+  .entry.dir .icon { color: var(--accent); opacity: .75; }
+  .entry.active .icon { color: var(--accent); opacity: 1; }
   .entry.dim .icon { color: var(--border-strong); }
+  .inert-dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: currentColor;
+  }
   .name {
     flex: 1 1 auto;
     overflow: hidden;

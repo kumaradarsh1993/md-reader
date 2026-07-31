@@ -1,6 +1,6 @@
 [package]
 name = "md-reader"
-version = "0.6.0"
+version = "0.7.0"
 description = "Lightweight cross-platform Markdown viewer"
 authors = ["md-reader contributors"]
 edition = "2021"
@@ -17,7 +17,8 @@ tauri-build = { version = "2", features = [] }
 # Without this we cannot debug spawned windows in production.
 tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
+# tauri-plugin-fs deliberately absent — see capabilities/default.json. File I/O
+# goes through the open_file / save_file commands, not through the webview.
 tauri-plugin-store = "2"
 tauri-plugin-opener = "2"
 
@@ -34,11 +35,18 @@ parking_lot = "0.12"
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-single-instance = "2"
 
-# Windows-only: needed for AllowSetForegroundWindow so a torn-out child
-# process can bring its own window to the front on spawn (the default
-# Windows policy buries new windows behind the parent).
+# Windows-only:
+#  - AllowSetForegroundWindow, so a torn-out child process can bring its own
+#    window to the front on spawn (the default Windows policy buries new
+#    windows behind the parent).
+#  - DwmSetWindowAttribute, so the title bar follows the app theme instead of
+#    staying whatever the OS decided.
 [target."cfg(windows)".dependencies]
-windows-sys = { version = "0.59", features = ["Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = [
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Dwm",
+  "Win32_Foundation",
+] }
 
 [profile.release]
 panic = "abort"

@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
   import { api } from "./api";
-  import { settings, effectiveDark, type ScrollMark } from "./settings-store.svelte";
+  import { settings, effectiveDark, effectiveThemeName, type ScrollMark } from "./settings-store.svelte";
+  import { contextMenu, type MenuEntry } from "./context-menu.svelte";
+  import { sk, copyText } from "./platform";
   import { postRender } from "./post-render";
   import { viewNav } from "./view-nav.svelte";
   import ResumeRibbon from "./ResumeRibbon.svelte";
@@ -45,10 +47,19 @@
      *  mutual exclusion (an element matching both renders as fresh/green).
      *  v0.5.0+. */
     theatreFreshRanges?: Array<{ from: number; to: number }>;
+    /** A relative markdown link was clicked — open that file as a tab. */
+    onOpenRelative?: (path: string) => void;
+    /** Context menu asked to search for the current selection. */
+    onFindSelection?: (text: string) => void;
+    /** Context menu asked to re-read the file from disk. */
+    onReloadRequest?: () => void;
   }
   let {
     source = "",
     basePath = "",
+    onOpenRelative,
+    onFindSelection,
+    onReloadRequest,
     mode = "view",
     lastChangeFromDisk = 0,
     baselineSource = "",
@@ -74,6 +85,11 @@
   let renderedTabId = "";
 
   let dark = $derived(effectiveDark(settings.s.theme));
+  let themeName = $derived(effectiveThemeName(settings.s.theme));
+
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /**
    * Find the first 1-indexed line where two markdown sources diverge.
@@ -341,6 +357,9 @@
   $effect(() => {
     const src = source;
     const isDark = dark;
+    // Read inside the tracked scope so a theme switch re-renders: the syntax
+    // palette is chosen in Rust from this exact string.
+    const paletteName = themeName;
     const diskTick = lastChangeFromDisk;
     const currentMode = mode;
     const baseline = baselineSource;
@@ -363,7 +382,7 @@
     }
 
     (async () => {
-      const rendered = await api.renderMarkdown(src, isDark);
+      const rendered = await api.renderMarkdown(src, paletteName);
       if (cancelled) return;
       lastScroll = container?.scrollTop ?? 0;
       // Everything below is read post-await, i.e. outside the reactive
@@ -579,19 +598,150 @@
     }
   }
 
-  function rewriteRelativeImages(root: HTMLElement, base: string) {
+  /**
+   * Resolve `./x`, `../x` and bare relative segments against a directory.
+   * Left as a plain string join because `dir` is an OS path, not a URL —
+   * `new URL()` would mangle a Windows drive letter.
+   */
+  function resolveRelative(dir: string, rel: string): string {
+    const parts: string[] = [];
+    for (const seg of `${dir}/${rel}`.split(/[\\/]+/)) {
+      if (seg === "." || seg === "") continue;
+      if (seg === "..") parts.pop();
+      else parts.push(seg);
+    }
+    return parts.join("/");
+  }
+
+  async function rewriteRelativeImages(root: HTMLElement, base: string) {
     if (!base) return;
     const dir = base.replace(/[\\/][^\\/]*$/, "");
-    const imgs = root.querySelectorAll<HTMLImageElement>("img");
+    const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+    if (imgs.length === 0) return;
+    // Hoisted out of the loop: the import was previously fired per image and
+    // never awaited, so the function returned before any src was patched and
+    // the resulting height changes landed after re-anchoring.
+    const { convertFileSrc } = await import("@tauri-apps/api/core");
     for (const img of imgs) {
       const src = img.getAttribute("src");
       if (!src) continue;
       if (/^(https?:|data:|file:|asset:)/i.test(src)) continue;
-      import("@tauri-apps/api/core").then(({ convertFileSrc }) => {
-        const sep = dir.includes("\\") ? "\\" : "/";
-        img.src = convertFileSrc(`${dir}${sep}${src}`);
-      });
+      // `./img/x.png` used to be joined verbatim, leaving the `.` segment in
+      // the asset URL after percent-encoding — a guaranteed 404. `../` was
+      // worse: it never resolved at all.
+      img.src = convertFileSrc(resolveRelative(dir, src));
     }
+  }
+
+  /**
+   * Clicks inside the rendered document.
+   *
+   * Until v0.7.0 there was no handler here at all, so an ordinary external
+   * link — of which a README has dozens — navigated the entire application
+   * away to a web page, inside a window with no address bar, no Back button
+   * and no reload. The only way out was closing the window.
+   *
+   * Three kinds of link, three destinations:
+   *  - `#anchor`  → scroll this document (now that ids match GitHub's slugs)
+   *  - `http(s)`  → the user's real browser
+   *  - relative   → another markdown file, opened as a tab
+   */
+  async function onProseClick(e: MouseEvent) {
+    const anchor = (e.target as HTMLElement | null)?.closest("a");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href");
+    if (!href) return;
+
+    if (href.startsWith("#")) {
+      e.preventDefault();
+      const id = decodeURIComponent(href.slice(1));
+      // getElementById rather than a selector: a slug can legally contain
+      // characters that would need CSS escaping.
+      const target = container?.ownerDocument.getElementById(id);
+      target?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      return;
+    }
+
+    if (/^(https?|mailto):/i.test(href)) {
+      e.preventDefault();
+      try {
+        const { openUrl } = await import("@tauri-apps/plugin-opener");
+        await openUrl(href);
+      } catch (err) {
+        console.error("[md-reader] could not open link externally", err);
+      }
+      return;
+    }
+
+    // Relative link to a sibling document — the case that matters most in a
+    // folder of cross-referencing handover docs.
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(href) && basePath) {
+      const [rel] = href.split("#");
+      if (/\.(md|markdown|mdown|mkd|mkdn|txt)$/i.test(rel)) {
+        e.preventDefault();
+        const dir = basePath.replace(/[\\/][^\\/]*$/, "");
+        onOpenRelative?.(resolveRelative(dir, decodeURIComponent(rel)));
+      }
+    }
+  }
+
+  /** Right-click inside the document: offers what you can do with whatever is
+   *  under the cursor — a selection, a link, a heading — then the page. */
+  function onProseContextMenu(e: MouseEvent) {
+    const target = e.target as HTMLElement | null;
+    const selection = (window.getSelection()?.toString() ?? "").trim();
+    const anchor = target?.closest("a");
+    const href = anchor?.getAttribute("href") ?? "";
+    const heading = target?.closest("h1, h2, h3, h4, h5, h6");
+    const items: MenuEntry[] = [];
+
+    if (selection) {
+      const preview = selection.length > 28 ? `${selection.slice(0, 28)}…` : selection;
+      items.push({
+        label: `Copy “${preview}”`,
+        icon: "copy",
+        shortcut: sk("Mod", "C"),
+        action: () => copyText(selection),
+      });
+      items.push({
+        label: "Find in document",
+        icon: "search",
+        action: () => onFindSelection?.(selection),
+      });
+      items.push({ separator: true });
+    }
+
+    if (anchor && /^(https?|mailto):/i.test(href)) {
+      items.push({
+        label: "Open link in browser",
+        icon: "external-link",
+        action: () => import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(href)),
+      });
+      items.push({ label: "Copy link address", icon: "link", action: () => copyText(href) });
+      items.push({ separator: true });
+    }
+
+    if (heading?.id) {
+      items.push({
+        label: "Copy link to section",
+        icon: "link",
+        action: () => copyText(`#${heading.id}`),
+      });
+      items.push({ separator: true });
+    }
+
+    items.push({
+      label: "Back to top",
+      icon: "arrow-up-to-line",
+      action: () => container?.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" }),
+    });
+    items.push({
+      label: "Reload from disk",
+      icon: "refresh",
+      action: () => onReloadRequest?.(),
+    });
+
+    contextMenu.open(e, items);
   }
 </script>
 
@@ -603,7 +753,18 @@
   bind:this={container}
   onscroll={onScroll}
 >
-  <article class="prose">{@html html}</article>
+  <!-- Delegated: the prose is replaced wholesale on every render, so a
+       listener on the container is the only place a handler can survive.
+       svelte-ignore is correct — this is event delegation over rendered
+       content, not a control masquerading as a div. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <article
+    class="prose"
+    onclick={onProseClick}
+    oncontextmenu={onProseContextMenu}
+  >{@html html}</article>
 
   <ResumeRibbon
     show={ribbonVisible}
@@ -640,15 +801,21 @@
     font-feature-settings: "kern", "liga", "calt", "ss01";
   }
 
-  /* The actual content column — max-width capped, centered horizontally.
-     This is the only block that handles centering. Children just flow normally. */
+  /* The actual content column — measure-capped, centered horizontally.
+     This is the only block that handles centering. Children just flow normally.
+
+     `box-sizing: border-box` is global, so a plain `max-width` had the gutter
+     *subtracted from* the measure — and since the gutter is `5vw`, the actual
+     line length changed as the window resized even though the user's setting
+     hadn't moved. Adding the padding into the width makes the number mean what
+     it says: 76ch of type, at every window size. */
   .prose {
-    max-width: var(--content-width);
+    width: min(100%, calc(var(--content-width) + 2 * clamp(1.25rem, 5vw, 3.5rem)));
     margin: 0 auto;
     padding: 0 clamp(1.25rem, 5vw, 3.5rem);
-    text-align: left;
+    text-align: start;
   }
-  .viewer.full-width .prose { max-width: none; }
+  .viewer.full-width .prose { width: 100%; }
 
   .prose :global(> *:first-child) { margin-top: 0; }
   .prose :global(> *:last-child)  { margin-bottom: 0; }
@@ -669,20 +836,22 @@
   .viewer :global(h4),
   .viewer :global(h5),
   .viewer :global(h6) {
-    /* Nuclear reset — kill any inherited offset, indent, or alignment trick */
-    display: block !important;
-    text-align: left !important;
-    text-indent: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    padding-inline: 0 !important;
-    /* Block centering still works via the > * rule below */
+    display: block;
+    /* `start`, not `left !important`. The !important here used to defeat
+       `<div align="center">` wrappers — the standard README hero — leaving the
+       title hard-left while the badges under it centred. The `center-headings`
+       setting carries its own !important, so it still wins without this. */
+    text-align: start;
+    text-indent: 0;
+    padding-inline: 0;
     line-height: 1.25;
     margin-top: 2em;
     margin-bottom: .6em;
     letter-spacing: -0.012em;
     font-weight: 600;
     color: var(--fg-strong);
+    /* Anchor jumps otherwise land the heading flush against the top edge. */
+    scroll-margin-top: 1.5rem;
   }
   /* Comrak's header_ids feature emits an empty <a class="anchor"> beside or inside
      each heading. We don't want it visible, but it must remain a layout target so the
@@ -697,32 +866,78 @@
     visibility: hidden !important;
     pointer-events: none !important;
   }
+  /* Type scale.
+
+     The old scale decelerated to a stop: h4 was 1.05em and h5 exactly 1em —
+     body size — with weight 600 and --fg-strong as their only distinction.
+     That is character-for-character how `strong` is styled, so `##### Heading`
+     and a `**bold lead-in**` rendered identically. In a nested audit document
+     the hierarchy simply ended at h3.
+
+     The fix is to stop competing on size at the bottom of the scale and
+     switch to *shape*: h4 outweighs `strong` at 700, and h5/h6 go to small
+     caps. Nothing below h3 relies on being bigger than the paragraph. */
   .viewer :global(h1) {
-    font-size: 2.1em;
+    font-size: 2em;
     font-weight: 700;
     letter-spacing: -0.02em;
-    margin-top: .2em;
+    /* Mid-document h1s used to collapse to paragraph spacing; `.prose >
+       *:first-child` already zeroes the one at the top of the file. */
+    margin-top: 2.6em;
     margin-bottom: .5em;
   }
   .viewer :global(h2) {
     font-size: 1.55em;
-    font-weight: 600;
+    font-weight: 650;
     letter-spacing: -0.015em;
     margin-top: 2.2em;
     padding-bottom: .35em;
     border-bottom: 1px solid var(--border);
   }
-  .viewer :global(h3) { font-size: 1.22em; margin-top: 1.7em; }
-  .viewer :global(h4) { font-size: 1.05em; margin-top: 1.5em; }
-  .viewer :global(h5) { font-size: 1em; margin-top: 1.3em; }
+  /* Below h2 the top margins are tuned so the *rendered* gap lands at
+     ~31–36px at every level, rather than the em-multiplier being constant and
+     the real gap shrinking with the font — which is what left h5 and h6 with
+     barely more air above them than an ordinary paragraph break. */
+  .viewer :global(h3) { font-size: 1.28em; font-weight: 650; letter-spacing: -0.01em; margin-top: 1.85em; }
+  .viewer :global(h4) { font-size: 1.08em; font-weight: 700; letter-spacing: 0; margin-top: 1.9em; }
+  .viewer :global(h5) {
+    font-size: .96em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-top: 2.1em;
+  }
   .viewer :global(h6) {
-    font-size: .82em;
-    color: var(--muted);
+    font-size: .84em;
+    color: var(--muted-strong);
     text-transform: uppercase;
     letter-spacing: .08em;
     font-weight: 600;
-    margin-top: 1.5em;
+    margin-top: 2.4em;
   }
+
+  /* ─── Vertical rhythm between blocks ───────────────────────
+     There was not a single adjacent-sibling rule in this stylesheet before
+     v0.7.0. Every gap was decided in isolation and then resolved by margin
+     collapsing, which produced three specific complaints in long documents:
+     an `h2` followed immediately by its own first `h3` opened a 33px gulf; a
+     list did not group with the sentence introducing it; and consecutive list
+     items sat 3px apart while the lines *inside* an item sat 26px apart, so
+     the item boundary vanished. */
+  .viewer :global(h1 + h2) { margin-top: 1.1em; }
+  .viewer :global(h2 + h3) { margin-top: .85em; }
+  .viewer :global(h3 + h4) { margin-top: .8em; }
+  .viewer :global(h4 + h5),
+  .viewer :global(h5 + h6) { margin-top: .9em; }
+  .viewer :global(hr + h1),
+  .viewer :global(hr + h2) { margin-top: 1.2em; }
+
+  /* A block that answers the paragraph above it belongs *to* that paragraph. */
+  .viewer :global(p + ul),
+  .viewer :global(p + ol) { margin-top: .25em; }
+  .viewer :global(p + pre),
+  .viewer :global(p + blockquote) { margin-top: .5em; }
+  .viewer :global(p + .table-scroll) { margin-top: .6em; }
 
   /* ─── Paragraph & inline ───────────────────────────────── */
   .viewer :global(p) { margin: .85em 0; }
@@ -750,13 +965,25 @@
     line-height: 1;
   }
 
-  /* ─── Links ────────────────────────────────────────────── */
+  /* ─── Links ──────────────────────────────────────────────
+     Underlined at rest. Colour alone was the only cue, and it doesn't carry:
+     link-vs-body contrast measures ~1.9:1 in dark and ~1.8:1 in sepia, where a
+     link is a slightly warmer brown inside brown text. WCAG wants ≥3:1 for a
+     colour-only distinction; underlining sidesteps the question entirely and
+     is the right default for a reading app regardless. */
   .viewer :global(a) {
     color: var(--link);
-    text-decoration: none;
-    text-underline-offset: 2px;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 2.5px;
+    /* A bare autolinked URL can be 70+ characters — longer than the column. */
+    overflow-wrap: anywhere;
   }
-  .viewer :global(a:hover) { text-decoration: underline; }
+  .viewer :global(a:hover) { text-decoration-color: currentColor; }
+  /* Badge rows are links wrapping images; an underline under each one is
+     just a stray rule across the hero. */
+  .viewer :global(a:has(> img)) { text-decoration: none; }
 
   /* ─── Code ─────────────────────────────────────────────── */
   .viewer :global(code) {
@@ -765,6 +992,12 @@
     padding: .12em .4em;
     border-radius: 4px;
     font-size: .88em;
+    /* `C:\Users\kadar\.claude\projects\D--Claude-Code-Projects\memory\` is 62
+       characters — ~525px at this size, most of the column. Without this it
+       paints straight through the gutter and is clipped, unreachable, by the
+       viewport's `overflow-x: hidden`. `anywhere` rather than `break-word` so
+       it also contributes a small min-content width inside table cells. */
+    overflow-wrap: anywhere;
   }
   .viewer :global(pre) {
     /* syntect emits an inline `style="background-color:#fff"` on the <pre>
@@ -775,10 +1008,12 @@
     padding: 1em 1.1em;
     border-radius: 8px;
     overflow-x: auto;
-    margin: 1.1em 0;
+    margin: 1.5em 0;
     font-size: .88em;
     line-height: 1.55;
     border: 1px solid var(--border);
+    /* Anchors the language label and the copy button. */
+    position: relative;
   }
   .viewer :global(pre > code) {
     background: transparent;
@@ -786,15 +1021,60 @@
     border-radius: 0;
     font-size: 1em;
     color: inherit;
+    /* Code blocks scroll; they must never reflow mid-token. */
+    overflow-wrap: normal;
   }
-
-  /* ─── Blockquote ───────────────────────────────────────── */
-  .viewer :global(blockquote) {
-    border-left: 3px solid var(--border);
-    margin: 1em 0;
-    padding: .25em 1.1em;
+  /* Language label. Set from the `language-*` class in post-render.ts. */
+  .viewer :global(pre[data-lang]) { padding-top: 2.2em; }
+  .viewer :global(pre[data-lang])::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: .55em;
+    left: 1.15em;
+    font-size: .72em;
+    letter-spacing: .06em;
+    text-transform: uppercase;
     color: var(--muted);
-    background: transparent;
+    pointer-events: none;
+    font-family: inherit;
+  }
+  /* Copy button — appears on hover, and stays put when the block scrolls
+     horizontally because it's anchored to the <pre>, not the content. */
+  .viewer :global(.code-copy) {
+    position: absolute;
+    top: .45em;
+    right: .5em;
+    font: inherit;
+    font-size: .72em;
+    line-height: 1;
+    padding: .35em .65em;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--muted-strong);
+    cursor: default;
+    opacity: 0;
+    transition: opacity 120ms ease, color 120ms ease;
+  }
+  .viewer :global(pre:hover) :global(.code-copy),
+  .viewer :global(.code-copy:focus-visible) { opacity: 1; }
+  .viewer :global(.code-copy:hover) { color: var(--fg-strong); }
+  .viewer :global(.code-copy.ok) { opacity: 1; color: #2ea043; border-color: #2ea043; }
+
+  /* ─── Blockquote ─────────────────────────────────────────
+     Full contrast, not muted. In this corpus blockquotes carry the *highest*
+     stakes content — "last audited", "verified on", the warnings an author
+     pulled out precisely so they'd be read — so rendering them dimmer than
+     body text inverted the author's emphasis. (It also failed WCAG AA in
+     sepia at 3.5:1.) `--blockquote-bg` has been declared in all three palettes
+     since v0.5.1 and was never referenced; it is now. */
+  .viewer :global(blockquote) {
+    border-left: 3px solid var(--border-strong);
+    margin: 1.5em 0;
+    padding: .5em 1.2em;
+    color: var(--fg);
+    background: var(--blockquote-bg);
+    border-radius: 0 6px 6px 0;
   }
   .viewer :global(blockquote > :first-child) { margin-top: 0; }
   .viewer :global(blockquote > :last-child)  { margin-bottom: 0; }
@@ -830,6 +1110,25 @@
     -webkit-mask: var(--alert-icon) center / contain no-repeat;
             mask: var(--alert-icon) center / contain no-repeat;
   }
+  /* The five accent colours below are GitHub's *dark*-mode tokens, which is
+     why alerts looked right in dark mode and washed out everywhere else — all
+     five measure between 2.4:1 and 3.4:1 on white, at 12.8px, so all five fail
+     WCAG AA in the light and sepia themes. GitHub's light tokens (≥4.5:1) take
+     over there; the originals stay for dark, where they belong. */
+  :global(html[data-theme="light"]) .viewer :global(.markdown-alert-note),
+  :global(html[data-theme="sepia"]) .viewer :global(.markdown-alert-note) { --alert-color: #0969da; }
+  :global(html[data-theme="light"]) .viewer :global(.markdown-alert-tip),
+  :global(html[data-theme="sepia"]) .viewer :global(.markdown-alert-tip) { --alert-color: #1a7f37; }
+  :global(html[data-theme="light"]) .viewer :global(.markdown-alert-important),
+  :global(html[data-theme="sepia"]) .viewer :global(.markdown-alert-important) { --alert-color: #8250df; }
+  :global(html[data-theme="light"]) .viewer :global(.markdown-alert-warning),
+  :global(html[data-theme="sepia"]) .viewer :global(.markdown-alert-warning) { --alert-color: #9a6700; }
+  :global(html[data-theme="light"]) .viewer :global(.markdown-alert-caution),
+  :global(html[data-theme="sepia"]) .viewer :global(.markdown-alert-caution) { --alert-color: #cf222e; }
+  /* 8% tint is invisible against a dark page; lift it in dark mode only. */
+  :global(html[data-theme="dark"]) .viewer :global(.markdown-alert) {
+    --alert-bg: color-mix(in srgb, var(--alert-color) 14%, transparent);
+  }
   .viewer :global(.markdown-alert-note) {
     --alert-color: #4493f8;
     --alert-bg: rgba(56, 139, 253, 0.08);
@@ -862,32 +1161,37 @@
     padding-left: 1.7em;
     margin: .65em 0;
   }
-  .viewer :global(li) {
-    margin: .2em 0;
-  }
+  /* 3.2px between items, against a 26px line-height *inside* an item, meant
+     the eye could not find the item boundary in any list whose entries ran to
+     more than one line — which, in these documents, is most of them. */
+  .viewer :global(li) { margin: 0; }
+  .viewer :global(li + li) { margin-top: .4em; }
   .viewer :global(li > p) {
     margin: .35em 0;
   }
   .viewer :global(li > p:first-child) { margin-top: 0; }
   .viewer :global(li > p:last-child)  { margin-bottom: 0; }
-  .viewer :global(ul ul),
-  .viewer :global(ul ol),
-  .viewer :global(ol ul),
-  .viewer :global(ol ol) {
-    margin: .15em 0;
+  .viewer :global(li > ul),
+  .viewer :global(li > ol) {
+    margin: .4em 0 .1em;
   }
   .viewer :global(ul) { list-style: disc; }
   .viewer :global(ul ul) { list-style: circle; }
   .viewer :global(ul ul ul) { list-style: square; }
 
-  /* Task list items (comrak emits <input type="checkbox" disabled>) */
-  .viewer :global(li:has(> input[type="checkbox"])),
-  .viewer :global(li.task-list-item) {
+  /* Task list items. `render.tasklist_classes` is now on, so `.task-list-item`
+     is a real hook rather than dead CSS riding entirely on the `:has()`
+     sibling. The old `margin-left: -1.4em` pulled task items 1.4em left of
+     plain bullets, so a mixed list had two different left edges; the checkbox
+     hangs into the gutter instead, keeping every item on one axis. */
+  .viewer :global(li.task-list-item),
+  .viewer :global(li:has(> input[type="checkbox"])) {
     list-style: none;
-    margin-left: -1.4em;
+    margin-left: 0;
+    padding-left: 0;
   }
   .viewer :global(li > input[type="checkbox"]) {
-    margin: 0 .55em 0 0;
+    margin: 0 .5em 0 -1.55em;
     transform: translateY(.05em);
     accent-color: var(--accent);
     width: 1em;
@@ -895,49 +1199,134 @@
     cursor: default;
   }
 
-  /* ─── Tables ───────────────────────────────────────────── */
+  /* ─── Tables ─────────────────────────────────────────────
+     Three problems, all fixed here.
+
+     1. **Wide tables were clipped and unreachable.** `overflow-x: auto` does
+        nothing on `display: table`, and above 600px — i.e. always, on a
+        desktop — that is what the table was. Anything wider than the prose
+        column overflowed into `.viewer`, which is `overflow-x: hidden`. The
+        columns weren't just off-screen, they were unreachable. post-render.ts
+        now wraps every table in `.table-scroll`, which is a real scroller.
+     2. **Column alignment was silently discarded.** comrak emits GFM's
+        `:---:` as `align="center"`, a presentational hint at specificity 0 —
+        which the blanket `text-align: left` below beat every single time.
+     3. **Grid plus zebra is a spreadsheet, not prose** — and the zebra was a
+        1.6% step in light mode (invisible) while in sepia `--zebra-bg` and
+        `--muted-bg` were the *same value*, so the header row disappeared into
+        the body. Horizontal rules only, now. */
+  .viewer :global(.table-scroll) {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    margin: 1.6em 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    /* The radius only renders because the wrapper clips — a `border-collapse`
+       table paints its own square corners straight through a radius. */
+    overflow-y: hidden;
+  }
   .viewer :global(table) {
     border-collapse: collapse;
-    margin: 1.2em 0;
-    width: 100%;
+    margin: 0;
     font-size: .94em;
-    overflow-x: auto;
-    display: block;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    /* Wide tables take their natural width and scroll; narrow ones still
+       fill the column. */
+    width: max-content;
+    min-width: 100%;
   }
-  /* On wide enough viewports, render as table for better column behaviour */
-  @media (min-width: 600px) {
-    .viewer :global(table) { display: table; }
-  }
-  .viewer :global(thead) { background: var(--muted-bg); }
   .viewer :global(th),
   .viewer :global(td) {
-    border: 1px solid var(--border);
-    padding: .5em .8em;
-    text-align: left;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    padding: .55em .85em;
+    text-align: start;
     vertical-align: top;
+    /* 1.65 is a reading line-height; in a dense grid it adds ~30% height for
+       nothing. */
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
   }
-  .viewer :global(th) { font-weight: 600; }
-  .viewer :global(tbody tr:nth-child(even)) { background: var(--zebra-bg); }
+  .viewer :global(th[align="center"]),
+  .viewer :global(td[align="center"]) { text-align: center; }
+  .viewer :global(th[align="right"]),
+  .viewer :global(td[align="right"]) { text-align: right; }
+  .viewer :global(thead th) {
+    background: transparent;
+    border-bottom: 2px solid var(--border-strong);
+    font-weight: 650;
+    font-size: .92em;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted-strong);
+    /* The wrapper scrolls, so a header never needs to wrap to fit. */
+    white-space: nowrap;
+  }
+  .viewer :global(tbody tr:last-child td) { border-bottom: 0; }
 
-  /* ─── Images ───────────────────────────────────────────── */
+  /* ─── Images ─────────────────────────────────────────────
+     Inline by default, block only when an image is alone in its paragraph.
+     The old rule was the other way round with a `p > img` exception — which
+     never matched the standard badge row `[![alt](img)](link)`, because there
+     the image's parent is the `<a>`, not the `<p>`. Three download badges
+     rendered as three stacked centred blocks. */
   .viewer :global(img) {
     max-width: 100%;
     height: auto;
     border-radius: 4px;
-    display: block;
-    margin: 1em auto;
+    display: inline-block;
+    vertical-align: middle;
   }
-  .viewer :global(p > img) { display: inline-block; margin: 0; }
+  .viewer :global(p:not(:has(> :not(img):not(br))) > img) {
+    display: block;
+    margin: 1.4em auto;
+  }
+
+  /* ─── Details / summary ────────────────────────────────── */
+  .viewer :global(details) {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .6em 1em;
+    margin: 1.5em 0;
+    background: var(--muted-bg);
+  }
+  .viewer :global(details[open]) { padding-bottom: 1em; }
+  .viewer :global(summary) {
+    cursor: default;
+    font-weight: 600;
+    color: var(--fg-strong);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: .5em;
+  }
+  .viewer :global(summary::-webkit-details-marker) { display: none; }
+  .viewer :global(summary::before) {
+    content: "›";
+    font-size: 1.2em;
+    line-height: 1;
+    color: var(--muted);
+    transition: transform 150ms ease;
+  }
+  .viewer :global(details[open]) :global(summary::before) { transform: rotate(90deg); }
 
   /* ─── Horizontal rule ──────────────────────────────────── */
   .viewer :global(hr) {
     border: 0;
     height: 1px;
     background: var(--border);
-    margin: 2.2em 0;
+    margin: 3em 0;
     width: 100%;
+  }
+
+  /* ─── Anchor-jump feedback ─────────────────────────────── */
+  .viewer :global(:target) {
+    animation: target-flash 1.6s ease-out;
+    border-radius: 4px;
+  }
+  @keyframes target-flash {
+    0%, 30% { background: var(--accent-soft); box-shadow: 0 0 0 6px var(--accent-soft); }
+    100%    { background: transparent; box-shadow: none; }
   }
 
   /* ─── Footnotes ────────────────────────────────────────── */
@@ -1061,8 +1450,44 @@
   @media (prefers-reduced-motion: reduce) {
     .viewer :global(.theatre-fresh),
     .viewer :global(.live-edit-flash),
-    .viewer :global(.live-tracked) {
+    .viewer :global(.live-tracked),
+    .viewer :global(:target) {
       animation: none;
+    }
+    .viewer :global(summary::before),
+    .viewer :global(.code-copy) { transition: none; }
+  }
+
+  /* ─── Print ────────────────────────────────────────────────
+     People hand these documents to other people. Printing one previously
+     produced a single clipped page, because the scroll container's own
+     `overflow` is what the print engine honours. */
+  @media print {
+    .viewer {
+      overflow: visible;
+      height: auto;
+      background: #fff;
+      color: #000;
+      padding: 0;
+    }
+    .prose { width: 100%; max-width: none; padding: 0; }
+    .viewer :global(pre),
+    .viewer :global(blockquote),
+    .viewer :global(.table-scroll),
+    .viewer :global(.markdown-alert),
+    .viewer :global(img) { break-inside: avoid; }
+    .viewer :global(h1),
+    .viewer :global(h2),
+    .viewer :global(h3),
+    .viewer :global(h4) { break-after: avoid; }
+    .viewer :global(.table-scroll) { overflow: visible; }
+    .viewer :global(.code-copy) { display: none; }
+    /* A URL you cannot see is not a citation. */
+    .viewer :global(a[href^="http"])::after {
+      content: " (" attr(href) ")";
+      font-size: .85em;
+      color: #444;
+      overflow-wrap: anywhere;
     }
   }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { settings, type ThemeMode, WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT } from "./settings-store.svelte";
+  import { MOD, sk } from "./platform";
 
   interface Props { open: boolean }
   let { open = $bindable(false) }: Props = $props();
@@ -67,7 +68,7 @@
           onclick={() => settings.set("fullWidth", !settings.s.fullWidth)}
         >Full</button>
       </div>
-      <small class="hint">Tip: <kbd>Ctrl</kbd>+<kbd>]</kbd> wider · <kbd>Ctrl</kbd>+<kbd>[</kbd> narrower · <kbd>Ctrl</kbd>+<kbd>\\</kbd> full</small>
+      <small class="hint">Tip: <kbd>{MOD}</kbd>+<kbd>]</kbd> wider · <kbd>{MOD}</kbd>+<kbd>[</kbd> narrower · <kbd>{MOD}</kbd>+<kbd>\\</kbd> full</small>
     </fieldset>
 
     <label>
@@ -277,7 +278,7 @@
             When an AI (Claude, ChatGPT, Cursor, …) is writing to the file you have open,
             md-reader switches to a focused view: subtle "receded" surface, bottom-left status bar,
             green highlight on the block currently being edited (with a soft pulse) that fades to
-            yellow once the edit settles. Press <code>Ctrl+Shift+D</code> to open the right-side
+            yellow once the edit settles. Press <code>{sk("Mod", "Shift", "D")}</code> to open the right-side
             diff sidebar — naive red/green diff per section, or an LLM bullet summary on demand.
           </small>
         </span>

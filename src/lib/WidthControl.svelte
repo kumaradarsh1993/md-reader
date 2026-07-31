@@ -17,6 +17,7 @@
    * v0.6.0+.
    */
   import { settings, WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT } from "./settings-store.svelte";
+  import { sk } from "./platform";
 
   let dragging = $state(false);
   let hovering = $state(false);
@@ -99,11 +100,11 @@
   class:dragging
   role="group"
   aria-label="Content width"
-  title={`Content width — ${label}. Drag or scroll the page, or use Ctrl+[ / Ctrl+] · Ctrl+\\ for full width`}
+  title={`Content width — ${label}. Drag or scroll the page, or use ${sk("Mod", "[")} / ${sk("Mod", "]")} · ${sk("Mod", "\\")} for full width`}
   onpointerenter={() => (hovering = true)}
   onpointerleave={() => (hovering = false)}
 >
-  <button class="step" onclick={() => bump(-8)} aria-label="Narrower content" title="Narrower (Ctrl+[)">‹</button>
+  <button class="step" onclick={() => bump(-8)} aria-label="Narrower content" title={`Narrower (${sk("Mod", "[")})`}>‹</button>
 
   <div
     class="glyph"
@@ -132,13 +133,13 @@
     </span>
   </div>
 
-  <button class="step" onclick={() => bump(8)} aria-label="Wider content" title="Wider (Ctrl+])">›</button>
+  <button class="step" onclick={() => bump(8)} aria-label="Wider content" title={`Wider (${sk("Mod", "]")})`}>›</button>
 
   <button
     class="full-toggle"
     class:active={settings.s.fullWidth}
     onclick={() => settings.set("fullWidth", !settings.s.fullWidth)}
-    title="Fill the window (Ctrl+\)"
+    title={`Fill the window (${sk("Mod", "\\")})`}
     aria-label="Toggle full window width"
     aria-pressed={settings.s.fullWidth}
   >⤢</button>

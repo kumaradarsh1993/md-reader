@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { parseHeadings, activeHeadingIndex } from "$lib/outline";
+  import { parseHeadings, activeHeadingIndex, type Heading } from "$lib/outline";
   import { viewNav } from "$lib/view-nav.svelte";
+  import { contextMenu, type MenuEntry } from "$lib/context-menu.svelte";
+  import { copyText } from "$lib/platform";
 
   interface Props { source: string }
   let { source = "" }: Props = $props();
@@ -73,6 +75,17 @@
     // fallback for when no Viewer is mounted (edit mode).
     viewNav.jumpToLine(line, id);
   }
+
+  function headingMenu(h: Heading): MenuEntry[] {
+    return [
+      { label: "Jump to section", icon: "chevron-right", action: () => jump(h.line, h.id) },
+      { separator: true },
+      { label: "Copy heading text", icon: "copy", action: () => copyText(h.text) },
+      // The slug now matches GitHub's, so this pastes into a document and
+      // actually resolves — which it never did before v0.7.0.
+      { label: "Copy link to section", icon: "link", action: () => copyText(`#${h.id}`) },
+    ];
+  }
 </script>
 
 <div class="toc" bind:this={rootEl}>
@@ -97,6 +110,7 @@
           aria-current={h.index === activeIdx ? "location" : undefined}
           title={h.text}
           onclick={() => jump(h.line, h.id)}
+          oncontextmenu={(e) => contextMenu.open(e, headingMenu(h))}
         >
           <!-- The pill is a child rather than the button's own background so it
                can start at the indent guide instead of the pane edge — that's

@@ -18,8 +18,9 @@ export const api = {
   openFile: (path: string) => invoke<OpenedFile>("open_file", { path }),
   saveFile: (path: string, content: string) =>
     invoke<void>("save_file", { path, content }),
-  renderMarkdown: (source: string, dark: boolean) =>
-    invoke<string>("render_markdown", { source, dark }),
+  /** `theme` is the resolved palette name: "light" | "dark" | "sepia". */
+  renderMarkdown: (source: string, theme: string) =>
+    invoke<string>("render_markdown", { source, theme }),
   watchFile: (path: string) => invoke<void>("watch_file", { path }),
   unwatchFile: () => invoke<void>("unwatch_file"),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),

@@ -88,7 +88,16 @@ export interface AppSettings {
 
 export const WIDTH_MIN = 40;
 export const WIDTH_MAX = 160;
-export const WIDTH_DEFAULT = 86;
+/**
+ * 76ch ≈ 68 average characters of Latin text, which sits inside the 45–75
+ * band typography has agreed on for continuous reading.
+ *
+ * The old 86 read as "86 characters" but delivered ~95: `ch` is the advance
+ * of the digit `0`, about 15% wider than the average lowercase glyph. It also
+ * silently included the column's gutter until v0.7.0, so the true measure
+ * drifted as the window resized.
+ */
+export const WIDTH_DEFAULT = 76;
 
 /** Left-pane width bounds — shared by the toolbar, LeftPanel and the resizer. */
 export const PANEL_WIDTH_MIN = 180;
@@ -137,12 +146,21 @@ class SettingsStore {
   async init() {
     if (this.ready) return;
     this.store = new LazyStore("settings.json", { autoSave: true, defaults: { ...DEFAULTS } });
-    for (const key of Object.keys(DEFAULTS) as (keyof AppSettings)[]) {
-      const v = await this.store.get<AppSettings[typeof key]>(key);
-      if (v !== undefined && v !== null) {
-        // @ts-expect-error narrow generic over union
-        this.s[key] = v;
+    try {
+      for (const key of Object.keys(DEFAULTS) as (keyof AppSettings)[]) {
+        const v = await this.store.get<AppSettings[typeof key]>(key);
+        if (v !== undefined && v !== null) {
+          // @ts-expect-error narrow generic over union
+          this.s[key] = v;
+        }
       }
+    } catch (e) {
+      // A settings read failing is survivable — DEFAULTS are already in place,
+      // so the app opens looking factory-fresh rather than not opening at all.
+      // Letting this throw was worse than it sounds: `init()` is the first
+      // await in onMount, so one bad read also skipped the file-drop listener,
+      // the CLI file-open listener and session restore.
+      console.error("[md-reader] settings load failed; using defaults", e);
     }
 
     // (v0.2.x had a short-lived `experimentalLiveTrack` / `experimentalDiffMode`

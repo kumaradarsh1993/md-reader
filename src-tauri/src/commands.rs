@@ -40,9 +40,13 @@ pub fn save_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(Path::new(&path), content).map_err(|e| format!("write failed: {e}"))
 }
 
+/// `theme` is the *resolved* palette name — "light", "dark" or "sepia" — not
+/// the user's setting (which may be "auto"). The frontend already computes it
+/// via `effectiveThemeName()`; passing a boolean here was what left sepia
+/// sharing the light syntax palette.
 #[tauri::command]
-pub fn render_markdown(source: String, dark: bool) -> String {
-    markdown::render(&source, dark)
+pub fn render_markdown(source: String, theme: String) -> String {
+    markdown::render(&source, &theme)
 }
 
 #[tauri::command]
@@ -197,4 +201,100 @@ pub fn take_initial_files(state: State<'_, InitialFiles>) -> Vec<String> {
     let out = guard.clone();
     guard.clear();
     out
+}
+
+/// Paint the native title bar to match the app's theme.
+///
+/// The system title bar is the one piece of the window md-reader doesn't draw
+/// itself, and by default Windows renders it from the *OS* light/dark setting.
+/// So a user in a dark Windows with the app in sepia got a black bar sitting on
+/// top of a cream document — the app looked like two programs stacked.
+///
+/// `caption` / `text` are 0xRRGGBB, converted here to Win32's COLORREF, which
+/// is byte-reversed (0x00BBGGRR). `dark` additionally drives the immersive
+/// dark-mode attribute, which is what colours the min/max/close glyphs and the
+/// hover highlights behind them — setting the caption colour alone leaves those
+/// glyphs black on a dark bar.
+///
+/// Caption/text/border colours need Windows 11 (build 22000+); on Windows 10
+/// `DwmSetWindowAttribute` returns a failure HRESULT for those attributes,
+/// which is why every call's result is deliberately ignored. The immersive
+/// dark-mode attribute still applies there, so Windows 10 degrades to a
+/// correctly light-or-dark bar without the exact tint.
+#[cfg(windows)]
+#[tauri::command]
+pub fn set_titlebar_theme(
+    window: tauri::WebviewWindow,
+    dark: bool,
+    caption: u32,
+    text: u32,
+) -> Result<(), String> {
+    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+
+    const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWA_CAPTION_COLOR: u32 = 35;
+    const DWMWA_TEXT_COLOR: u32 = 36;
+
+    /// 0xRRGGBB -> COLORREF (0x00BBGGRR).
+    fn colorref(rgb: u32) -> u32 {
+        ((rgb & 0x00_00_FF) << 16) | (rgb & 0x00_FF_00) | ((rgb & 0xFF_00_00) >> 16)
+    }
+
+    let hwnd = window.hwnd().map_err(|e| format!("no window handle: {e}"))?;
+    let hwnd = hwnd.0 as _;
+
+    let dark_flag: i32 = if dark { 1 } else { 0 };
+    let caption_ref = colorref(caption);
+    let text_ref = colorref(text);
+
+    // SAFETY: `hwnd` is a live window handle owned by this process for the
+    // duration of the call, and each pointer/length pair below describes a
+    // stack local of exactly the size DWM documents for that attribute.
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as _,
+            &dark_flag as *const i32 as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR as _,
+            &caption_ref as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_TEXT_COLOR as _,
+            &text_ref as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+        // Border matches the caption so the window reads as one shape rather
+        // than a tinted bar inside a default-coloured frame.
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR as _,
+            &caption_ref as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+
+    Ok(())
+}
+
+/// No-op elsewhere. macOS gets its unified appearance from the window's own
+/// `theme` (set by Tauri from the app theme) and Linux title bars are drawn by
+/// the desktop environment, which does not take instruction from applications.
+/// The command still exists on every platform so the frontend can call it
+/// unconditionally rather than branching on `isMac`.
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn set_titlebar_theme(
+    _window: tauri::WebviewWindow,
+    _dark: bool,
+    _caption: u32,
+    _text: u32,
+) -> Result<(), String> {
+    Ok(())
 }

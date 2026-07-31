@@ -29,18 +29,87 @@ async function loadMermaid() {
 
 export async function postRender(root: HTMLElement, opts: { dark: boolean }) {
   assignHeadingIds(root);
+  wrapTables(root);
+  decorateCodeBlocks(root);
   await Promise.all([renderMath(root), renderMermaid(root, opts.dark)]);
 }
 
+/**
+ * GitHub's heading-slug algorithm. Must stay byte-identical to `baseSlug()`
+ * in outline.ts — see the long note there for why the old `h-` prefix and the
+ * ASCII-only `\w` class both had to go.
+ */
 function slugify(text: string): string {
-  return (
-    "h-" +
-    text
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .trim()
-      .replace(/\s+/g, "-")
-  );
+  const slug = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .trim()
+    .replace(/\s+/g, "-");
+  return slug || "section";
+}
+
+/**
+ * Give every table its own horizontal scroller.
+ *
+ * A `<table>` cannot scroll itself: `overflow-x: auto` is ignored on
+ * `display: table`, and the viewport above it is `overflow-x: hidden`. So any
+ * table wider than the prose column — which, in documents full of file paths
+ * and repo names, is most of them — had its right-hand columns clipped off
+ * with no way to reach them.
+ *
+ * The wrapper inherits `data-sourcepos`, and that is not optional: the Viewer
+ * builds its line→element index by walking `.prose` children and skipping
+ * anything without that attribute. An unmarked wrapper would drop every table
+ * out of scroll-position restore, live-follow, diff mode and Theatre
+ * highlighting at once.
+ */
+function wrapTables(root: HTMLElement) {
+  for (const table of Array.from(root.querySelectorAll<HTMLTableElement>("table"))) {
+    if (table.parentElement?.classList.contains("table-scroll")) continue;
+    const wrap = document.createElement("div");
+    wrap.className = "table-scroll";
+    const sourcepos = table.getAttribute("data-sourcepos");
+    if (sourcepos) wrap.setAttribute("data-sourcepos", sourcepos);
+    table.replaceWith(wrap);
+    wrap.appendChild(table);
+  }
+}
+
+/**
+ * Language label + copy button on fenced code blocks.
+ *
+ * These documents are full of commands the reader is meant to run. Selecting
+ * a multi-line shell block by dragging, inside a scroll container, is exactly
+ * the friction a reader app should absorb.
+ */
+function decorateCodeBlocks(root: HTMLElement) {
+  for (const pre of Array.from(root.querySelectorAll<HTMLPreElement>("pre"))) {
+    if (pre.querySelector(".code-copy")) continue;
+    const code = pre.querySelector("code");
+    // Mermaid fences are replaced wholesale by renderMermaid below; decorating
+    // them would only add a button to something about to be thrown away.
+    if (!code || code.classList.contains("language-mermaid")) continue;
+
+    const lang = /language-([\w+#.-]+)/.exec(code.className)?.[1];
+    if (lang) pre.dataset.lang = lang;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "code-copy";
+    btn.textContent = "Copy";
+    btn.setAttribute("aria-label", "Copy code to clipboard");
+    btn.addEventListener("click", async () => {
+      const { copyText } = await import("./platform");
+      const ok = await copyText(code.textContent ?? "");
+      btn.textContent = ok ? "Copied" : "Failed";
+      btn.classList.toggle("ok", ok);
+      setTimeout(() => {
+        btn.textContent = "Copy";
+        btn.classList.remove("ok");
+      }, 1300);
+    });
+    pre.appendChild(btn);
+  }
 }
 
 function assignHeadingIds(root: HTMLElement) {
