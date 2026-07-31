@@ -1,4 +1,184 @@
-# LinkedIn launch post — drafts
+# LinkedIn posts
+
+## 2026-07-31 set — the two current drafts
+
+Written for a business audience (marketing, finance, general management)
+rather than engineers. The 2026-05 drafts further down are v0.2.0-era feature
+announcements that never went out; they are kept only for the tone notes.
+
+**Format decisions, from current data rather than habit:**
+
+- **1,300–2,500 characters.** A 372k-post study (Sept 2025 – Feb 2026) puts
+  peak engagement at 2,001–2,500 chars and peak impressions at 2,501–3,000.
+  Both posts land in that band. The effect is real but modest — length is a
+  nudge, not a lever.
+- **The first ~140 characters are the whole ad.** That is the mobile fold.
+  Each post opens with its single most surprising verified number.
+- **No links in the body.** The measured reach penalty ranges from ~19% to
+  ~60% depending on whose study you read, and LinkedIn has never confirmed it.
+  The link-in-first-comment workaround is now substantially patched too. Both
+  posts name their sources in plain prose and offer links on request, which
+  turns the penalty into a reason to comment.
+- **0–3 hashtags.** Q1 2026 data: more than three performed 71% worse than
+  none at all. The upside of any is about 6%.
+- **Deliver on the hook by line 4.** A hook that does not pay off gets read for
+  three seconds and abandoned, and the algorithm now treats that abandonment as
+  a negative signal — worse than a boring opening.
+
+---
+
+## Post 1 — the gap is the harness, not just the model
+
+> **Sourcing note before posting.** The Karpathy post is real (@karpathy,
+> 9 April 2026) but his argument is **symmetrical**: free-tier users underrate
+> AI, *and* frontier power-users overrate how general it is — that is what he
+> meant by capabilities being "peaky" and by "AI Psychosis". The draft below
+> represents both halves on purpose. Quoting only the first half is the fastest
+> way to get corrected in the comments by someone who actually read it.
+>
+> The 8.7% figure is Anthropic's own analysis of 1.2M Claude Cowork sessions,
+> 11–31 May 2026. The "three times faster than developers" figure is from
+> OpenAI's report *The Next Era of Knowledge Work* (June 2026).
+
+Anthropic looked at 1.2 million sessions of its *coding* agent.
+
+Software development was 8.7% of what people actually did with it.
+
+The rest was business operations, writing, research, data analysis — the work
+around the work.
+
+There is a real gap opening up in what people believe AI can do, and it is not
+mostly about intelligence. Andrej Karpathy put it well in April: a lot of us
+formed our view by trying a free chatbot some time last year, and never
+updated.
+
+He was careful to cut both ways, and I will repeat that half too — the people
+living inside these tools tend to overrate how general they are. The capability
+is spiky. Genuinely remarkable at some things, unremarkable at others.
+
+But the underrating half is the one quietly costing people time.
+
+Because the gap is not only which model you get. It is the harness around it.
+
+A chat window takes your question and returns text. An agentic harness — Claude
+Code, or ChatGPT's Codex, both of which now run as ordinary desktop apps with
+no terminal in sight — gets a folder. It reads every file in it. It writes
+files back. It runs things, checks its own output, notices what it got wrong,
+and keeps going for twenty minutes.
+
+That difference is why the output is not close.
+
+On Claude this is exactly the line between the free plan and the $20 one:
+Claude Code and Cowork are not on the free tier at all. On ChatGPT, Codex comes
+with Plus.
+
+If you want to try it on real work, the on-ramp is duller than it sounds:
+
+1. Install the desktop app. Open the Cowork (or Codex) tab.
+2. Make a folder. Put the actual source documents in it — not a summary, the
+   real files.
+3. Treat it as one project. "Here are three years of AOP submissions and this
+   year's draft. Reconcile them and write me the gaps."
+
+Then read what comes back the way you would read a good analyst's first draft.
+Correct it. Ask again.
+
+OpenAI's own numbers say knowledge workers are adopting this roughly three
+times faster than developers are.
+
+What is the first piece of work you would hand it?
+
+---
+
+## Post 2 — markdown over PDF and Word
+
+> **Sourcing note.** The 1,000-versus-7,000 figure is Anthropic's own, from its
+> PDF support documentation: the same 3-page PDF via text extraction versus
+> full PDF processing. The 1,500–3,000 tokens-per-page figure, and the fact
+> that page images are billed *in addition* to the extracted text, are from the
+> same page.
+>
+> The claim about the cost of *producing* a .docx is deliberately argued as a
+> **mechanism**, not a number. No credible measurement exists — the 33% and 90%
+> figures circulating online all trace back to markdown-converter vendors. Do
+> not quote them.
+>
+> The caveat paragraph is load-bearing: a 9,649-experiment arXiv paper
+> (2602.05447) found markdown the *worst* of four formats for database schemas.
+> "Markdown is the most token-efficient format" is only true for prose.
+
+Never run out of tokens again — the knowledge-work edition.
+
+Anthropic's own documentation prices the same 3-page PDF two ways. Around 1,000
+tokens if it reads the text. Around 7,000 if it processes it as a PDF.
+
+Same document. Seven times the cost.
+
+Here is why, and it surprised me: when you hand an AI a PDF, it does not only
+read the words. It converts every page into an image and sends that too.
+Anthropic's own figure is 1,500 to 3,000 tokens of text per page, plus a
+picture of the page on top of that.
+
+A page of plain markdown is a few hundred tokens. No page images. No layout
+data, no fonts, no column positions.
+
+The other half is worse, and almost nobody mentions it.
+
+When you ask an agent to *produce* a Word file or a PDF, it cannot simply write
+one. It writes a script to generate the file, runs it, hits an error, fixes it,
+runs it again. And in these tools every retry re-sends the entire conversation
+so far. Five attempts does not cost five times the script — it re-bills
+everything you have done together, five times over.
+
+Ask for a markdown file and it is one step. No build, no errors, no loop.
+
+So the practical version: stop asking for the deliverable in Word. Work in
+markdown throughout, and convert once at the very end, when a human actually
+needs it in Word.
+
+One honest caveat, because I keep seeing this oversold — markdown wins for
+prose and documents. For large grids of data, CSV or YAML is leaner. Match the
+format to the content.
+
+What stopped me doing this for months was embarrassingly mundane: markdown
+files are unpleasant to actually read. Notepad, or an editor built for
+programmers.
+
+So I built a reader for them. Word, but for markdown — real typography, an
+outline you can navigate, remembers where you stopped reading, opens instantly,
+barely touches your machine. I have used it daily for three months.
+
+It is free and it is on GitHub. Happy to drop the link in the comments if it
+would be useful.
+
+What format are you asking your AI for right now?
+
+---
+
+## If someone pushes back
+
+**"Anthropic's own Claude Code team said to use HTML, not markdown."** True —
+Thariq Shihipar, May 2026, and it went wide. It is not a contradiction. His
+argument is about the *final human-readable artifact*, and HTML is still a
+plain-text single file with no build step, so it costs roughly what markdown
+costs. The cliff is not markdown-versus-HTML. It is plain text versus binary
+formats that need compiling.
+
+**"Where is the DOCX number?"** There is not a trustworthy one. Say so. The PDF
+figures are published by Anthropic and are enough to make the point.
+
+**"7x seems too neat."** It is Anthropic's own like-for-like comparison of one
+3-page document processed two ways, not an extrapolation. If pressed, fall back
+to the component figures, which are also theirs: 1,500–3,000 text tokens per
+page, plus a page image billed on top.
+
+---
+
+# Archive — 2026-05 drafts (v0.2.0 era, never posted)
+
+Kept for the tone notes at the top, which still hold. The posts themselves are
+stale: they pitch the smart-edit feature, and the product has moved on.
+
 
 Different vibe than Reddit. LinkedIn rewards *first-person, specific, slightly
 vulnerable* posts more than catchy headlines. Lead with the why ("I noticed I
