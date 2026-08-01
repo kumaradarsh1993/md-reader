@@ -22,17 +22,17 @@ window.PRODUCT_SITE = {
     {
       label: "Download for Windows",
       note: "Stable v0.7.0 installer",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/latest"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_x64-setup.exe"
     },
     {
       label: "Download for macOS",
       note: "Universal DMG",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/latest"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_universal.dmg"
     },
     {
       label: "Download for Linux",
       note: "AppImage",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/latest"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_amd64.AppImage"
     },
     {
       label: "All releases",
