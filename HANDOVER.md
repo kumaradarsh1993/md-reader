@@ -1,8 +1,10 @@
 # Handover — md-reader
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-07-31: **v0.7.0-nightly.1** cut — a visual/UX overhaul plus
-> a batch of renderer fixes. **v0.6.0 remains the stable `latest`.**
+> Last updated 2026-07-31: **v0.7.0-nightly.2** cut — a visual/UX overhaul, a
+> batch of renderer fixes, and a completed cross-platform review.
+> **v0.6.0 remains the stable `latest`.** Test nightly.2, not nightly.1:
+> nightly.1 shipped three cross-platform defects that .2 fixes.
 
 ## Where things stand
 
@@ -237,14 +239,17 @@ src/lib/theatre/
 ### Medium priority
 
 7. **Multi-provider LLM support** beyond Groq/Anthropic (Gemini free tier).
-8. **Mac-native polish** — v0.7.0 did the code-level pass (every shortcut label
-   is platform-aware via `sk()`, focus mode uses ⌃⌘F, no traffic-light gutter
-   because the title bar stays native), but *nobody has ever run a macOS
-   build*. Still unverified there: the Theatre recede animation on WKWebView,
-   the hover-peek gesture with a trackpad, `-webkit-scrollbar` styling against
-   macOS overlay scrollbars, elastic overscroll versus the scroll-position
-   restore maths, and whether tab tear-out works at all from inside a `.app`
-   bundle (`spawn_window` re-execs `current_exe()`).
+8. **Mac-native polish.** The code-level pass is *done* as of
+   `v0.7.0-nightly.2`: every shortcut label is platform-aware via `sk()`, focus
+   mode uses ⌃⌘F, there is no traffic-light gutter (the title bar stays
+   native), elastic-overscroll no longer corrupts the saved reading position,
+   and tab tear-out goes through `open -n -a` so LaunchServices sees the new
+   instance. But *nobody has ever run a macOS build*, so these are reasoned
+   fixes, not observed ones. Still unverified by eye: the Theatre recede
+   animation on WKWebView, the hover-peek gesture with a trackpad,
+   `-webkit-scrollbar` styling against macOS overlay scrollbars, and whether
+   `open -n -a` actually produces the second window (the fallback path means a
+   failure degrades rather than breaks).
 9. **Make the breadcrumb's `…` clickable** — a menu of the elided ancestors,
    each opening that folder in the Files panel. The context-menu primitive
    already exists.
