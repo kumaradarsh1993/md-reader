@@ -18,7 +18,7 @@ Both live behind a new **Advanced features** section in Settings, off by default
 ## Why this is worth building
 
 - **No competitor does this.** Typora is a passive viewer. Obsidian's diff-on-save is for git workflows, not live AI editing. VS Code has no notion of "an AI is currently writing this file." Cursor's diff UI is per-edit, not per-document. This is an empty quadrant.
-- **It fits the existing positioning.** "md-reader is the viewer for AI-generated markdown" — Theatre makes that explicit and dramatic instead of subtle.
+- **It fits the existing positioning.** "Fox MD is the viewer for AI-generated markdown" — Theatre makes that explicit and dramatic instead of subtle.
 - **The user research is real.** The current `liveTrack` + `diffMode` UX kept getting in the way (toolbar clutter, over-scroll, no clear "we're done editing" signal). The fix isn't to remove them — it's to repackage them as one cohesive *experience* gated behind opt-in.
 - **It does not break the lightweight promise.** The theatre animations are CSS transforms (free). The diff calculation is `diff-match-patch` (kilobytes, microsecond runs). The LLM summary is an explicit user action (opt-in API key). Total bundle delta: probably < 30 KB.
 
@@ -147,7 +147,7 @@ Replace the current `experimentalLiveTrack` / `experimentalDiffMode` with one co
 ```
 Advanced features
   ☐ Live Edit Theatre
-    When enabled, md-reader detects when an AI is editing the open
+    When enabled, Fox MD detects when an AI is editing the open
     file and switches to a cinematic view. See changes highlighted,
     auto-scroll to follow edits, then resume where you were.
 
@@ -245,9 +245,9 @@ After back-and-forth on the versioning model, here's what's locked:
 
 ### Detection model (resolves: "how do we know AI vs human?")
 
-We **do not distinguish** AI edits from any other external edit. The signal is simply: "file changed on disk while md-reader is open." Whatever wrote to the file (Claude, Cursor, another editor, a script, OneDrive sync) is treated identically. No fingerprinting, no fake intelligence. Honest and reliable.
+We **do not distinguish** AI edits from any other external edit. The signal is simply: "file changed on disk while Fox MD is open." Whatever wrote to the file (Claude, Cursor, another editor, a script, OneDrive sync) is treated identically. No fingerprinting, no fake intelligence. Honest and reliable.
 
-Theatre only engages when md-reader is in **view** or **rawEdit** mode. If the user is in **smart edit** mode and an external change arrives, we follow current behaviour (ignore while dirty; reload while clean) — no theatre. Trying to merge AI edits with active user editing is out of scope.
+Theatre only engages when Fox MD is in **view** or **rawEdit** mode. If the user is in **smart edit** mode and an external change arrives, we follow current behaviour (ignore while dirty; reload while clean) — no theatre. Trying to merge AI edits with active user editing is out of scope.
 
 ### Turn history model (resolves: "where do previous AI turns go?")
 
@@ -272,7 +272,7 @@ type Tab = {
 };
 ```
 
-Lost on app close. The file on disk is the source of truth. md-reader is a *viewer of changes*, not a version control system — no branching, merging, or restore.
+Lost on app close. The file on disk is the source of truth. Fox MD is a *viewer of changes*, not a version control system — no branching, merging, or restore.
 
 ### Overlap semantics (resolves: "v1 and v2 both changed line 50")
 

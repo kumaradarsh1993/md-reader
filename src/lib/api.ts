@@ -14,6 +14,8 @@ export interface DirEntry {
   is_md: boolean;
 }
 
+export type SecretProvider = "groq" | "anthropic";
+
 export const api = {
   openFile: (path: string) => invoke<OpenedFile>("open_file", { path }),
   saveFile: (path: string, content: string) =>
@@ -27,6 +29,10 @@ export const api = {
   parentOf: (path: string) => invoke<string | null>("parent_of", { path }),
   isTornOutWindow: () => invoke<boolean>("is_torn_out_window"),
   takeInitialFiles: () => invoke<string[]>("take_initial_files"),
+  getSecret: (provider: SecretProvider) =>
+    invoke<string | null>("get_secret", { provider }),
+  setSecret: (provider: SecretProvider, value: string) =>
+    invoke<void>("set_secret", { provider, value }),
 
   pickFile: async (): Promise<string | null> => {
     const result = await openDialog({

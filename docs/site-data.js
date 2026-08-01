@@ -1,38 +1,38 @@
 window.PRODUCT_SITE = {
-  name: "md-reader",
-  mark: "MD",
+  name: "Fox MD",
+  mark: "FM",
   product: "markdown",
   kicker: "Lightweight Markdown reading for AI-heavy work",
   headline: "A Markdown reader that lets the document use your whole screen.",
-  subhead: "md-reader started from a simple annoyance: too many Markdown viewers lock the page into a skinny column. This one opens plain .md files, lets you widen or narrow the reading surface, zoom cleanly, use tabs and a file pane, resume every file where you left it, and optionally highlight what an AI agent changed.",
+  subhead: "Fox MD started from a simple annoyance: too many Markdown viewers lock the page into a skinny column. This one opens plain .md files, lets you widen or narrow the reading surface, zoom cleanly, use tabs and a file pane, resume every file where you left it, and optionally highlight what an AI agent changed.",
   insight: "The core job is reading, not ceremony. Open the file, make the text comfortable, keep multiple docs in tabs, and only turn on experimental AI-change theatre when it helps.",
   repoUrl: "https://github.com/kumaradarsh1993/md-reader",
   scene: "markdown",
   theme: {
-    bg: "#f7f4ef",
-    ink: "#111318",
-    accent: "#2558d8",
-    accent2: "#0f8b7a",
-    accent3: "#c24f5a"
+    bg: "#f8f1e7",
+    ink: "#2d1b14",
+    accent: "#c94f16",
+    accent2: "#8b4728",
+    accent3: "#e69245"
   },
   assets: {
-    logo: "images/md-reader-icon.png"
+    logo: "images/fox-md-icon.png"
   },
   downloads: [
     {
       label: "Download for Windows",
-      note: "Stable v0.6.0 installer",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.6.0/md-reader_0.6.0_x64-setup.exe"
+      note: "Stable v0.7.0 installer",
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/latest"
     },
     {
       label: "Download for macOS",
       note: "Universal DMG",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.6.0/md-reader_0.6.0_universal.dmg"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/latest"
     },
     {
       label: "Download for Linux",
       note: "AppImage",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.6.0/md-reader_0.6.0_amd64.AppImage"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/latest"
     },
     {
       label: "All releases",
@@ -92,7 +92,7 @@ window.PRODUCT_SITE = {
     }
   ],
   downloadTitle: "Download the stable reader",
-  downloadIntro: "v0.6.0 is the current stable reader. It remembers where you stopped in every file, the outline tracks your position as you scroll, and Live Edit Theatre is available for anyone who wants to watch an agent work.",
+  downloadIntro: "Fox MD v0.7.0 is the current stable reader. It adds calmer consumer-grade chrome, focus mode, meaningful right-click menus, stronger renderer safety, and secure OS-keyring storage for optional API keys.",
   panels: [
     {
       title: "Reader first",
@@ -110,7 +110,7 @@ window.PRODUCT_SITE = {
   setupTitle: "A short path to a better reader",
   setupIntro: "Install it, open a Markdown file, then tune the page width and zoom until the document fits the screen you actually have.",
   setup: [
-    { title: "Install md-reader", body: "Use the stable build for your operating system." },
+    { title: "Install Fox MD", body: "Use the stable build for your operating system." },
     { title: "Open one or many .md files", body: "Use tabs and the file pane when you are moving through a folder of AI-generated notes." },
     { title: "Set the width", body: "Choose narrow, comfortable, or full-window reading. This is the point of the app." },
     { title: "Try beta highlights if needed", body: "Use beta builds when you specifically want to test agent-edit tracking and diff summaries." }

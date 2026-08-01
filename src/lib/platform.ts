@@ -68,7 +68,7 @@ export async function copyText(text: string): Promise<boolean> {
     document.body.removeChild(ta);
     return ok;
   } catch (e) {
-    console.error("[md-reader] clipboard write failed", e);
+    console.error("[Fox MD] clipboard write failed", e);
     return false;
   }
 }

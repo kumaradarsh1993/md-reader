@@ -675,7 +675,7 @@
         const { openUrl } = await import("@tauri-apps/plugin-opener");
         await openUrl(href);
       } catch (err) {
-        console.error("[md-reader] could not open link externally", err);
+        console.error("[Fox MD] could not open link externally", err);
       }
       return;
     }

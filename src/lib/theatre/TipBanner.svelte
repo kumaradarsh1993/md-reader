@@ -33,7 +33,7 @@
     <span class="emoji" aria-hidden="true">💡</span>
     <span class="body">
       <strong>Did you know?</strong>
-      md-reader can switch to a cinematic Live Edit view when an AI is writing to this file.
+      Fox MD can switch to a cinematic Live Edit view when an AI is writing to this file.
     </span>
     <button class="enable" onclick={enable}>Enable</button>
     <button class="dismiss" onclick={() => dismissTip(tab)} aria-label="Dismiss tip">✕</button>

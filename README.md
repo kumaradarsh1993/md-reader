@@ -1,21 +1,21 @@
 <div align="center">
 
-# md-reader
+# Fox MD
 
 **A Markdown reader and editor built for the AI era.**
 Re-renders as Claude, ChatGPT, or Cursor writes. Edit visually, without ever seeing `##` or `**`.
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?logo=windows&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_x64-setup.exe)
-[![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_universal.dmg)
-[![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.3.0/md-reader_0.3.0_amd64.AppImage)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?logo=windows&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
+[![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
+[![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/latest)
 
-[Interactive website](https://kumaradarsh1993.github.io/md-reader/) · [Beta builds](https://github.com/kumaradarsh1993/md-reader/releases)
+[Interactive website](https://kumaradarsh1993.github.io/md-reader/) · [All builds](https://github.com/kumaradarsh1993/md-reader/releases)
 
 [Releases](https://github.com/kumaradarsh1993/md-reader/releases) · [Report a bug](https://github.com/kumaradarsh1993/md-reader/issues/new?template=bug.md) · [Request a feature](https://github.com/kumaradarsh1993/md-reader/issues/new?template=feature.md)
 
 <!-- TODO: hero GIF (4-6s) — open a file, watch it stream, switch to smart edit, type a paragraph. Save as docs/img/hero.gif and uncomment below. -->
 <!--
-![md-reader hero](docs/img/hero.gif)
+![Fox MD hero](docs/img/hero.gif)
 -->
 
 </div>
@@ -26,7 +26,7 @@ Re-renders as Claude, ChatGPT, or Cursor writes. Edit visually, without ever see
 
 Every AI tool — Claude, ChatGPT, Gemini, Cursor — writes in Markdown by default. That's great, until you actually want to **read** the output without alt-tabbing into a code editor, or **edit** it without your non-technical teammates panicking at the `##` and `**` symbols.
 
-`md-reader` does two things really well:
+Fox MD does two things really well:
 
 1. **Reading.** Open a `.md` file by double-clicking it. The app re-renders live while your AI is still writing. No vaults, no folders to set up, no "trust this workspace" prompts.
 2. **Editing.** A WYSIWYG mode (called *Smart edit*) where markdown syntax is never visible. You type into the rendered view like it's a Notion or Word document. Bold, italics, headings, lists, tables, links — all there, none of the symbols. Saves clean markdown back to disk.
@@ -36,7 +36,7 @@ Local-only. No telemetry. No accounts. MIT licensed. ~10 MB installer (Tauri 2 �
 ## Quick start (60 seconds)
 
 1. **Download** the installer for your OS from the badges above.
-2. **Double-click** any `.md` file. md-reader opens with the file rendered.
+2. **Double-click** any `.md` file. Fox MD opens with the file rendered.
 3. **Press `Ctrl + E`** (`Cmd + E` on Mac) to switch to Smart edit. Type into the rendered view like a Word doc.
 4. **`Ctrl + S`** to save back to disk. Reopen the file in any other editor — it's clean markdown.
 
@@ -46,9 +46,9 @@ That's the whole loop.
 
 ### 1. Read AI-generated markdown as it streams
 
-Open a file in md-reader, kick off a Claude or ChatGPT task that writes to the same file. The viewer re-renders as the content arrives, with a brief highlight on the lines that just changed. Smart-scroll keeps you anchored — it only follows the edit if you're already near it, so you don't get yanked away mid-read.
+Open a file in Fox MD, kick off a Claude or ChatGPT task that writes to the same file. The viewer re-renders as the content arrives, with a brief highlight on the lines that just changed. Smart-scroll keeps you anchored — it only follows the edit if you're already near it, so you don't get yanked away mid-read.
 
-<!-- TODO: screenshot — md-reader showing a rendered .md file with the "📡 live" badge visible -->
+<!-- TODO: screenshot — Fox MD showing a rendered .md file with the "📡 live" badge visible -->
 
 ### 2. Edit visually, like a Word doc
 
@@ -98,14 +98,14 @@ to make the whole thing wider.
 ### 6. It remembers where you stopped reading
 
 Every tab keeps its own scroll position, so switching between open files doesn't
-scramble any of them. Close md-reader, reopen the file, and you land where you
+scramble any of them. Close Fox MD, reopen the file, and you land where you
 left off — with a quiet ribbon marking the spot, and a marker in the right gutter
 to travel back to it if you've wandered. Turn either off in Settings → Reading
 position.
 
 ## Keyboard shortcuts
 
-`Ctrl` on Windows/Linux, `Cmd` on macOS. md-reader binds both, so muscle memory transfers either way.
+`Ctrl` on Windows/Linux, `Cmd` on macOS. Fox MD binds both, so muscle memory transfers either way.
 
 | Shortcut | Action |
 |---|---|
@@ -130,9 +130,9 @@ position.
 - **Theme** — Auto (follows your system), Light, Sepia, or Dark. The toolbar has a one-click ☀ / ◐ / ☾ switch too.
 - **Default edit mode** — Smart (WYSIWYG) or Raw (markdown source). You can always flip per-tab via the toolbar.
 - **Content width** — slider from 40 to 160 characters, or "Full window" for wide docs.
-- **Smart-diff** (optional) — paste an Anthropic API key and md-reader can summarise what changed in a file since you opened it. Off by default; nothing is sent unless you enable it.
+- **Smart-diff** (optional) — paste an Anthropic or Groq API key and Fox MD can summarise what changed in a file since you opened it. Keys are kept in your OS credential store. Off by default; nothing is sent unless you enable it.
 - **Reading position** — resume where you left off across sessions, and whether to mark the spot with a ribbon. Per-tab positions always persist while the app is open.
-- **Advanced features** — 🎬 **Live Edit Theatre**: when an AI is writing to the file you have open, md-reader recedes into a focused view, glows green on the block being written and fades it to yellow as it settles, and can show a per-section diff sidebar (`Ctrl + Shift + D`) with an optional LLM summary. Off by default.
+- **Advanced features** — 🎬 **Live Edit Theatre**: when an AI is writing to the file you have open, Fox MD recedes into a focused view, glows green on the block being written and fades it to yellow as it settles, and can show a per-section diff sidebar (`Ctrl + Shift + D`) with an optional LLM summary. Off by default.
 
 ## Give feedback
 

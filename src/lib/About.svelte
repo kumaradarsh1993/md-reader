@@ -25,12 +25,12 @@
 
 {#if open}
   <div class="backdrop" onclick={() => (open = false)} role="presentation"></div>
-  <div class="panel" role="dialog" aria-label="About md-reader">
+  <div class="panel" role="dialog" aria-label="About Fox MD">
     <header>
       <div class="title-row">
-        <span class="glyph">📝</span>
+        <img class="glyph" src="/favicon.png" alt="" />
         <div>
-          <h2>md-reader</h2>
+          <h2>Fox MD</h2>
           <p class="tagline">A Markdown reader and editor for the AI era</p>
         </div>
       </div>
@@ -116,8 +116,9 @@
     gap: .85rem;
   }
   .glyph {
-    font-size: 28px;
-    line-height: 1;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
   }
   header h2 {
     margin: 0;

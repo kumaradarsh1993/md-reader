@@ -119,7 +119,7 @@
         <span class="value">{markCount === 0 ? "nothing saved" : `${markCount} ${markCount === 1 ? "file" : "files"}`}</span>
       </legend>
       <p class="hint smart-hint">
-        Every tab keeps its own scroll position while md-reader is open. These
+        Every tab keeps its own scroll position while Fox MD is open. These
         options control whether that position also survives closing the app.
       </p>
       <label class="check">
@@ -276,7 +276,7 @@
           🎬 Live Edit Theatre
           <small>
             When an AI (Claude, ChatGPT, Cursor, …) is writing to the file you have open,
-            md-reader switches to a focused view: subtle "receded" surface, bottom-left status bar,
+            Fox MD switches to a focused view: subtle "receded" surface, bottom-left status bar,
             green highlight on the block currently being edited (with a soft pulse) that fades to
             yellow once the edit settles. Press <code>{sk("Mod", "Shift", "D")}</code> to open the right-side
             diff sidebar — naive red/green diff per section, or an LLM bullet summary on demand.

@@ -81,7 +81,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name || inputs.tag }}
-          releaseName: "md-reader ${{ github.ref_name || inputs.tag }}"
+          releaseName: "Fox MD ${{ github.ref_name || inputs.tag }}"
           releaseBody: |
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for full notes.
 

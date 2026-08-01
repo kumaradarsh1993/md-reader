@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 — 2026-07-31 (Nightly)
+## 0.7.0 — 2026-08-01 (Stable)
 
 The "stop looking like a developer tool" release. v0.6 was, in the owner's
 words, 95% there — but it read as something built for the person who built it.
@@ -9,6 +9,22 @@ where its boundaries are, and what happens when you right-click.
 
 It also fixes a set of renderer defects found by a source audit, several of
 which had been silently wrong since v0.1.
+
+### Changed — Fox MD identity
+
+- **The app is now Fox MD.** Window titles, installer identity, About,
+  documentation, release presentation and the landing page all use the new
+  name. The technical bundle identifier, executable name and MSI upgrade code
+  stay stable so an existing md-reader install upgrades in place instead of
+  appearing as a second app. The NSIS installer also detects and removes the
+  old per-user `md-reader` entry in updater mode before installing Fox MD,
+  preserving application data while preventing duplicate Add/Remove entries.
+- **New warm paper-and-tail icon.** A parchment page wrapped by an abstract
+  cinnamon ribbon gives the app a fox-family cue without using a literal fox
+  or overlapping the bright character mark of Whisper Fox and the angular
+  mascot of FoxCull. Native PNG, ICO, ICNS and Windows tile assets were all
+  regenerated from the same 1024px source. The previous turquoise/yellow mark
+  remains in `assets/legacy-md-reader-icon.png` as the backup source.
 
 ### Changed — chrome and content are now different materials
 
@@ -214,6 +230,11 @@ forty minutes later.
 The workspace Tauri baseline, which was owed on this project before its next
 stable:
 
+- Updated the Svelte, Vite, Mermaid, DOMPurify, and related dependency line.
+  The production audit now has no high, moderate, or critical findings (three
+  low-severity transitive `cookie` advisories remain without a current patched
+  SvelteKit release).
+
 - **CSP was `null`; it is a strict policy now.** Combined with unfiltered raw
   HTML, that was a real execution path rather than a theoretical one — this app
   opens arbitrary `.md` files from disk.
@@ -225,8 +246,12 @@ stable:
   `std::fs`. Granting the webview filesystem access bought nothing and,
   alongside the two items above, completed an exfiltration path.
 
-Still outstanding for the baseline: API keys are stored in plaintext in the
-settings store and should move to the OS keyring.
+- **Optional Groq and Anthropic API keys now live in the OS keyring** — Windows
+  Credential Manager, macOS Keychain or Linux Secret Service. On first launch,
+  a legacy plaintext value is migrated and removed from `settings.json` only
+  after the secure write succeeds. A marked file fallback is created only when
+  the native keyring genuinely fails, then retried on the next launch. This
+  closes the final item in the workspace Tauri security baseline.
 
 
 ## 0.6.0 — 2026-07-25 (Stable)

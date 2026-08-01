@@ -191,7 +191,7 @@
   // Keep document title in sync with active tab
   $effect(() => {
     const name = path ? path.split(/[\\/]/).pop() : null;
-    document.title = name ? `${name} — md-reader` : "md-reader";
+    document.title = name ? `${name} — Fox MD` : "Fox MD";
   });
 
   async function openInTab(p: string) {
@@ -231,7 +231,7 @@
       const refreshed = await api.openFile(active.path);
       tabs.setActiveSourceFromDisk(refreshed.content);
     } catch (e) {
-      console.error("[md-reader] reload failed", e);
+      console.error("[Fox MD] reload failed", e);
     }
   }
 
@@ -522,7 +522,7 @@
     // console if a drop ever appears not to trigger.
     unlistenDrop = await getCurrentWebview().onDragDropEvent((evt) => {
       if (evt.payload.type === "drop") {
-        console.log("[md-reader] drop:", evt.payload.paths);
+        console.log("[Fox MD] drop:", evt.payload.paths);
         const dropped = evt.payload.paths ?? [];
         let opened = 0;
         for (const p of dropped) {
@@ -532,7 +532,7 @@
           }
         }
         if (dropped.length > 0 && opened === 0) {
-          console.warn("[md-reader] drop ignored — no markdown extension:", dropped);
+          console.warn("[Fox MD] drop ignored — no markdown extension:", dropped);
         }
       }
     });
@@ -589,7 +589,7 @@
 </script>
 
 <svelte:head>
-  <title>md-reader</title>
+  <title>Fox MD</title>
 </svelte:head>
 
 <!-- The shell owns the fallback right-click menu: a context menu is only
@@ -853,7 +853,7 @@
       <span>Settings…</span><span class="kbd">{sk("Mod", ",")}</span>
     </button>
     <button class="menu-item" onclick={() => { fileMenuOpen = false; aboutOpen = true; }}>
-      <span>About md-reader…</span>
+      <span>About Fox MD…</span>
     </button>
   </div>
 {/if}

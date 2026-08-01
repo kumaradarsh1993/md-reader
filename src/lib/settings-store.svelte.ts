@@ -1,4 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { api, type SecretProvider } from "./api";
 
 export type ThemeMode = "auto" | "light" | "dark" | "sepia";
 
@@ -138,6 +139,22 @@ const DEFAULTS: AppSettings = {
   activeTabPath: null,
 };
 
+type SecretSettingKey = "anthropicApiKey" | "groqApiKey";
+
+const SECRET_PROVIDERS: Record<SecretSettingKey, SecretProvider> = {
+  anthropicApiKey: "anthropic",
+  groqApiKey: "groq",
+};
+
+function isSecretSettingKey(key: keyof AppSettings): key is SecretSettingKey {
+  return key === "anthropicApiKey" || key === "groqApiKey";
+}
+
+// plugin-store defaults must never materialise secret fields in settings.json.
+const PERSISTED_DEFAULTS = Object.fromEntries(
+  Object.entries(DEFAULTS).filter(([key]) => !isSecretSettingKey(key as keyof AppSettings)),
+) as Partial<AppSettings>;
+
 class SettingsStore {
   s = $state<AppSettings>({ ...DEFAULTS });
   private store: LazyStore | null = null;
@@ -145,22 +162,24 @@ class SettingsStore {
 
   async init() {
     if (this.ready) return;
-    this.store = new LazyStore("settings.json", { autoSave: true, defaults: { ...DEFAULTS } });
+    this.store = new LazyStore("settings.json", { autoSave: true, defaults: { ...PERSISTED_DEFAULTS } });
     try {
-      for (const key of Object.keys(DEFAULTS) as (keyof AppSettings)[]) {
+      for (const key of Object.keys(PERSISTED_DEFAULTS) as (keyof AppSettings)[]) {
         const v = await this.store.get<AppSettings[typeof key]>(key);
         if (v !== undefined && v !== null) {
           // @ts-expect-error narrow generic over union
           this.s[key] = v;
         }
       }
+      await this.loadSecret("groqApiKey");
+      await this.loadSecret("anthropicApiKey");
     } catch (e) {
       // A settings read failing is survivable — DEFAULTS are already in place,
       // so the app opens looking factory-fresh rather than not opening at all.
       // Letting this throw was worse than it sounds: `init()` is the first
       // await in onMount, so one bad read also skipped the file-drop listener,
       // the CLI file-open listener and session restore.
-      console.error("[md-reader] settings load failed; using defaults", e);
+      console.error("[Fox MD] settings load failed; using defaults", e);
     }
 
     // (v0.2.x had a short-lived `experimentalLiveTrack` / `experimentalDiffMode`
@@ -173,7 +192,75 @@ class SettingsStore {
 
   async set<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     this.s[key] = value;
+    if (isSecretSettingKey(key)) {
+      await this.saveSecret(key, value as string);
+      return;
+    }
     await this.store?.set(key, value);
+  }
+
+  /**
+   * Read from the OS keyring first. A plaintext value from an older release is
+   * migrated opportunistically and deleted only after the secure write lands.
+   * The `KeyringPending` marker distinguishes a genuine keyring failure from a
+   * stale legacy value, including the important "delete this key" case.
+   */
+  private async loadSecret(key: SecretSettingKey) {
+    if (!this.store) return;
+    const provider = SECRET_PROVIDERS[key];
+    const pendingKey = `${key}KeyringPending`;
+    const legacy = await this.store.get<string>(key);
+    const pending = await this.store.get<boolean>(pendingKey);
+
+    if (pending && legacy !== undefined && legacy !== null) {
+      try {
+        await api.setSecret(provider, legacy);
+        this.s[key] = legacy;
+        await this.store.delete(key);
+        await this.store.delete(pendingKey);
+      } catch (e) {
+        this.s[key] = legacy;
+        console.warn("[Fox MD] OS keyring still unavailable; using the existing file fallback", e);
+      }
+      return;
+    }
+
+    try {
+      const secure = await api.getSecret(provider);
+      if (secure !== null) {
+        this.s[key] = secure;
+        if (legacy !== undefined) await this.store.delete(key);
+        if (pending !== undefined) await this.store.delete(pendingKey);
+        return;
+      }
+
+      if (legacy !== undefined && legacy !== null) {
+        await api.setSecret(provider, legacy);
+        this.s[key] = legacy;
+        await this.store.delete(key);
+      }
+      if (pending !== undefined) await this.store.delete(pendingKey);
+    } catch (e) {
+      // A file fallback exists only when the keyring genuinely failed. Fresh
+      // installs with no legacy value remain memory-only and write no secret.
+      this.s[key] = legacy ?? "";
+      console.warn("[Fox MD] OS keyring unavailable; using the plaintext fallback if present", e);
+    }
+  }
+
+  private async saveSecret(key: SecretSettingKey, value: string) {
+    if (!this.store) return;
+    const pendingKey = `${key}KeyringPending`;
+    try {
+      await api.setSecret(SECRET_PROVIDERS[key], value);
+      await this.store.delete(key);
+      await this.store.delete(pendingKey);
+    } catch (e) {
+      // File storage is a last-resort fallback, never a parallel copy.
+      await this.store.set(key, value);
+      await this.store.set(pendingKey, true);
+      console.warn("[Fox MD] OS keyring write failed; saved a recoverable file fallback", e);
+    }
   }
 
   async pushRecent(path: string) {

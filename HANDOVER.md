@@ -1,20 +1,17 @@
-# Handover — md-reader
+# Handover — Fox MD (repo: md-reader)
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-07-31: **v0.7.0-nightly.2** cut — a visual/UX overhaul, a
-> batch of renderer fixes, and a completed cross-platform review.
-> **v0.6.0 remains the stable `latest`.** Test nightly.2, not nightly.1:
-> nightly.1 shipped three cross-platform defects that .2 fixes.
+> Last updated 2026-08-01: **v0.7.0 stable** — the product is now Fox MD, with
+> a warm paper-and-tail icon and the final Tauri security item (API keys in the
+> native OS keyring) closed. The stable build is cut from the same reviewed
+> v0.7 line as nightly.2 plus the identity and keyring work.
 
 ## Where things stand
 
-**Release channel policy (2026-07-31):** v0.6.0 was already published as
-stable `latest` (verified — `isPrerelease: false`, all seven platform
-artifacts attached), so there was nothing to promote. v0.7.0 therefore opens a
-fresh **nightly** line so the visual changes can be smoke-tested on a real
-install before they become the default. Promote with
-`gh release edit v0.7.0-nightly.1 --prerelease=false --latest` once the owner
-is happy, or re-cut as a clean `v0.7.0` tag.
+**Release channel policy (2026-08-01):** v0.7.0 is the current stable line.
+Nightly.1 should never be promoted: nightly.2 fixed its cross-platform defects,
+and the clean stable tag additionally carries the Fox MD identity plus keyring
+migration. Future experiments should open a new `v0.8.0-nightly.N` line.
 
 | Version | Status | Headline |
 |---|---|---|
@@ -23,8 +20,8 @@ is happy, or re-cut as a clean `v0.7.0` tag.
 | v0.4.0 | Published | Live Edit Theatre + Diff Tracker sidebar |
 | v0.5.0 | Published | Theatre v2: recede-not-shrink, fresh/stale highlights, leader lines, Groq |
 | v0.5.1 | Published | Sepia reading theme + toolbar 3-way theme switch |
-| v0.6.0 | **Published — stable `latest`** | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
-| **v0.7.0** | **This release — nightly** | Chrome/paper redesign, focus mode, right-click menus, breadcrumb, renderer + typography fixes, security baseline |
+| v0.6.0 | Published (stable) | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
+| **v0.7.0** | **Published — stable `latest`** | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, renderer fixes, completed security baseline |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 and v0.7.0 work was committed straight to master
@@ -32,28 +29,20 @@ is happy, or re-cut as a clean `v0.7.0` tag.
 - **Vite dev port**: `1430` (a sibling Tauri project keeps 1420)
 - **Local git identity (repo-local, not global)**: `Kumar Adarsh <kumaradarsh1993@users.noreply.github.com>`
 
-### Release steps that still need a human
+### Identity and upgrade continuity
 
-The v0.6.0 **commit is on master**, but the release itself cannot be cut from a
-Claude Code web session: the git proxy rejects tag pushes with a 403, the GitHub
-MCP tools are read-only for releases, and direct `api.github.com` access is
-blocked. So the tag has to be pushed from a normal shell, which is what triggers
-the CI build:
-
-```bash
-git fetch origin master && git checkout master && git pull
-git tag -a v0.6.0 -m "md-reader v0.6.0"
-git push origin v0.6.0        # → CI builds Win/macOS/Linux, creates a DRAFT release
-
-# once CI is green:
-gh release edit v0.6.0 --draft=false --latest
-
-# and promote the last nightly to stable:
-gh release edit v0.5.1 --prerelease=false
-```
-
-Note the landing site (`docs/site-data.js`, `docs/index.html`) already points at
-`v0.6.0` download URLs, so those links 404 until the release is published.
+- **Displayed name:** Fox MD.
+- **Repo / npm package / Rust crate / executable:** still `md-reader`.
+- **Bundle identifier:** still `com.mdreader.app`.
+- **MSI upgrade code:** explicitly pinned to
+  `0c8e8201-1ef4-56d2-9b1d-a0a5203f2c69`, the value derived from the old
+  product name. Do not regenerate it: changing it installs a duplicate app.
+- **NSIS rename migration:** `src-tauri/installer-hooks.nsh` runs the old
+  `md-reader` per-user uninstaller with `/S /UPDATE` before Fox MD is copied.
+  Do not remove it until pre-0.7 installs are no longer supported.
+- **Icon source:** `assets/fox-md-icon.png`; the old mark is backed up at
+  `assets/legacy-md-reader-icon.png`. Regenerate native assets with
+  `npm run tauri -- icon assets/fox-md-icon.png`.
 
 ## What v0.7.0 added
 
@@ -188,7 +177,8 @@ buttons (8ch), horizontal drag, or the wheel; the number appears on hover only.
 | `src/lib/ResumeRibbon.svelte` | "You left off here" ribbon + gutter marker. |
 | `src/lib/WidthControl.svelte` | Visual content-width control. |
 | `src/lib/LeftPanel.svelte` | Collapsible/peekable panel, both dividers. |
-| `src/lib/settings-store.svelte.ts` | Settings schema + scroll-memory persistence. Legacy `liveTrack`/`diffMode` keys are still read by `Viewer.svelte`; no UI writes them. |
+| `src/lib/settings-store.svelte.ts` | Settings schema + scroll-memory persistence. API keys are memory-only here; it migrates old plaintext values into the keyring and writes a marked fallback only after a genuine native-store failure. |
+| `src-tauri/src/secrets.rs` | Allow-listed Groq/Anthropic get/set/delete commands backed by Windows Credential Manager, macOS Keychain or Linux Secret Service. Service stays `com.mdreader.app` across the rename. |
 | `src/lib/tabs-store.svelte.ts` | Per-tab state: source, baseline, scroll/resume marks, theatre fields. |
 | `src/lib/theatre/` | The Live Edit Theatre module. See breakdown below. |
 | `.github/workflows/release.yml` | Tag push → 3-platform build → **draft** release (`prerelease: false`). Published manually. |
@@ -212,34 +202,23 @@ src/lib/theatre/
 
 ### High priority
 
-1. **Smoke-test v0.7.0-nightly.1 on a real install.** This release changed how
-   the app *looks* more than how it works, and none of it has been seen in a
-   real Tauri window — it was verified in the Vite dev server (computed styles,
-   DOM state) plus `npm run check` and `cargo check`. Specifically worth
-   checking: all three themes; the Windows title bar picking up the theme
-   colour (and following a light↔dark↔sepia switch); focus mode `F11` and its
-   top-edge peek; right-click in each region; a document with a wide table; a
-   document with YAML front matter; clicking an external link.
-2. **Finish the Tauri security baseline: API keys → OS keyring.** CSP, the tag
-   filter and the `fs`-plugin removal all landed in v0.7.0. The remaining item
-   is `anthropicApiKey` / `groqApiKey`, which sit in plaintext in
-   `settings.json` via plugin-store. Needs `keyring-rs` plus get/set/delete
-   commands and a one-time migration on read. Deliberately deferred out of this
-   release because it adds a native dependency with three-platform CI risk, and
-   the point of this nightly was to get the visual work testable.
-3. **Local Windows builds need `CARGO_BUILD_JOBS=2`** — low-memory machine
-   quirk, see "Known quirks".
-4. **Enable GitHub Discussions** (Settings → General → Features). The
+1. **Real-install visual smoke test.** The code gates and 32/128/1024px icon
+   assets are verified, and CI builds all platforms, but the final Fox MD shell
+   should still be looked at in an installed Windows and macOS build when
+   convenient: title bar, Start/Dock icon, About icon, focus mode and all three
+   themes.
+2. **Enable GitHub Discussions** (Settings → General → Features). The
    issue-template `config.yml` already routes questions there.
-5. **Record demo assets.** Storyboards in `DEMO.md`. Hero GIF + 5 README
+3. **Record demo assets.** Storyboards in `DEMO.md`. Hero GIF + 5 README
    screenshots are the minimum. The new resume-ribbon and width control are
    both very demoable.
-6. **Post the launch.** `LINKEDIN_POST.md` drafts are still v0.2.0-era.
+4. **Post the launch.** `LINKEDIN_POST.md` has the current business-audience
+   drafts; update the product name and final stable link before posting.
 
 ### Medium priority
 
-7. **Multi-provider LLM support** beyond Groq/Anthropic (Gemini free tier).
-8. **Mac-native polish.** The code-level pass is *done* as of
+5. **Multi-provider LLM support** beyond Groq/Anthropic (Gemini free tier).
+6. **Mac-native polish.** The code-level pass is *done* as of
    `v0.7.0-nightly.2`: every shortcut label is platform-aware via `sk()`, focus
    mode uses ⌃⌘F, there is no traffic-light gutter (the title bar stays
    native), elastic-overscroll no longer corrupts the saved reading position,
@@ -250,17 +229,17 @@ src/lib/theatre/
    `-webkit-scrollbar` styling against macOS overlay scrollbars, and whether
    `open -n -a` actually produces the second window (the fallback path means a
    failure degrades rather than breaks).
-9. **Make the breadcrumb's `…` clickable** — a menu of the elided ancestors,
+7. **Make the breadcrumb's `…` clickable** — a menu of the elided ancestors,
    each opening that folder in the Files panel. The context-menu primitive
    already exists.
-9. **Nested folder tree** in the file browser (currently single-level).
-10. **Outline drag-to-reorder sections** would be a natural next step now that
+8. **Nested folder tree** in the file browser (currently single-level).
+9. **Outline drag-to-reorder sections** would be a natural next step now that
     the outline knows exact source lines for every heading.
 
 ### Low priority
 
-11. Auto-update mechanism (Tauri 2 supports it; needs a signing key).
-12. Code-signed builds for Windows + Mac.
+10. Auto-update mechanism (Tauri 2 supports it; needs a signing key).
+11. Code-signed builds for Windows + Mac.
 
 ## Known quirks / gotchas
 

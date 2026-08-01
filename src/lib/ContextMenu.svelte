@@ -46,7 +46,7 @@
     try {
       await item.action();
     } catch (err) {
-      console.error("[md-reader] context menu action failed", err);
+      console.error("[Fox MD] context menu action failed", err);
     }
   }
 

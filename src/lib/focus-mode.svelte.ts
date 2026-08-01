@@ -82,7 +82,7 @@ class FocusMode {
     try {
       await getCurrentWindow().setFullscreen(on);
     } catch (e) {
-      console.warn("[md-reader] native fullscreen unavailable", e);
+      console.warn("[Fox MD] native fullscreen unavailable", e);
     }
   }
 }
