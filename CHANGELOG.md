@@ -172,13 +172,42 @@ so a dark Windows with the app in sepia produced a black bar above a cream
 page. Windows now gets exact caption, text and border colours via DWM; macOS
 gets a matching light/dark appearance. Sepia counts as light.
 
-### Fixed — macOS
+### Fixed — macOS and Linux
 
 Every user-visible shortcut label was hardcoded to "Ctrl" and now renders ⌘ on
 macOS. The traffic-light gutter was deliberately *not* added: the window keeps
 a native title bar, so the lights sit above the toolbar and reserving space for
 them would open an empty hole. Focus mode uses ⌃⌘F there rather than F11, which
 belongs to Mission Control.
+
+Four further cross-platform defects, three of them introduced by this release's
+own changes and caught in review:
+
+- **Reading position was lost by rubber-band scrolling.** macOS reports a
+  *negative* `scrollTop` when you overscroll past the top. That negative ratio
+  was persisted and then floored to zero on the way back in — so letting go of
+  the trackpad at the top of a document silently reset "resume where you left
+  off" to the very beginning. The ratio is clamped at capture now, not only at
+  restore. Windows never showed this: WebView2 has no elastic overscroll.
+- **Standalone images would not have centred on Linux.** The new rule relied on
+  `:has()`, and an unsupported `:has()` invalidates the entire selector — so on
+  the WebKitGTK build the `.deb`/AppImage may run against, every figure would
+  have stayed inline. A plain `p > img:only-child` rule now carries the common
+  case, with the `:has()` variant as an enhancement on top.
+- **Dark-mode alert tints used `color-mix()`**, against this codebase's own
+  documented convention of avoiding it for exactly this reason. Written out as
+  explicit `rgba()` per alert type.
+- **Tab tear-out on macOS** re-executed the binary inside the `.app` bundle
+  directly. That starts a process and shows a window, but LaunchServices never
+  learns about it, so the new window gets no Dock representation and doesn't
+  reliably come forward — the same class of problem `AllowSetForegroundWindow`
+  solves on Windows. It now uses `open -n -a` to launch a real second instance
+  of the bundle, falling back to direct exec for non-bundled dev builds.
+
+The Rust helper for that last one is deliberately not `cfg`-gated, so it is
+type-checked by `cargo check` on the Windows dev machine — the macOS build only
+ever happens in CI, and untypechecked platform code is how a typo surfaces
+forty minutes later.
 
 ### Security
 

@@ -220,7 +220,14 @@
     const { block } = topOfViewport();
     return {
       line: block ?? 1,
-      ratio: height > 0 ? container.scrollTop / height : 0,
+      // Clamped at capture, not just at restore. macOS rubber-band scrolling
+      // reports a *negative* `scrollTop` past the top of the document and one
+      // beyond the maximum past the bottom. An unclamped negative ratio got
+      // persisted and then floored to 0 on the way back in — so letting go of
+      // a trackpad at the top of a document quietly reset "resume where you
+      // left off" to the very beginning. Windows never showed this because
+      // WebView2 has no elastic overscroll.
+      ratio: height > 0 ? Math.min(1, Math.max(0, container.scrollTop / height)) : 0,
       at: Date.now(),
     };
   }
@@ -1125,9 +1132,27 @@
   :global(html[data-theme="sepia"]) .viewer :global(.markdown-alert-warning) { --alert-color: #9a6700; }
   :global(html[data-theme="light"]) .viewer :global(.markdown-alert-caution),
   :global(html[data-theme="sepia"]) .viewer :global(.markdown-alert-caution) { --alert-color: #cf222e; }
-  /* 8% tint is invisible against a dark page; lift it in dark mode only. */
-  :global(html[data-theme="dark"]) .viewer :global(.markdown-alert) {
-    --alert-bg: color-mix(in srgb, var(--alert-color) 14%, transparent);
+  /* 8% tint is invisible against a dark page; lift it to 14% in dark mode.
+     Written out per alert rather than as `color-mix(... 14%, transparent)`:
+     this codebase deliberately avoids color-mix (see the notes in
+     +page.svelte's palette and in ResumeRibbon) because it is not guaranteed
+     on the older WebView2 and WebKitGTK builds these installers run against,
+     and an unsupported declaration here would silently drop the tint
+     altogether rather than degrade. */
+  :global(html[data-theme="dark"]) .viewer :global(.markdown-alert-note) {
+    --alert-bg: rgba(68, 147, 248, 0.14);
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.markdown-alert-tip) {
+    --alert-bg: rgba(63, 185, 80, 0.14);
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.markdown-alert-important) {
+    --alert-bg: rgba(171, 125, 248, 0.14);
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.markdown-alert-warning) {
+    --alert-bg: rgba(210, 153, 34, 0.14);
+  }
+  :global(html[data-theme="dark"]) .viewer :global(.markdown-alert-caution) {
+    --alert-bg: rgba(248, 81, 73, 0.14);
   }
   .viewer :global(.markdown-alert-note) {
     --alert-color: #4493f8;
@@ -1276,6 +1301,18 @@
     border-radius: 4px;
     display: inline-block;
     vertical-align: middle;
+  }
+  /* An image alone in its paragraph is a figure, so it centres as a block.
+     Two selectors on purpose: `:only-child` is universally supported and
+     covers `<p><img></p>`, which is the overwhelmingly common shape. The
+     `:has()` variant additionally catches `<p><img><br></p>` and friends — but
+     WebKitGTK on Ubuntu 22.04 (what the .deb/AppImage may run against) predates
+     `:has()`, and an unsupported `:has()` invalidates the *whole* selector.
+     Relying on it alone would have left every standalone image inline on
+     Linux. Keep the plain rule first. */
+  .viewer :global(p > img:only-child) {
+    display: block;
+    margin: 1.4em auto;
   }
   .viewer :global(p:not(:has(> :not(img):not(br))) > img) {
     display: block;

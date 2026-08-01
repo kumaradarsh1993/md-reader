@@ -134,10 +134,61 @@ pub fn parent_of(path: String) -> Option<String> {
 /// - `--new-window` flag tells the spawned instance to skip the
 ///   single-instance plugin (see lib.rs setup), so it actually runs as its
 ///   own process instead of forwarding the path to the existing instance.
+/// Given `…/md-reader.app/Contents/MacOS/md-reader`, return `…/md-reader.app`.
+///
+/// Deliberately *not* `#[cfg(target_os = "macos")]`-gated, so it still gets
+/// type-checked by `cargo check` on the Windows dev machine — the macOS build
+/// only ever happens in CI, and untypechecked platform-specific code is how you
+/// find out about a typo forty minutes later.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn macos_bundle_root(exe: &Path) -> Option<PathBuf> {
+    let macos_dir = exe.parent()?; // …/Contents/MacOS
+    let contents = macos_dir.parent()?; // …/Contents
+    let app = contents.parent()?; // …/Foo.app
+    if macos_dir.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && app.extension()? == "app"
+    {
+        Some(app.to_path_buf())
+    } else {
+        None
+    }
+}
+
 #[tauri::command]
 pub fn spawn_window(file: String) -> Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("spawn_window: cannot resolve current exe path: {e}"))?;
+
+    // macOS: re-executing the inner Mach-O binary directly does start a second
+    // process and does show a window, but LaunchServices never learns about it,
+    // so it gets no Dock representation and doesn't reliably come to the front —
+    // the same class of problem AllowSetForegroundWindow solves on Windows.
+    // `open -n -a` launches a genuine second instance of the bundle instead.
+    // Falls through to the direct-exec path if anything about that fails, so a
+    // non-bundled dev build (`cargo run`) still works.
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(app) = macos_bundle_root(&exe) {
+            let spawned = std::process::Command::new("/usr/bin/open")
+                .arg("-n")
+                .arg("-a")
+                .arg(&app)
+                .arg("--args")
+                .arg("--new-window")
+                .arg(&file)
+                .spawn();
+            match spawned {
+                Ok(child) => {
+                    drop(child);
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("spawn_window: `open -n -a` failed ({e}); using direct exec");
+                }
+            }
+        }
+    }
 
     let mut cmd = std::process::Command::new(&exe);
     cmd.arg("--new-window").arg(&file);
