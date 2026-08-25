@@ -91,6 +91,14 @@ jobs:
             - Linux: `.AppImage` (portable) or `.deb` (Debian/Ubuntu)
 
             Unsigned builds — on first launch Windows SmartScreen / macOS Gatekeeper may warn. Right-click → Open (macOS) or "More info" → "Run anyway" (Windows) the first time.
-          releaseDraft: true
-          prerelease: false
+          # Nightlies publish immediately as pre-releases; stable tags land as
+          # drafts so the notes can be written before anyone sees them.
+          #
+          # This is load-bearing for the in-app updater, not a preference:
+          # GitHub's API does not return *draft* releases to an unauthenticated
+          # caller, so while nightlies were drafts the app could not see that a
+          # newer build existed. A pre-release is public and is excluded from
+          # `latest`, which is exactly the semantics a nightly wants.
+          releaseDraft: ${{ !contains(github.ref_name, '-nightly') }}
+          prerelease: ${{ contains(github.ref_name, '-nightly') }}
           args: ${{ matrix.args }}

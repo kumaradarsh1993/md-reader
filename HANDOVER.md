@@ -12,8 +12,13 @@
 
 **Release channel policy (2026-08-25):** **v0.8.0 is stable `latest`**, cut from
 the same commit as `v0.8.0-nightly.2` at the owner's explicit "put it as a
-stable". New work goes on `v0.9.0-nightly.N`. The v0.7 and v0.8 nightly draft
-releases are kept as drafts and should not be promoted.
+stable". New work goes on `v0.9.0-nightly.N`.
+
+**Nightlies are now published pre-releases, not drafts** (`release.yml` keys off
+`-nightly` in the tag). This is load-bearing for the in-app updater, not a
+preference: GitHub's API hides draft releases from unauthenticated callers, so a
+draft nightly is invisible to the app. Stable tags still land as drafts so the
+notes can be written before anyone sees them, then are published by hand.
 
 | Version | Status | Headline |
 |---|---|---|
@@ -28,6 +33,7 @@ releases are kept as drafts and should not be promoted.
 | v0.8.0-nightly.2 | Tagged → CI draft | Tables wrap; hover-only panel scrollbar; layered surface style + sectioned Settings; files-panel polish |
 | **v0.8.0** | **Published — stable `latest`** | The v0.8 reading-comfort pass, promoted from nightly.2 unchanged |
 | v0.9.0-nightly.1 | Tagged → CI draft | Page preview (Word geometry + real page count); resume bookmark rebuilt; Settings drawer; file sorting |
+| v0.9.0-nightly.2 | Tagged → CI **pre-release** | In-app updater (Settings → Updates); Page preview retuned to 11pt-everything, zero indentation |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 onwards was committed straight to master
@@ -106,6 +112,51 @@ no longer true.
   mark must name the block that was at the top. Do not "unify" these two probes.
 - `viewNav.topLine` was renamed `viewNav.readingLine`, because "top" had become
   actively wrong.
+
+## What v0.9.0-nightly.2 added
+
+### In-app updater (`src-tauri/src/updates.rs` + Settings → Updates)
+
+- **Deliberately not `tauri-plugin-updater`.** That plugin wants a signed
+  `latest.json` manifest and a keypair whose private half lives in CI secrets.
+  This app ships unsigned builds from a public repo, so the signing apparatus
+  would buy nothing and cost a key-management story. `updates.rs` reads the
+  public releases API and runs the platform installer.
+- **The fetch is in Rust on purpose.** The app runs a strict CSP with no
+  external `connect-src`; opening one to reach api.github.com would widen what
+  every rendered page can talk to. The webview only ever sees the result.
+- **Nightlies must be published pre-releases** — see the release-channel note
+  above. If "latest nightly" ever shows *none published*, check that first.
+- Asset picking is per-platform: Windows takes the NSIS `.exe` (the only
+  Windows artifact that supports a silent in-place update), macOS the universal
+  `.dmg`, Linux the AppImage.
+- Windows install runs the installer with `/S /R` (silent + relaunch) and then
+  exits the app 1.5s later. Both halves matter: the installer cannot replace a
+  running executable, and quitting instantly races the installer's own startup.
+- **Version comparison is honest about what it cannot know.** A nightly and a
+  stable of the same line both report the same `CARGO_PKG_VERSION`, so the UI
+  says "newer" or "same version" and never claims "you already have this exact
+  build". If that ever needs to be exact, the tag has to be injected at build
+  time — it is not today.
+- The non-Windows install path uses `open` / `xdg-open` through
+  `std::process::Command` rather than the opener plugin's Rust API, because that
+  branch never compiles on the Windows dev machine and an API guess would only
+  surface as a CI failure on mac/linux.
+
+### Page preview, retuned
+
+Measured, not eyeballed: every element in the content column computes to
+`14.6667px` (= 11pt), lists report `padding-left: 0` with
+`list-style-position: inside`, nested lists 16px, block quotes zero border and
+zero indent, and h1/p/li/blockquote all start at x=96 (the 1in margin) with the
+heading rule spanning the full 624px column.
+
+- **One size for everything, 11pt, headings included.** A heading is bold and
+  ruled here, never bigger. This was the main complaint about the first cut.
+- **Zero indentation.** `list-style-position: inside` is what makes a flush-left
+  marker possible — with `padding-left: 0` an `outside` marker is clipped off
+  the left edge of the column. Nesting gets 12pt, enough to read as nesting.
+- Block quotes are ordinary paragraphs: no bar, no indent, no italic.
 
 ## What v0.9.0-nightly.1 added
 

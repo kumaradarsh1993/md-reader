@@ -1,6 +1,7 @@
 mod commands;
 pub mod markdown;
 mod secrets;
+mod updates;
 mod watcher;
 
 use parking_lot::Mutex;
@@ -87,6 +88,8 @@ pub fn run() {
             commands::set_titlebar_theme,
             secrets::get_secret,
             secrets::set_secret,
+            updates::check_updates,
+            updates::install_update,
         ])
         .run(tauri::generate_context!());
 

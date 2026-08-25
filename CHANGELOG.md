@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.9.0-nightly.2 — 2026-08-25
+
+### Added — update from inside the app
+
+- **Settings → Updates** shows the running build, the latest stable and the
+  latest nightly, each with how long ago it was built and how big the download
+  is, a **Check again** button, links to both release pages, and **Install**.
+- **Install does the whole thing**: downloads the installer and, on Windows,
+  runs it silently and reopens Fox MD. Settings, tabs and reading positions
+  carry over. On macOS and Linux the file is downloaded and opened, because a
+  `.dmg` has to be mounted and an AppImage has nothing to install.
+- Nothing is hard-coded — the releases are read live from GitHub each time you
+  open Settings or press Check again.
+- **Nightly builds are now published as pre-releases instead of drafts.** This
+  is what makes the whole feature work: GitHub does not show *draft* releases to
+  an unauthenticated caller, so while nightlies were drafts the app could not
+  see that a newer build existed.
+- The network call lives in Rust, not the webview. The app runs a strict CSP,
+  and opening `connect-src` to reach GitHub would have widened what every
+  rendered page can talk to.
+
+### Changed — Page preview now matches the house format
+
+All of this came from reading the first version against a real document.
+
+- **One type size for the whole page: 11pt.** Headings included — they are bold
+  and ruled, never bigger. The 16pt/13pt/12pt heading ladder was a Word default
+  and it was the single thing that stopped this looking like the document it is
+  previewing. Tables are 11pt too now, rather than a point smaller.
+- **No indentation anywhere.** Lists sit flush with the body text, markers and
+  all; the 24pt list indent was spending a third of an inch of a 6.5in column to
+  say "this is a list", which the marker already says. Nesting gets one small
+  step instead of a tab stop.
+- **Block quotes lose their bar and their indent** and read as ordinary
+  paragraphs — in a Word document, that is what they are.
+
 ## 0.9.0-nightly.1 — 2026-08-25
 
 ### Added — Page preview

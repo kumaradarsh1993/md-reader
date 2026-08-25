@@ -14,12 +14,15 @@
    * the page count and the breaks are real.
    *
    * ── The format it emulates ────────────────────────────────────────────
-   * US Letter, Word's "Normal" margins (1in all round), body text at 11pt
-   * Calibri Light, Word's default paragraph spacing (8pt after, 1.08 line
-   * multiple), and continuous line numbers down the left margin. Headings get
-   * a rule across the full text column — which in Word is a *paragraph bottom
-   * border*, not a character underline; that is why it runs the width of the
-   * column rather than stopping at the end of the words.
+   * US Letter, Word's "Normal" margins (1in all round), **everything at 11pt
+   * Calibri Light** — headings included, because in this house style a heading
+   * is bold and ruled, never bigger — Word's default paragraph spacing (8pt
+   * after, 1.08 line multiple), continuous line numbers down the left margin,
+   * and **no indentation anywhere**: lists sit flush left, block quotes lose
+   * their bar and their indent, and nesting gets one small step rather than a
+   * tab stop. Headings get a rule across the full text column, which in Word is
+   * a *paragraph bottom border*, not a character underline — that is why it
+   * runs the width of the column rather than stopping at the end of the words.
    *
    * ── How pagination actually works here ────────────────────────────────
    * The content is laid out once, off-screen, at exactly the text-column width
@@ -456,6 +459,12 @@
     text-align: left;
   }
   .wp-content :global(p) { margin: 0 0 8pt; }
+
+  /* **One type size for the whole document: 11pt.**
+     Headings are weight and a rule, never size. A house style that sets body
+     text at 11pt sets *everything* at 11pt — a 16pt title is a Word default,
+     not this format, and mixing sizes was the single thing that made this
+     preview not look like the document it is previewing. */
   .wp-content :global(h1),
   .wp-content :global(h2),
   .wp-content :global(h3),
@@ -463,41 +472,59 @@
   .wp-content :global(h5),
   .wp-content :global(h6) {
     font-family: "Calibri Light", Calibri, Carlito, "Segoe UI", sans-serif;
+    font-size: 11pt;
     font-weight: 700;
     color: #000;
-    margin: 12pt 0 6pt;
-    line-height: 1.25;
+    margin: 10pt 0 4pt;
+    line-height: 1.37;
   }
   .wp-content :global(h1:first-child),
-  .wp-content :global(h2:first-child) { margin-top: 0; }
-  .wp-content :global(h1) { font-size: 16pt; }
-  .wp-content :global(h2) { font-size: 13pt; }
-  .wp-content :global(h3) { font-size: 12pt; }
-  .wp-content :global(h4),
-  .wp-content :global(h5),
-  .wp-content :global(h6) { font-size: 11pt; }
+  .wp-content :global(h2:first-child),
+  .wp-content :global(h3:first-child) { margin-top: 0; }
   /* The rule that runs the full width of the column. In Word this is a
      paragraph *bottom border*, which is why it doesn't stop where the words
      do — a character underline would. */
   .wp-content :global(h1),
   .wp-content :global(h2) {
     border-bottom: 1px solid #000;
-    padding-bottom: 3pt;
+    padding-bottom: 2pt;
   }
+
+  /* **No indentation anywhere.**
+     A 24pt list indent is a Word default that this format doesn't use: it
+     spends a third of an inch of a 6.5in column to say "this is a list",
+     which the marker already says. Markers sit flush with the body text
+     (`list-style-position: inside` — with zero padding, an `outside` marker
+     would be clipped off the left edge of the column). Nesting gets one small
+     step, enough to read as nesting and no more. */
   .wp-content :global(ul),
-  .wp-content :global(ol) { margin: 0 0 8pt; padding-left: 24pt; }
+  .wp-content :global(ol) {
+    margin: 0 0 8pt;
+    padding-left: 0;
+    list-style-position: inside;
+  }
   .wp-content :global(li) { margin: 0 0 2pt; }
+  .wp-content :global(li > ul),
+  .wp-content :global(li > ol) { margin: 2pt 0 0; padding-left: 12pt; }
+  .wp-content :global(li > p) { margin: 0; display: inline; }
+
+  /* Callouts lose their furniture: in a Word document a block quote is just a
+     paragraph. The bar and the indent were reader chrome, and they made a
+     quoted block look like a different kind of content on the page. */
   .wp-content :global(blockquote) {
-    margin: 0 0 8pt 18pt;
-    padding-left: 9pt;
-    border-left: 3px solid #d0d0d0;
-    color: #333;
+    margin: 0 0 8pt;
+    padding: 0;
+    border: 0;
+    color: inherit;
+    font-style: normal;
   }
   .wp-content :global(table) {
     border-collapse: collapse;
     width: 100%;
     margin: 0 0 8pt;
-    font-size: 10pt;
+    /* 11pt, like everything else. A table set a point smaller than the prose
+       around it is a Word habit, not this format — one size means one size. */
+    font-size: inherit;
   }
   .wp-content :global(th),
   .wp-content :global(td) {
@@ -516,7 +543,7 @@
   .wp-content :global(pre) {
     background: #f5f5f5;
     border: 1px solid #dcdcdc;
-    padding: 6pt 8pt;
+    padding: 5pt 6pt;
     margin: 0 0 8pt;
     white-space: pre-wrap;
     word-break: break-word;
