@@ -8,8 +8,9 @@
  * the shared coordinate system:
  *
  *  - The Viewer publishes `activeLine` — the source line of the heading whose
- *    section currently occupies the top of the viewport. The Outline
- *    highlights the entry with that line.
+ *    section contains the *reading line* (see `readingFraction()` there: the
+ *    middle of the viewport, ramped to its top and bottom edges at the two
+ *    ends of the document). The Outline highlights the entry with that line.
  *  - The Outline calls `jumpToLine(line)`; the Viewer, which registered the
  *    real implementation on mount, scrolls that block into view.
  *
@@ -21,10 +22,10 @@
  */
 
 class ViewNav {
-  /** Source line of the heading currently at the top of the viewport. */
+  /** Source line of the heading whose section contains the reading line. */
   activeLine = $state<number | null>(null);
-  /** Source line of the top-most visible block, heading or not. */
-  topLine = $state<number | null>(null);
+  /** Source line of the block sitting on the reading line, heading or not. */
+  readingLine = $state<number | null>(null);
   /** 0..1 progress through the document — drives the outline's progress rail. */
   progress = $state(0);
 
@@ -59,9 +60,9 @@ class ViewNav {
   }
 
   /** Called by the Viewer as it scrolls. */
-  publish(activeLine: number | null, topLine: number | null, progress: number) {
+  publish(activeLine: number | null, readingLine: number | null, progress: number) {
     if (this.activeLine !== activeLine) this.activeLine = activeLine;
-    if (this.topLine !== topLine) this.topLine = topLine;
+    if (this.readingLine !== readingLine) this.readingLine = readingLine;
     // Round to whole percent — the rail can't show more resolution than that,
     // and it keeps us from waking every subscriber on sub-pixel scrolls.
     const p = Math.round(progress * 100) / 100;
@@ -71,7 +72,7 @@ class ViewNav {
   /** Reset on tab switch / file close so stale highlights don't linger. */
   reset() {
     this.activeLine = null;
-    this.topLine = null;
+    this.readingLine = null;
     this.progress = 0;
   }
 }

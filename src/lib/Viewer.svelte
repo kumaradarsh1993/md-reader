@@ -195,23 +195,63 @@
     }
   }
 
-  /** The indexed block nearest the top of the viewport, and the last heading
-   *  at or above it. Both are needed: the outline highlights by heading, but
-   *  the position we remember should be the exact block being read. */
-  function topOfViewport(): { block: number | null; heading: number | null } {
+  /** The last indexed block starting at or above `probeY` (a viewport-space Y),
+   *  and the last heading at or above it. Both are needed: the outline
+   *  highlights by heading, but the position we remember should be the exact
+   *  block being read. */
+  function blocksAbove(probeY: number): { block: number | null; heading: number | null } {
     if (!container || lineIndex.length === 0) return { block: null, heading: null };
-    const probe = container.getBoundingClientRect().top + 12;
     let block: number | null = lineIndex[0].from;
     for (const b of lineIndex) {
-      if (b.el.getBoundingClientRect().top <= probe) block = b.from;
+      if (b.el.getBoundingClientRect().top <= probeY) block = b.from;
       else break;
     }
     let heading: number | null = null;
     for (const h of headingIndex) {
-      if (h.el.getBoundingClientRect().top <= probe) heading = h.line;
+      if (h.el.getBoundingClientRect().top <= probeY) heading = h.line;
       else break;
     }
     return { block, heading };
+  }
+
+  /** What sits at the very top of the viewport. This is the *resume* position:
+   *  a mark is restored with `scrollBlockToTop`, so it has to name the block
+   *  that was at the top, not the one that was being read. */
+  function topOfViewport(): { block: number | null; heading: number | null } {
+    if (!container) return { block: null, heading: null };
+    return blocksAbove(container.getBoundingClientRect().top + 12);
+  }
+
+  /**
+   * Where the *reading line* sits inside the viewport, as a fraction of its
+   * height. This is what the outline highlights against, and it is deliberately
+   * not the top edge.
+   *
+   * Anchoring the outline to the top edge (v0.6–v0.7) made the last section of
+   * a document unreachable: with three sections on screen only the top one ever
+   * lit up, and scrolling to the very bottom still highlighted whatever had
+   * come to rest against the top border. The reader's eye is not at the top
+   * edge — it is around the middle.
+   *
+   * So: **the middle of the screen for the whole interior of the document**,
+   * ramping to the true top within the first half-screen of scrolling and to
+   * the true bottom within the last. The ramps are what make the ends behave —
+   * the first section is active when you open a file, the last is active when
+   * you hit the bottom — and being a ramp rather than a snap, the highlight
+   * never jumps a section for a one-pixel scroll. Documents shorter than two
+   * screens simply have shorter ramps and no flat middle.
+   */
+  function readingFraction(): number {
+    if (!container) return 0;
+    const view = container.clientHeight;
+    const span = container.scrollHeight - view; // total scrollable distance
+    if (view <= 0 || span <= 0) return 0;
+    const top = Math.min(Math.max(container.scrollTop, 0), span);
+    const ramp = Math.min(view, span) / 2;
+    if (ramp <= 0) return 0.5;
+    if (top < ramp) return 0.5 * (top / ramp);
+    if (span - top < ramp) return 1 - 0.5 * ((span - top) / ramp);
+    return 0.5;
   }
 
   function currentMark(): ScrollMark | null {
@@ -305,9 +345,18 @@
 
   function publishNav() {
     if (!container) return;
-    const { block, heading } = topOfViewport();
-    const max = container.scrollHeight - container.clientHeight;
-    const progress = max > 0 ? Math.min(1, Math.max(0, container.scrollTop / max)) : 0;
+    const view = container.clientHeight;
+    const fraction = readingFraction();
+    const { block, heading } = blocksAbove(
+      container.getBoundingClientRect().top + fraction * view,
+    );
+    // The rail measures the same reading line against the whole document, so
+    // "how far the bar has filled" and "which entry is lit" can never disagree.
+    // It still reads 0 at the top and exactly 1 at the bottom, because the
+    // reading line itself ends up at the document's last pixel there.
+    const docHeight = container.scrollHeight;
+    const readY = container.scrollTop + fraction * view;
+    const progress = docHeight > 0 ? Math.min(1, Math.max(0, readY / docHeight)) : 0;
     viewNav.publish(heading, block, progress);
   }
 

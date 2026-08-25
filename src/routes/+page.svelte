@@ -26,6 +26,7 @@
   import ContextMenu from "$lib/ContextMenu.svelte";
   import { contextMenu, type MenuEntry } from "$lib/context-menu.svelte";
   import { focus } from "$lib/focus-mode.svelte";
+  import { refresher } from "$lib/refresh.svelte";
   import { isMac, sk, MOD, copyText, revealInFileManager } from "$lib/platform";
   import StatusBar from "$lib/theatre/StatusBar.svelte";
   import ResumeChip from "$lib/theatre/ResumeChip.svelte";
@@ -49,6 +50,7 @@
   let unlistenCli: UnlistenFn | null = null;
   let unlistenDrop: UnlistenFn | null = null;
   let unlistenOpenFile: UnlistenFn | null = null;
+  let unlistenFocus: UnlistenFn | null = null;
   // Has any external edit been observed for the active tab this session?
   // Used to gate the TipBanner — we don't want to nag people on app open.
   let externalEditObserved = $state(false);
@@ -235,6 +237,26 @@
     }
   }
 
+  /** Everything, from disk: this folder's listing and every open tab. */
+  function refreshAll() {
+    fileMenuOpen = false;
+    void refresher.run("user");
+  }
+
+  /** What the refresh button says it just did. Silence would be worse than a
+   *  number here — the commonest outcome of a refresh is "nothing had changed",
+   *  and a button that looks identical in that case reads as broken. */
+  let refreshTitle = $derived.by(() => {
+    const keys = `${sk("Mod", "R")} or F5`;
+    const r = refresher.last;
+    if (!r) return `Refresh — re-read this folder and every open tab from disk (${keys})`;
+    const parts: string[] = [];
+    parts.push(r.changed === 0 ? "everything was up to date" : `${r.changed} tab${r.changed === 1 ? "" : "s"} updated`);
+    if (r.skipped > 0) parts.push(`${r.skipped} skipped (unsaved edits)`);
+    if (r.missing > 0) parts.push(`${r.missing} missing on disk`);
+    return `Refresh from disk (${keys}) — last run: ${parts.join(", ")}`;
+  });
+
   function setMode(m: Mode) { mode = m; }
   // Ctrl+E: cycle view → smart edit → view. Power-users can still get the raw
   // CodeMirror source via the toolbar sub-toggle, Settings → Default edit mode,
@@ -348,6 +370,12 @@
         shortcut: sk("Mod", "O"),
         action: pickAndOpen,
       },
+      {
+        label: "Refresh from disk",
+        icon: "refresh",
+        shortcut: sk("Mod", "R"),
+        action: refreshAll,
+      },
       { separator: true },
       {
         label: settings.s.panelCollapsed ? "Show side panel" : "Hide side panel",
@@ -373,7 +401,11 @@
 
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickAndOpen(); }
+    // Refresh first in the chain, and with preventDefault on both spellings:
+    // in a webview Ctrl+R is "reload the page", which here would throw away
+    // the whole session's tab state to achieve less than this does.
+    if ((mod && e.key.toLowerCase() === "r") || e.key === "F5") { e.preventDefault(); refreshAll(); }
+    else if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); pickAndOpen(); }
     else if (mod && e.key.toLowerCase() === "t") { e.preventDefault(); pickAndOpen(); }
     else if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); closeActiveTab(); }
     else if (mod && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); tabs.next(); }
@@ -479,6 +511,14 @@
     window.addEventListener("dragover", dragSwallowers);
     window.addEventListener("drop", dragSwallowers);
 
+    // Coming back to the window is the moment the app is most likely to be
+    // showing something stale — you were away in a terminal or an editor, and
+    // that is where the changes came from. So sweep then, silently. Tabs with
+    // unsaved edits are skipped inside `reloadAllFromDisk`, and windows are
+    // separate processes, so each one keeps itself honest independently.
+    refreshOnFocus = () => { void refresher.run("focus"); };
+    window.addEventListener("focus", refreshOnFocus);
+
     // Reading positions are written on a short debounce; make sure the window
     // closing (or being hidden) never beats that timer to the punch.
     flushOnExit = () => { void settings.flushPendingWrites(); };
@@ -490,6 +530,17 @@
 
     // ── Backend wiring ───────────────────────────────────────────────────
     await settings.init();
+
+    // The native focus signal, in addition to the DOM one wired above:
+    // WebView2 does not reliably deliver a window-level `focus` event when the
+    // OS window is activated. The refresher coalesces, so two signals for one
+    // activation cost nothing.
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      unlistenFocus = await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+        if (focused) void refresher.run("focus");
+      });
+    } catch { /* not running under Tauri */ }
 
     unlistenCli = await api.onOpenFromCli((paths) => {
       if (paths[0]) openInTab(paths[0]);
@@ -565,14 +616,17 @@
   let dragSwallowers: ((e: DragEvent) => void) | null = null;
   let flushOnExit: (() => void) | null = null;
   let suppressNativeMenu: ((e: MouseEvent) => void) | null = null;
+  let refreshOnFocus: (() => void) | null = null;
 
   onDestroy(() => {
     unlistenCli?.();
     unlistenChange?.();
     unlistenDrop?.();
     unlistenOpenFile?.();
+    unlistenFocus?.();
     window.removeEventListener("keydown", onKey);
     window.removeEventListener("pointermove", onPointerMove);
+    if (refreshOnFocus) window.removeEventListener("focus", refreshOnFocus);
     if (suppressNativeMenu) {
       window.removeEventListener("contextmenu", suppressNativeMenu, { capture: true });
     }
@@ -624,6 +678,18 @@
       <div class="tool-divider" aria-hidden="true"></div>
       <button class="file-btn" onclick={() => (fileMenuOpen = !fileMenuOpen)} title="File menu" aria-haspopup="menu" aria-expanded={fileMenuOpen}>
         File <Icon name="chevron-down" size={11} class="caret" />
+      </button>
+      <!-- Next to File because that is where "what is on screen right now"
+           lives. It re-reads the folder listing and every open tab, which is
+           the whole set of things the single-file watcher cannot see. -->
+      <button
+        class="icon-btn refresh-btn"
+        class:spinning={refresher.busy}
+        onclick={refreshAll}
+        title={refreshTitle}
+        aria-label="Refresh from disk"
+      >
+        <Icon name="refresh" size={15} />
       </button>
       <div class="seg">
         <button class:active={mode === "view"} onclick={() => setMode("view")}>View</button>
@@ -830,6 +896,9 @@
     </button>
     <button class="menu-item" onclick={() => { fileMenuOpen = false; pickAndOpen(); }}>
       <span>New tab</span><span class="kbd">{sk("Mod", "T")}</span>
+    </button>
+    <button class="menu-item" onclick={refreshAll}>
+      <span>Refresh from disk</span><span class="kbd">{sk("Mod", "R")}</span>
     </button>
     {#if settings.s.recentFiles.length > 0}
       <div class="menu-sep"></div>
@@ -1149,6 +1218,29 @@
     width: 32px;
   }
   .icon-btn:hover { color: var(--fg-strong); }
+
+  /* Refresh. The rotation is the entire feedback this button gives — a
+     re-read of a few files finishes in single-digit milliseconds, so without
+     a visible turn the click looks like it did nothing at all. The store
+     holds `busy` for a minimum spin so that stays true.
+     `:global` because the SVG belongs to the Icon component. */
+  .refresh-btn :global(svg) {
+    transition: transform 160ms ease;
+  }
+  .refresh-btn:hover :global(svg) { transform: rotate(-30deg); }
+  .refresh-btn.spinning :global(svg) {
+    animation: refresh-spin 700ms cubic-bezier(.4, 0, .2, 1) infinite;
+    transition: none;
+  }
+  @keyframes refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-btn :global(svg),
+    .refresh-btn:hover :global(svg) { transition: none; transform: none; }
+    .refresh-btn.spinning :global(svg) { animation: none; opacity: .5; }
+  }
   .zoom {
     font-size: 11px;
     color: var(--chrome-fg);

@@ -1,17 +1,17 @@
 # Handover — Fox MD (repo: md-reader)
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-08-01: **v0.7.0 stable** — the product is now Fox MD, with
-> a warm paper-and-tail icon and the final Tauri security item (API keys in the
-> native OS keyring) closed. The stable build is cut from the same reviewed
-> v0.7 line as nightly.2 plus the identity and keyring work.
+> Last updated 2026-08-25: **v0.8.0-nightly.1** opens the v0.8 line — a refresh
+> command (button, `Ctrl/⌘+R`, `F5`, plus an automatic sweep on window focus)
+> and an outline that tracks the middle of the screen instead of the top
+> border. v0.7.0 remains stable `latest`.
 
 ## Where things stand
 
-**Release channel policy (2026-08-01):** v0.7.0 is the current stable line.
-Nightly.1 should never be promoted: nightly.2 fixed its cross-platform defects,
-and the clean stable tag additionally carries the Fox MD identity plus keyring
-migration. Future experiments should open a new `v0.8.0-nightly.N` line.
+**Release channel policy (2026-08-01, still current):** v0.7.0 is the stable
+line. v0.7.0-nightly.1 should never be promoted: nightly.2 fixed its
+cross-platform defects, and the clean stable tag additionally carries the Fox MD
+identity plus keyring migration. New work goes on `v0.8.0-nightly.N`.
 
 | Version | Status | Headline |
 |---|---|---|
@@ -22,9 +22,10 @@ migration. Future experiments should open a new `v0.8.0-nightly.N` line.
 | v0.5.1 | Published | Sepia reading theme + toolbar 3-way theme switch |
 | v0.6.0 | Published (stable) | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
 | **v0.7.0** | **Published — stable `latest`** | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, renderer fixes, completed security baseline |
+| v0.8.0-nightly.1 | Tagged → CI draft | Refresh from disk (button / `Ctrl+R` / `F5` / on window focus); outline tracks the mid-screen reading line |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
-- **Branch**: `master`. v0.6.0 and v0.7.0 work was committed straight to master
+- **Branch**: `master`. v0.6.0 onwards was committed straight to master
   at the user's explicit request.
 - **Vite dev port**: `1430` (a sibling Tauri project keeps 1420)
 - **Local git identity (repo-local, not global)**: `Kumar Adarsh <kumaradarsh1993@users.noreply.github.com>`
@@ -43,6 +44,63 @@ migration. Future experiments should open a new `v0.8.0-nightly.N` line.
 - **Icon source:** `assets/fox-md-icon.png`; the old mark is backed up at
   `assets/legacy-md-reader-icon.png`. Regenerate native assets with
   `npm run tauri -- icon assets/fox-md-icon.png`.
+
+## What v0.8.0-nightly.1 added
+
+Two complaints, one theme: the app was confidently showing something that was
+no longer true.
+
+### Refresh from disk
+
+- `src/lib/refresh.svelte.ts` (`refresher`) is the single entry point. It calls
+  `tabs.reloadAllFromDisk()` and then bumps a `tick` counter that
+  `FileBrowser.svelte` watches, so the folder listing and the open tabs come
+  back together. Surfaces: a toolbar button beside **File**,
+  `Ctrl/⌘+R`, `F5`, File → Refresh from disk, the shell right-click menu, and
+  the file-browser right-click menu — all one code path.
+- **`Ctrl+R` and `F5` are `preventDefault`ed.** In a webview those mean "reload
+  the page", which here would discard the whole session's tab state to achieve
+  strictly less than refresh does.
+- **Automatic sweep on `window.focus`**, coalesced at 400ms and silent (no
+  spinner). This is the one that actually fixes the reported problem: the
+  changes come from a terminal or an editor, so the moment you look back at Fox
+  MD is the moment it is most likely to be stale.
+- **Dirty tabs are skipped, unconditionally.** A refresh that could discard
+  unsaved edits would be a worse bug than the staleness it fixes. Missing files
+  are counted, not closed.
+- **Why this exists at all — do not "simplify" it away:** `watcher.rs` arms on
+  exactly *one* file, the active tab, and emits only that path. Background tabs,
+  new files appearing in the open folder (the listing is read once, on entry),
+  and every synced/virtual filesystem where `ReadDirectoryChangesW` is
+  unreliable all fall straight through it. Extending the watcher to a *set* of
+  files is the deeper fix and is still open; refresh is the escape hatch that
+  works regardless. Torn-out windows are separate OS processes, so no refresh
+  can cross windows — each one sweeps itself on focus, which is why the focus
+  hook matters more than the button.
+
+### The outline follows a reading line, not the top border
+
+- `readingFraction()` in `Viewer.svelte` decides where in the viewport the
+  "reading line" sits: **the middle**, ramping to the true top within the first
+  half-screen of scrolling and to the true bottom within the last (documents
+  shorter than two screens just get shorter ramps and no flat middle; nothing
+  scrollable → the top). `publishNav()` probes the block/heading indexes at that
+  line instead of `container.top + 12`.
+- That single change fixes both halves of the complaint: with three sections on
+  screen the one you are *looking at* is lit rather than the one touching the
+  top border, and hitting the bottom of the document finally moves the mark to
+  the last section — previously impossible for any final section shorter than
+  the viewport, since it could never reach the top border.
+- **Ramps, not snaps.** A hard "top edge below 50% scroll, middle above" rule
+  would make the highlight jump a section on a one-pixel scroll. The ramp is
+  monotonic and continuous end to end.
+- The progress rail is now derived from the same reading line
+  (`readY / scrollHeight`), so the bar and the lit entry cannot disagree.
+- **`topOfViewport()` still exists and is still top-anchored** — it feeds
+  `currentMark()`. Reading position is restored with `scrollBlockToTop`, so the
+  mark must name the block that was at the top. Do not "unify" these two probes.
+- `viewNav.topLine` was renamed `viewNav.readingLine`, because "top" had become
+  actively wrong.
 
 ## What v0.7.0 added
 
@@ -179,7 +237,8 @@ buttons (8ch), horizontal drag, or the wheel; the number appears on hover only.
 | `src/lib/LeftPanel.svelte` | Collapsible/peekable panel, both dividers. |
 | `src/lib/settings-store.svelte.ts` | Settings schema + scroll-memory persistence. API keys are memory-only here; it migrates old plaintext values into the keyring and writes a marked fallback only after a genuine native-store failure. |
 | `src-tauri/src/secrets.rs` | Allow-listed Groq/Anthropic get/set/delete commands backed by Windows Credential Manager, macOS Keychain or Linux Secret Service. Service stays `com.mdreader.app` across the rename. |
-| `src/lib/tabs-store.svelte.ts` | Per-tab state: source, baseline, scroll/resume marks, theatre fields. |
+| `src/lib/tabs-store.svelte.ts` | Per-tab state: source, baseline, scroll/resume marks, theatre fields. `reloadAllFromDisk()` is the refresh path — it skips dirty tabs on purpose. |
+| `src/lib/refresh.svelte.ts` | The refresh command (button / `Ctrl+R` / `F5` / window focus). Bumps `tick`; `FileBrowser` re-lists on it. |
 | `src/lib/theatre/` | The Live Edit Theatre module. See breakdown below. |
 | `.github/workflows/release.yml` | Tag push → 3-platform build → **draft** release (`prerelease: false`). Published manually. |
 

@@ -203,7 +203,12 @@ class TabsStore {
   /** Update active tab's source from disk reload (does NOT mark dirty). */
   setActiveSourceFromDisk(s: string) {
     const t = this.active;
-    if (!t) return;
+    if (t) this.applySourceFromDisk(t, s);
+  }
+
+  /** Same, for any tab — a manual refresh re-reads background tabs too, and
+   *  the file watcher only ever follows the active file. */
+  private applySourceFromDisk(t: Tab, s: string) {
     if (t.source === s) return; // no-op, don't trigger theatre
     // Theatre hook: notify the state machine before/after the source flips so
     // it can capture pendingTurnBefore and arm/reset the idle debounce.
@@ -212,6 +217,40 @@ class TabsStore {
     t.dirty = false;
     t.diskTick = Date.now();
     onAfterExternalEdit(t);
+  }
+
+  /**
+   * Re-read every open tab from disk.
+   *
+   * Exists because the backend watcher follows exactly one file — the active
+   * one — so a tab in the background could sit on hours-old content with
+   * nothing on screen admitting it. Refresh closes that gap for every tab in
+   * this window at once.
+   *
+   * Tabs with unsaved edits are skipped, always: a refresh must never be able
+   * to throw away something the reader typed. A file that has since been
+   * moved or deleted is counted and left alone — closing tabs out from under
+   * someone would be a far worse surprise than a stale one.
+   */
+  async reloadAllFromDisk(): Promise<{ changed: number; skipped: number; missing: number }> {
+    let changed = 0;
+    let skipped = 0;
+    let missing = 0;
+    for (const t of this.tabs) {
+      if (t.dirty) {
+        skipped++;
+        continue;
+      }
+      try {
+        const file = await api.openFile(t.path);
+        if (file.content === t.source) continue;
+        this.applySourceFromDisk(t, file.content);
+        changed++;
+      } catch {
+        missing++;
+      }
+    }
+    return { changed, skipped, missing };
   }
 
   /** Record the reading position for a tab (by id, not "active" — a scroll

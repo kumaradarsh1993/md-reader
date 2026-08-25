@@ -3,6 +3,8 @@
   import Icon from "./Icon.svelte";
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { isMac, copyText, revealInFileManager } from "./platform";
+  import { refresher } from "./refresh.svelte";
+  import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
 
   interface Props {
@@ -25,6 +27,24 @@
       currentDir = target;
       load(target);
     }
+  });
+
+  /** The last refresh this component has already served. Plain `let`, not
+   *  `$state` — an effect that writes state it also reads is how you kill
+   *  every click in the app (see the v0.7 notes on `effect_update_depth`). */
+  let servedTick = 0;
+
+  // A refresh has to re-read the folder, not just the open tabs: a new file
+  // appearing next to the one you are reading is the most common staleness of
+  // all, and the listing is otherwise only read when the directory is opened.
+  // Only the tick is a dependency — `currentDir` is read untracked so browsing
+  // into a folder doesn't fire a second listing on top of clickEntry's.
+  $effect(() => {
+    const tick = refresher.tick;
+    if (tick === servedTick) return;
+    servedTick = tick;
+    const dir = untrack(() => currentDir);
+    if (dir) load(dir);
   });
 
   async function load(dir: string) {
@@ -107,10 +127,12 @@
         action: goUp,
       },
       {
+        // Routed through the shared refresher rather than a local `load()` so
+        // right-clicking here means the same thing as the toolbar button:
+        // this folder *and* every open tab come back from disk.
         label: "Refresh",
         icon: "refresh",
-        disabled: !currentDir,
-        action: () => currentDir && load(currentDir),
+        action: () => refresher.run("user"),
       },
       { separator: true },
       {

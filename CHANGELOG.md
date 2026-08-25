@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.8.0-nightly.1 — 2026-08-25
+
+Two reader complaints, both about the app quietly showing you something that
+isn't true: content that had changed on disk, and an outline that claimed you
+were somewhere you weren't.
+
+### Added — Refresh
+
+- **A refresh button, next to File** (also <kbd>Ctrl/⌘+R</kbd>, <kbd>F5</kbd>,
+  File → Refresh from disk, and the right-click menus). It re-reads the folder
+  listing *and* every open tab from disk in one go. Tabs with unsaved edits are
+  skipped — a refresh must never be able to discard something you typed — and a
+  tab whose file has since moved or been deleted is left open rather than
+  vanishing. The button's tooltip reports what the last run actually did, since
+  "nothing had changed" and "the button is broken" otherwise look identical.
+- **The same sweep runs automatically whenever a window regains focus.**
+  That is the moment the app is most likely to be stale: you were away in a
+  terminal or an editor, which is where the change came from. It is silent — no
+  spinner, no flicker — and coalesced so alt-tabbing twice doesn't run it twice.
+
+  *Why this was needed:* the file watcher arms itself on exactly one file — the
+  active tab — so a background tab could sit on hours-old content, a new file
+  appearing in the open folder was never noticed at all (the listing is read
+  once, when you enter the directory), and on OneDrive/Dropbox/network paths
+  the OS change notifications are documented as unreliable in the first place.
+  Refresh is the escape hatch for everything the watcher structurally cannot
+  see. Windows are separate processes, so each refreshes itself.
+
+### Changed — the outline follows where you're reading, not the top border
+
+- **The active-section mark now tracks the middle of the screen**, ramping to
+  the true top edge within the first half-screen of scrolling and to the true
+  bottom within the last. Practical effect: the first section is highlighted
+  when you open a document, the section you are actually looking at is
+  highlighted through the middle of it, and **scrolling to the bottom finally
+  moves the mark to the last section** — which it never did before, because
+  with three sections on screen only the one touching the top border ever lit
+  up, and a short final section could not reach that border at all.
+  The ramps (rather than a snap at each end) mean the highlight never jumps a
+  section for a one-pixel scroll.
+- **The progress rail is measured from the same reading line**, so how far the
+  bar has filled and which entry is lit can no longer disagree. It still reads
+  empty at the top and exactly full at the bottom.
+- Resume-where-you-left-off is deliberately unchanged: it still records the
+  block at the *top* of the viewport, because that is where restoring puts it
+  back.
+
 ## 0.7.0 — 2026-08-01 (Stable)
 
 The "stop looking like a developer tool" release. v0.6 was, in the owner's

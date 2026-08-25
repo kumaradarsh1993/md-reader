@@ -20,12 +20,14 @@
     headings.length === 0 ? 1 : headings.reduce((m, h) => Math.min(m, h.level), 6),
   );
 
-  // `topLine` tracks the top-most visible block, which moves continuously as
-  // the reader scrolls; `activeLine` only changes when a heading reaches the
-  // top. Preferring topLine is what makes the highlight travel through long
-  // sections instead of sticking until the next heading arrives.
+  // `readingLine` tracks the block sitting on the reading line (mid-viewport,
+  // ramped to the edges at the two ends of the document), which moves
+  // continuously as the reader scrolls; `activeLine` only changes when a
+  // heading crosses it. Preferring readingLine is what makes the highlight
+  // travel through long sections instead of sticking until the next heading
+  // arrives — and what puts the last section under the mark at the bottom.
   let activeIdx = $derived(
-    activeHeadingIndex(headings, viewNav.topLine ?? viewNav.activeLine),
+    activeHeadingIndex(headings, viewNav.readingLine ?? viewNav.activeLine),
   );
 
   let rootEl = $state<HTMLElement | null>(null);
