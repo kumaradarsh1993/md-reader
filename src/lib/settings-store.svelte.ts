@@ -3,6 +3,16 @@ import { api, type SecretProvider } from "./api";
 
 export type ThemeMode = "auto" | "light" | "dark" | "sepia";
 
+/**
+ * v0.8.0+: how much tonal separation the window's chrome carries.
+ *
+ * `"flat"` is the v0.7 design — title bar, toolbar and side panel all share
+ * one chrome colour and are separated by edges alone. `"layered"` steps each
+ * surface by tone according to its distance from the document. Orthogonal to
+ * `ThemeMode`: every theme has both.
+ */
+export type SurfaceStyle = "flat" | "layered";
+
 /** v0.5.0+: which provider drives the sidebar's "✨ Summary" mode. */
 export type LLMProvider = "groq" | "anthropic";
 
@@ -34,6 +44,8 @@ export interface AppSettings {
   fontSize: number;
   fontFamily: string;
   theme: ThemeMode;
+  /** v0.8.0+: flat vs layered chrome. See SurfaceStyle. */
+  surfaceStyle: SurfaceStyle;
   contentWidthCh: number;   // continuous: chars-wide cap on content (40..160)
   fullWidth: boolean;       // ignore contentWidthCh, use viewport
   centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
@@ -113,6 +125,7 @@ const DEFAULTS: AppSettings = {
   fontFamily:
     "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif",
   theme: "auto",
+  surfaceStyle: "layered",
   contentWidthCh: WIDTH_DEFAULT,
   fullWidth: false,
   centerHeadings: false,

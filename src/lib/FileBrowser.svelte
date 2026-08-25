@@ -83,6 +83,23 @@
     }
   }
 
+  /**
+   * Does the open file live somewhere inside this folder?
+   *
+   * The open file's own row is marked, but the moment you stepped up a level
+   * that mark vanished and the list gave no clue which of twenty folders you
+   * had come out of. Marking the ancestor keeps "you are here" answerable at
+   * every level. Deliberately a prefix test on a separator boundary, so
+   * `…/docs` never claims `…/docs-old/notes.md`.
+   */
+  function isOnPathToActive(e: DirEntry): boolean {
+    if (!e.is_dir || !activePath) return false;
+    const dir = e.path.replace(/[\\/]+$/, "");
+    if (activePath.length <= dir.length) return false;
+    if (activePath.slice(0, dir.length) !== dir) return false;
+    return /^[\\/]/.test(activePath.slice(dir.length));
+  }
+
   function entryMenu(e: DirEntry): MenuEntry[] {
     const openable = e.is_dir || e.is_md;
     return [
@@ -194,11 +211,12 @@
             class:md={e.is_md}
             class:dim={!e.is_dir && !e.is_md}
             class:active={activePath === e.path}
+            class:on-path={isOnPathToActive(e)}
             aria-current={activePath === e.path ? "true" : undefined}
+            title={isOnPathToActive(e) ? `${e.path}\n(contains the open file)` : e.path}
             onclick={() => clickEntry(e)}
             oncontextmenu={(ev) => contextMenu.open(ev, entryMenu(e))}
             disabled={!e.is_dir && !e.is_md}
-            title={e.path}
           >
             <span class="icon">
               {#if e.is_dir}<Icon name="folder" size={13} />
@@ -219,7 +237,12 @@
     flex-direction: column;
     height: 100%;
     overflow: hidden;
-    font-size: 12.5px;
+    /* Same typeface as the rest of the app — it inherits the shell's UI stack
+       and always has. What made this list read as a different, heavier thing
+       was scale, not font: 12.5px at regular weight with roomy rows, sitting
+       directly above an outline whose deepest entries are 11px. The two
+       sections now share one type ramp. */
+    font-size: 12px;
   }
   .cwd-bar {
     display: flex;
@@ -286,13 +309,18 @@
     border: 0;
     color: var(--fg);
     text-align: left;
-    padding: .25rem .4rem;
+    padding: .2rem .4rem;
     border-radius: 5px;
     cursor: pointer;
-    font-size: 12.5px;
-    line-height: 1.35;
-    transition: background-color 90ms ease;
+    font-size: 12px;
+    font-weight: 450;
+    line-height: 1.4;
+    color: var(--muted-strong);
+    transition: background-color 90ms ease, color 90ms ease;
   }
+  /* Folders carry the structure, so they get the weight; files recede until
+     they are the one you have open. Same idea as the outline's depth ramp. */
+  .entry.dir { color: var(--fg); font-weight: 500; }
   .entry:hover:not([disabled]) { background: var(--hover-bg); }
   .entry:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
   .entry.active {
@@ -312,6 +340,27 @@
     border-radius: 1px;
     background: var(--accent);
   }
+  /* The folder the open file lives inside — a quieter echo of `.active`, so
+     stepping up a level still answers "which of these did I come out of?".
+     Deliberately weaker than the open file itself: this is a trail, not a
+     second "you are here". */
+  .entry.on-path:not(.active) {
+    color: var(--fg-strong);
+    font-weight: 550;
+  }
+  .entry.on-path:not(.active)::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    opacity: .45;
+  }
+  .entry.on-path .icon { color: var(--accent); opacity: 1; }
+
   /* Non-markdown files are listed for orientation only — visible, clearly
      inert, and never focusable. */
   .entry.dim { color: var(--muted); opacity: .55; cursor: default; }

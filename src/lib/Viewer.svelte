@@ -1303,10 +1303,17 @@
     border-collapse: collapse;
     margin: 0;
     font-size: .94em;
-    /* Wide tables take their natural width and scroll; narrow ones still
-       fill the column. */
-    width: max-content;
-    min-width: 100%;
+    /* **Fit the column and wrap.** This was `width: max-content`, which asks
+       the browser for the width the table would take with no line-breaking at
+       all — so a three-column table with two prose columns of ~20 words each
+       claimed a couple of thousand pixels and pushed the reader into a
+       horizontal scroll, when the same content wraps comfortably into the
+       page. `max-content` is the right answer for a table of file paths and
+       the wrong one for a table of sentences, and prose is the common case.
+       The wrapper still scrolls when a table genuinely cannot fit — see the
+       cell `min-width` below, which is what decides "genuinely". */
+    width: 100%;
+    table-layout: auto;
   }
   .viewer :global(th),
   .viewer :global(td) {
@@ -1315,6 +1322,14 @@
     padding: .55em .85em;
     text-align: start;
     vertical-align: top;
+    /* The floor that decides when wrapping stops and scrolling starts.
+       Auto table layout will otherwise squeeze a 12-column table down to a
+       few characters per column — technically "fitting", actually unreadable
+       — because `overflow-wrap: anywhere` below lets any cell shrink to one
+       glyph. With a floor, a table wider than ~10 columns overflows and the
+       wrapper scrolls, which is the correct behaviour for a genuinely wide
+       table. Prose tables never come near it. */
+    min-width: 7ch;
     /* 1.65 is a reading line-height; in a dense grid it adds ~30% height for
        nothing. */
     line-height: 1.45;

@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.8.0-nightly.2 — 2026-08-25
+
+Reading-comfort pass. Everything here came from one round of feedback on
+nightly.1, and all of it is about the app getting out of the way.
+
+### Changed — tables wrap instead of scrolling sideways
+
+- **A table now fits the page and wraps its cells.** It used to be laid out at
+  `width: max-content` — the width it would need if no line ever broke — so a
+  three-column table with two columns of ~20-word sentences claimed a couple of
+  thousand pixels and pushed you into a horizontal scroll, for content that
+  wraps comfortably into the column. Columns are now sized in proportion to
+  their content: a two-word "Decision" column stays narrow and the prose
+  columns take the space.
+- **Genuinely wide tables still scroll.** Cells hold a 7-character floor, so a
+  twelve-column grid overflows and the wrapper scrolls rather than squeezing
+  every column into slivers. Long unbreakable strings (file paths, URLs) still
+  break inside their cell instead of blowing the layout out.
+- This is a rendering choice, not a limit of the markdown: GFM table syntax
+  carries no width or wrapping information at all, so how a table lays out is
+  entirely up to the reader. Nothing in your files needs to change.
+
+### Changed — the side panel's scrollbar is hover-only
+
+- The outline and file list keep their scrollbar hidden until the pointer is
+  over the panel; the document's own scrollbar is unchanged, because in a long
+  read that one carries real information. Only the *thumb* is hidden, never the
+  track's width, so the list can't reflow as the pointer crosses it.
+- The same applies to the diff sidebar.
+
+### Changed — the window reads as layers
+
+- **New setting: Appearance → Window surfaces (Layered / Flat).** Layered — the
+  new default — steps the title bar, toolbar and side panel apart by tone, each
+  one a shade further from the page; the rule is that tone tracks distance from
+  the document, so it works the same way in light, sepia and dark. Flat is the
+  previous v0.7 look, where the chrome is one colour separated by edges alone.
+  On Windows the native title bar follows, via the same DWM call that already
+  themed it.
+- **Settings is now sectioned** — Appearance, Side panel, Reading, Editing,
+  Advanced — instead of one undifferentiated column where a theme picker and an
+  LLM API key carried identical visual weight. The Smart-diff provider and key
+  fields moved inside Advanced and appear only when Live Edit Theatre is
+  enabled, since that is the only feature they affect.
+
+### Changed — smaller things
+
+- **The refresh icon turns clockwise**, arrowhead at the top right, matching
+  every browser's reload button. The mirrored form read as "undo".
+- **The file list marks the folder your open file is inside**, so stepping up a
+  level still answers "which of these did I come out of?". A quieter mark than
+  the open file's own, and it never confuses `docs` with `docs-old`.
+- **File list typography** now shares the outline's type ramp — 12px, folders
+  carrying the weight and files receding — instead of sitting a size larger
+  than everything around it. Same typeface as the rest of the app; scale was
+  what made it read as a different thing.
+
 ## 0.8.0-nightly.1 — 2026-08-25
 
 Two reader complaints, both about the app quietly showing you something that

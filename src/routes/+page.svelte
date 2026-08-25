@@ -112,6 +112,13 @@
     document.documentElement.dataset.theme = effectiveThemeName(settings.s.theme);
   });
 
+  // Surface style rides on its own attribute rather than being folded into the
+  // theme, because it is a genuinely independent axis: three themes × two
+  // surface styles, from one extra line of state.
+  $effect(() => {
+    document.documentElement.dataset.surface = settings.s.surfaceStyle;
+  });
+
   /**
    * Push the palette out to the native title bar.
    *
@@ -119,14 +126,23 @@
    * OS, so a dark Windows with the app in sepia gave you a black bar above a
    * cream page — two programs stacked. Reading the resolved chrome colour back
    * out of the CSS means there is exactly one definition of it: change
-   * `--chrome-bg` in the palette above and the title bar follows.
+   * `--titlebar-bg` in the palette above and the title bar follows.
+   *
+   * v0.8.0: reads `--titlebar-bg` rather than `--chrome-bg`. In the flat
+   * surface style the two are the same colour, so nothing changes; in the
+   * layered style the title bar is the outermost — and therefore darkest —
+   * surface, and this is what carries that step onto the part of the window
+   * Windows draws for us.
    */
   $effect(() => {
     const name = effectiveThemeName(settings.s.theme);
-    // Read after the attribute write above has been applied.
+    // A dependency, not decoration: the caption colour changes with it.
+    const surface = settings.s.surfaceStyle;
+    // Read after the attribute writes above have been applied.
     queueMicrotask(() => {
+      void surface;
       const css = getComputedStyle(document.documentElement);
-      const caption = cssColorToRgbInt(css.getPropertyValue("--chrome-bg"));
+      const caption = cssColorToRgbInt(css.getPropertyValue("--titlebar-bg"));
       const text = cssColorToRgbInt(css.getPropertyValue("--chrome-fg"));
       if (caption === null || text === null) return;
       // Windows: exact caption/text/border colours via DWM.
@@ -985,8 +1001,12 @@
     --chrome-raised: #ffffff;
     /* Recessed track for segmented controls, a shade *below* the chrome. */
     --chrome-sunken: #eceae5;
-    --side-bg: var(--chrome-bg);
+    /* The four chrome surfaces, outermost first. In "flat" they are all one
+       colour — the v0.7 design, where separation comes from edges. The
+       "layered" surface style (below) gives each its own step. */
+    --titlebar-bg: #f6f5f2;
     --toolbar-bg: var(--chrome-bg);
+    --side-bg: var(--chrome-bg);
     --toolbar-border: transparent;
     --hover-bg: rgba(60, 56, 45, 0.05);
     --input-bg: #ffffff;
@@ -1031,8 +1051,9 @@
     --chrome-hover: rgba(255, 255, 255, 0.06);
     --chrome-raised: #2e2e2c;
     --chrome-sunken: #101010;
-    --side-bg: var(--chrome-bg);
+    --titlebar-bg: #171716;
     --toolbar-bg: var(--chrome-bg);
+    --side-bg: var(--chrome-bg);
     --toolbar-border: transparent;
     --hover-bg: rgba(255, 255, 255, 0.06);
     --input-bg: #2a2a28;
@@ -1075,8 +1096,9 @@
     --chrome-hover: rgba(74, 63, 51, 0.07);
     --chrome-raised: #f7f0dd;
     --chrome-sunken: #e2d7b9;
-    --side-bg: var(--chrome-bg);
+    --titlebar-bg: #ebe1c7;
     --toolbar-bg: var(--chrome-bg);
+    --side-bg: var(--chrome-bg);
     --toolbar-border: transparent;
     --hover-bg: rgba(74, 63, 51, 0.06);
     --input-bg: #faf3df;
@@ -1085,6 +1107,51 @@
     --shadow-sm: 0 1px 2px rgba(74, 63, 51, 0.06);
     --shadow-md: 0 8px 24px rgba(74, 63, 51, 0.12);
     --paper-shadow: 0 0 0 1px rgba(74, 63, 51, 0.09), 0 1px 3px rgba(74, 63, 51, 0.07);
+  }
+
+  /* ═══ Surface style: "layered" ══════════════════════════════════════
+     Settings → Appearance → Window surfaces. Flat (the v0.7 design) leaves
+     every chrome surface on one colour and separates them with edges;
+     layered gives each its own step.
+
+     The rule the steps follow, and the reason they are not arbitrary: **tone
+     tracks distance from the document.** The paper is the extreme of the
+     range, and each surface further out from it moves one step back toward
+     mid-grey — title bar, toolbar, side panel, then the desk the paper sits
+     on. In light and sepia that means progressively darker going outward; in
+     dark it means progressively darker too, because there the paper is the
+     *lightest* thing on screen. One rule, read in both directions, so the
+     three palettes stay siblings rather than three separate designs.
+
+     Steps are 2–4% apart. Large enough to be seen as a boundary without a
+     border, small enough that the window still reads as one object; anything
+     bigger and it starts to look like an IDE, which is the thing v0.7 spent a
+     whole release getting away from.
+
+     Specificity does the theme matching: `html[data-surface][data-theme=…]`
+     (0,2,1) beats the base `html[data-theme=…]` (0,1,1), and plain
+     `html[data-surface]` (0,1,1) beats `:root` (0,1,0). No !important, and no
+     dependence on source order. */
+  :global(html[data-surface="layered"]) {
+    --titlebar-bg: #e2dfd7;
+    --toolbar-bg: #eae7e0;
+    --side-bg: #f1efe9;
+    --toolbar-border: rgba(60, 56, 45, 0.09);
+    --chrome-sunken: #e4e1da;
+  }
+  :global(html[data-surface="layered"][data-theme="dark"]) {
+    --titlebar-bg: #0a0a09;
+    --toolbar-bg: #0f0f0e;
+    --side-bg: #131312;
+    --toolbar-border: rgba(255, 255, 255, 0.06);
+    --chrome-sunken: #080808;
+  }
+  :global(html[data-surface="layered"][data-theme="sepia"]) {
+    --titlebar-bg: #d3c69c;
+    --toolbar-bg: #ddd1ad;
+    --side-bg: #e5dabc;
+    --toolbar-border: rgba(74, 63, 51, 0.11);
+    --chrome-sunken: #d6c9a4;
   }
 
   :global(html), :global(body) {
@@ -1123,6 +1190,39 @@
   }
   :global(::-webkit-scrollbar-corner) { background: transparent; }
 
+  /* …except in the side panel, where they are hover-only.
+     A permanent bar is right for the document: it is the one place you want
+     an at-a-glance sense of position in a long read. In a 20-row outline it
+     carries almost no information and sits directly beside the text you are
+     scanning, which is exactly where a moving vertical line is most
+     distracting. Hiding the *thumb* rather than the scrollbar itself is the
+     load-bearing detail: `scrollbar-width: none` would reflow the list every
+     time the pointer entered the panel, so instead the track keeps its 12px
+     and only the colour appears. Scoped to `.panel-stack` — LeftPanel's
+     Files+Outline container, docked or peeking — rather than `.panel`, which
+     the Settings dialog also uses. */
+  :global(.panel-stack ::-webkit-scrollbar-thumb) {
+    background-color: transparent;
+  }
+  :global(.panel-stack:hover ::-webkit-scrollbar-thumb) {
+    background-color: rgba(120, 120, 128, 0.4);
+    background-clip: padding-box;
+  }
+  :global(.panel-stack ::-webkit-scrollbar-thumb:hover) {
+    background-color: rgba(120, 120, 128, 0.65);
+    background-clip: padding-box;
+  }
+  :global(.panel-stack ::-webkit-scrollbar-thumb:active) {
+    background-color: rgba(120, 120, 128, 0.85);
+    background-clip: padding-box;
+  }
+  /* The diff sidebar is the same kind of surface — chrome beside prose. */
+  :global(.diff-sidebar ::-webkit-scrollbar-thumb) { background-color: transparent; }
+  :global(.diff-sidebar:hover ::-webkit-scrollbar-thumb) {
+    background-color: rgba(120, 120, 128, 0.4);
+    background-clip: padding-box;
+  }
+
   :global(button:focus-visible),
   :global(input:focus-visible),
   :global(select:focus-visible),
@@ -1157,6 +1257,11 @@
     padding: 0 .6rem;
     height: 46px;
     background: var(--toolbar-bg);
+    /* A hairline where the toolbar meets what's below it. `box-shadow` and
+       not `border-bottom`, so the row keeps its exact 46px in flat mode where
+       the token is transparent — a border would move every layout below it by
+       a pixel depending on a colour setting. */
+    box-shadow: 0 1px 0 var(--toolbar-border);
     color: var(--chrome-fg);
     user-select: none;
     -webkit-app-region: drag;
@@ -1227,7 +1332,7 @@
   .refresh-btn :global(svg) {
     transition: transform 160ms ease;
   }
-  .refresh-btn:hover :global(svg) { transform: rotate(-30deg); }
+  .refresh-btn:hover :global(svg) { transform: rotate(30deg); }
   .refresh-btn.spinning :global(svg) {
     animation: refresh-spin 700ms cubic-bezier(.4, 0, .2, 1) infinite;
     transition: none;

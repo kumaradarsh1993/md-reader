@@ -23,6 +23,8 @@
       <button class="close" onclick={() => (open = false)}>✕</button>
     </header>
 
+    <h3 class="group-head">Appearance</h3>
+
     <label>
       <span>Theme</span>
       <select
@@ -35,6 +37,29 @@
         <option value="dark">Dark</option>
       </select>
     </label>
+
+    <fieldset class="surface-group">
+      <legend><span>Window surfaces</span></legend>
+      <p class="hint smart-hint">
+        How much the chrome around your document separates itself by tone.
+        <strong>Layered</strong> steps the title bar, toolbar and side panel
+        apart, each one a shade further from the page. <strong>Flat</strong>
+        keeps them all on a single colour, separated by edges alone.
+        Works with every theme.
+      </p>
+      <div class="presets">
+        <button
+          type="button"
+          class:active={settings.s.surfaceStyle === "layered"}
+          onclick={() => settings.set("surfaceStyle", "layered")}
+        >Layered</button>
+        <button
+          type="button"
+          class:active={settings.s.surfaceStyle === "flat"}
+          onclick={() => settings.set("surfaceStyle", "flat")}
+        >Flat</button>
+      </div>
+    </fieldset>
 
     <fieldset class="width-group">
       <legend>
@@ -107,11 +132,33 @@
     <label class="check">
       <input
         type="checkbox"
+        checked={settings.s.centerHeadings}
+        onchange={(e) => settings.set("centerHeadings", (e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>Center headings <small>(for resumes / formal docs)</small></span>
+    </label>
+
+    <h3 class="group-head">Side panel</h3>
+
+    <label class="check">
+      <input
+        type="checkbox"
         checked={settings.s.showToc}
         onchange={(e) => settings.set("showToc", (e.currentTarget as HTMLInputElement).checked)}
       />
       <span>Show outline sidebar</span>
     </label>
+
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={settings.s.panelHoverPeek}
+        onchange={(e) => settings.set("panelHoverPeek", (e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>Peek the side panel on left-edge hover <small>(when collapsed)</small></span>
+    </label>
+
+    <h3 class="group-head">Reading</h3>
 
     <fieldset class="reading-group">
       <legend>
@@ -146,23 +193,7 @@
       </div>
     </fieldset>
 
-    <label class="check">
-      <input
-        type="checkbox"
-        checked={settings.s.panelHoverPeek}
-        onchange={(e) => settings.set("panelHoverPeek", (e.currentTarget as HTMLInputElement).checked)}
-      />
-      <span>Peek the side panel on left-edge hover <small>(when collapsed)</small></span>
-    </label>
-
-    <label class="check">
-      <input
-        type="checkbox"
-        checked={settings.s.centerHeadings}
-        onchange={(e) => settings.set("centerHeadings", (e.currentTarget as HTMLInputElement).checked)}
-      />
-      <span>Center headings <small>(for resumes / formal docs)</small></span>
-    </label>
+    <h3 class="group-head">Editing</h3>
 
     <fieldset class="editor-mode-group">
       <legend><span>Default edit mode</span></legend>
@@ -185,81 +216,7 @@
       </div>
     </fieldset>
 
-    <fieldset class="smart-diff-group">
-      <legend>
-        <span>Smart-diff</span>
-        <span class="value">{
-          settings.s.llmProvider === "groq"
-            ? (settings.s.groqApiKey ? "Groq · key set" : "Groq · disabled")
-            : (settings.s.anthropicApiKey ? "Anthropic · key set" : "Anthropic · disabled")
-        }</span>
-      </legend>
-      <p class="hint smart-hint">
-        Generates a 2–4 bullet summary of what changed in each section of the
-        diff sidebar. Sends file content to the selected provider — leave the
-        key blank to disable.
-      </p>
-      <div class="seg-toggle">
-        <button
-          type="button"
-          class:active={settings.s.llmProvider === "groq"}
-          onclick={() => settings.set("llmProvider", "groq")}
-          title="Free tier at console.groq.com"
-        >Groq (free)</button>
-        <button
-          type="button"
-          class:active={settings.s.llmProvider === "anthropic"}
-          onclick={() => settings.set("llmProvider", "anthropic")}
-        >Anthropic</button>
-      </div>
-
-      {#if settings.s.llmProvider === "groq"}
-        <label>
-          <span>Groq API key</span>
-          <input
-            type="password"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="gsk_..."
-            value={settings.s.groqApiKey}
-            onchange={(e) => settings.set("groqApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
-          />
-        </label>
-        <label>
-          <span>Model</span>
-          <select
-            value={settings.s.groqModel}
-            onchange={(e) => settings.set("groqModel", (e.currentTarget as HTMLSelectElement).value)}
-          >
-            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (default, best quality)</option>
-            <option value="meta-llama/llama-4-maverick-17b-128e-instruct">llama-4-maverick (newer Meta)</option>
-            <option value="meta-llama/llama-4-scout-17b-16e-instruct">llama-4-scout (newer Meta, lighter)</option>
-            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (fastest)</option>
-          </select>
-        </label>
-      {:else}
-        <label>
-          <span>Anthropic API key</span>
-          <input
-            type="password"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="sk-ant-..."
-            value={settings.s.anthropicApiKey}
-            onchange={(e) => settings.set("anthropicApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
-          />
-        </label>
-        <label>
-          <span>Model</span>
-          <input
-            type="text"
-            spellcheck="false"
-            value={settings.s.anthropicModel}
-            onchange={(e) => settings.set("anthropicModel", (e.currentTarget as HTMLInputElement).value.trim() || "claude-haiku-4-5")}
-          />
-        </label>
-      {/if}
-    </fieldset>
+    <h3 class="group-head">Advanced</h3>
 
     <details class="experimental">
       <summary>Advanced features</summary>
@@ -283,6 +240,84 @@
           </small>
         </span>
       </label>
+
+      {#if settings.s.advancedLiveEditTheatre}
+      <fieldset class="smart-diff-group">
+        <legend>
+          <span>Smart-diff</span>
+          <span class="value">{
+            settings.s.llmProvider === "groq"
+              ? (settings.s.groqApiKey ? "Groq · key set" : "Groq · disabled")
+              : (settings.s.anthropicApiKey ? "Anthropic · key set" : "Anthropic · disabled")
+          }</span>
+        </legend>
+        <p class="hint smart-hint">
+          Generates a 2–4 bullet summary of what changed in each section of the
+          diff sidebar. Sends file content to the selected provider — leave the
+          key blank to disable.
+        </p>
+        <div class="seg-toggle">
+          <button
+            type="button"
+            class:active={settings.s.llmProvider === "groq"}
+            onclick={() => settings.set("llmProvider", "groq")}
+            title="Free tier at console.groq.com"
+          >Groq (free)</button>
+          <button
+            type="button"
+            class:active={settings.s.llmProvider === "anthropic"}
+            onclick={() => settings.set("llmProvider", "anthropic")}
+          >Anthropic</button>
+        </div>
+
+        {#if settings.s.llmProvider === "groq"}
+          <label>
+            <span>Groq API key</span>
+            <input
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="gsk_..."
+              value={settings.s.groqApiKey}
+              onchange={(e) => settings.set("groqApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
+            />
+          </label>
+          <label>
+            <span>Model</span>
+            <select
+              value={settings.s.groqModel}
+              onchange={(e) => settings.set("groqModel", (e.currentTarget as HTMLSelectElement).value)}
+            >
+              <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (default, best quality)</option>
+              <option value="meta-llama/llama-4-maverick-17b-128e-instruct">llama-4-maverick (newer Meta)</option>
+              <option value="meta-llama/llama-4-scout-17b-16e-instruct">llama-4-scout (newer Meta, lighter)</option>
+              <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (fastest)</option>
+            </select>
+          </label>
+        {:else}
+          <label>
+            <span>Anthropic API key</span>
+            <input
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="sk-ant-..."
+              value={settings.s.anthropicApiKey}
+              onchange={(e) => settings.set("anthropicApiKey", (e.currentTarget as HTMLInputElement).value.trim())}
+            />
+          </label>
+          <label>
+            <span>Model</span>
+            <input
+              type="text"
+              spellcheck="false"
+              value={settings.s.anthropicModel}
+              onchange={(e) => settings.set("anthropicModel", (e.currentTarget as HTMLInputElement).value.trim() || "claude-haiku-4-5")}
+            />
+          </label>
+        {/if}
+      </fieldset>
+      {/if}
     </details>
   </div>
 {/if}
@@ -329,7 +364,25 @@
     border-radius: 4px;
     font: inherit;
   }
+  /* Section headings. The panel was one undifferentiated column of controls
+     where a theme picker and an LLM API key carried exactly the same visual
+     weight; five headings turn it into something you can scan. Small caps,
+     a rule, and generous space above — the divider is the heading, so no
+     extra <hr> is needed. */
+  .group-head {
+    margin: 1.6rem 0 .2rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .group-head:first-of-type { margin-top: .2rem; }
+
   fieldset.width-group,
+  fieldset.surface-group,
   fieldset.smart-diff-group,
   fieldset.reading-group,
   fieldset.editor-mode-group {
@@ -338,7 +391,8 @@
     padding: .5rem .75rem .75rem;
     margin: .9rem 0;
   }
-  fieldset.editor-mode-group legend {
+  fieldset.editor-mode-group legend,
+  fieldset.surface-group legend {
     padding: 0 .35rem;
     font-size: 13px;
   }

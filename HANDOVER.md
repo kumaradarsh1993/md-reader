@@ -1,10 +1,10 @@
 # Handover — Fox MD (repo: md-reader)
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-08-25: **v0.8.0-nightly.1** opens the v0.8 line — a refresh
-> command (button, `Ctrl/⌘+R`, `F5`, plus an automatic sweep on window focus)
-> and an outline that tracks the middle of the screen instead of the top
-> border. v0.7.0 remains stable `latest`.
+> Last updated 2026-08-25: **v0.8.0-nightly.2**. The v0.8 line is a
+> reading-comfort pass — refresh from disk, an outline that tracks the middle
+> of the screen, tables that wrap, a hover-only side-panel scrollbar, and a
+> layered surface style with its own setting. v0.7.0 remains stable `latest`.
 
 ## Where things stand
 
@@ -23,6 +23,7 @@ identity plus keyring migration. New work goes on `v0.8.0-nightly.N`.
 | v0.6.0 | Published (stable) | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
 | **v0.7.0** | **Published — stable `latest`** | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, renderer fixes, completed security baseline |
 | v0.8.0-nightly.1 | Tagged → CI draft | Refresh from disk (button / `Ctrl+R` / `F5` / on window focus); outline tracks the mid-screen reading line |
+| v0.8.0-nightly.2 | Tagged → CI draft | Tables wrap; hover-only panel scrollbar; layered surface style + sectioned Settings; files-panel polish |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 onwards was committed straight to master
@@ -101,6 +102,58 @@ no longer true.
   mark must name the block that was at the top. Do not "unify" these two probes.
 - `viewNav.topLine` was renamed `viewNav.readingLine`, because "top" had become
   actively wrong.
+
+## What v0.8.0-nightly.2 added
+
+### Tables wrap (`Viewer.svelte`, the `.table-scroll` block)
+
+- `width: max-content` was the single line behind "why do I have to scroll a
+  three-column table sideways". It asks for the width the table would take with
+  no line breaking anywhere, which is the right answer for a table of file
+  paths and the wrong one for a table of sentences. Now `width: 100%` with
+  `table-layout: auto`, so columns are sized in proportion to their content.
+- **`min-width: 7ch` on cells is what keeps the scroller meaningful.**
+  `overflow-wrap: anywhere` lets any cell shrink to one glyph, so without a
+  floor a twelve-column table would "fit" at four characters a column instead
+  of scrolling. Measured: a 3-column prose table lays out 84/354/360px in an
+  798px column with no overflow; a 12-column table overflows to 1008px and
+  scrolls. Change one of these two rules and re-measure both cases.
+
+### Hover-only scrollbars in the side panel
+
+- Scoped to `.panel-stack`, **not** `.panel` — the Settings dialog uses
+  `.panel` too.
+- Only the thumb's colour is hidden. `scrollbar-width: none` would reflow the
+  list every time the pointer entered the panel.
+- The document scroller keeps its permanent bar deliberately: it is the one
+  place the position information is worth the ink.
+
+### Surface style: layered vs flat (`surfaceStyle` setting)
+
+- Four chrome tokens, outermost first: `--titlebar-bg`, `--toolbar-bg`,
+  `--side-bg`, `--chrome-bg` (the desk), then `--bg` (paper). In `flat` they
+  collapse to one colour — byte-identical to v0.7. In `layered` each takes a
+  2–4% step.
+- **The rule, so future palette edits stay coherent: tone tracks distance from
+  the document.** Paper is the extreme of the range; every surface further out
+  steps back toward mid-grey. In light and sepia that is darker going outward,
+  and in dark it is *also* darker going outward, because there the paper is the
+  lightest thing on screen. One rule read in two directions.
+- Applied via `html[data-surface]`, a separate axis from `data-theme`, so it is
+  3 themes × 2 styles from one extra field. Specificity does the matching —
+  `html[data-surface][data-theme=…]` (0,2,1) beats `html[data-theme=…]`
+  (0,1,1) — so no `!important` and no dependence on source order.
+- The Windows title bar reads `--titlebar-bg` now, not `--chrome-bg`. The
+  effect must depend on `settings.s.surfaceStyle` or the caption colour goes
+  stale when the style changes.
+- `--toolbar-border` was a declared-but-unused token; it is now the toolbar's
+  hairline, drawn as a `box-shadow` so flat mode keeps its exact 46px.
+
+### Settings, sectioned
+
+- Five headings (Appearance / Side panel / Reading / Editing / Advanced). The
+  Smart-diff provider + API key fields moved inside Advanced and render only
+  when `advancedLiveEditTheatre` is on — they configure nothing otherwise.
 
 ## What v0.7.0 added
 
