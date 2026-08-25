@@ -21,22 +21,22 @@ window.PRODUCT_SITE = {
   downloads: [
     {
       label: "Download for Windows",
-      note: "Stable v0.7.0 installer",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_x64-setup.exe"
+      note: "Stable v0.8.0 installer",
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_x64-setup.exe"
     },
     {
       label: "Download for macOS",
       note: "Universal DMG",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_universal.dmg"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_universal.dmg"
     },
     {
       label: "Download for Linux",
       note: "AppImage",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_amd64.AppImage"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_amd64.AppImage"
     },
     {
-      label: "All releases",
-      note: "Older builds and full notes",
+      label: "All releases &amp; nightlies",
+      note: "Every build, full notes",
       href: "https://github.com/kumaradarsh1993/md-reader/releases"
     }
   ],
@@ -46,9 +46,9 @@ window.PRODUCT_SITE = {
   ],
   proof: [
     "Open plain Markdown files directly",
-    "Widen, narrow, zoom, or use full width",
-    "Tabs, collapsible file pane, outline that follows you",
-    "Remembers where you stopped reading"
+    "Refreshes from disk on its own when you come back to the window",
+    "Tabs, file pane, and an outline that tracks where you are reading",
+    "Remembers where you stopped, and previews the page count as a Word document"
   ],
   hero: {
     title: "Reading surface",
@@ -92,7 +92,7 @@ window.PRODUCT_SITE = {
     }
   ],
   downloadTitle: "Download the stable reader",
-  downloadIntro: "Fox MD v0.7.0 is the current stable reader. It adds calmer consumer-grade chrome, focus mode, meaningful right-click menus, stronger renderer safety, and secure OS-keyring storage for optional API keys.",
+  downloadIntro: "Fox MD v0.8.0 is the current stable reader. It adds refresh-from-disk (so a file an agent changed is never stale), an outline that tracks where you are actually reading, tables that wrap instead of scrolling sideways, a hover-only side-panel scrollbar, and layered window surfaces you can switch off.",
   panels: [
     {
       title: "Reader first",

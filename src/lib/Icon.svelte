@@ -49,6 +49,9 @@
     | "type"
     | "columns"
     | "info"
+    | "sort-az"
+    | "clock"
+    | "file-page"
     | "pin";
 
   /**
@@ -99,6 +102,11 @@
     // "undo" or "go back", which is not what refresh does.
     refresh: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1.06 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
+    // A→Z with a down arrow: the standard "sorted alphabetically" mark.
+    "sort-az": '<path d="m3 16 4 4 4-4"/><path d="M7 4v16"/><path d="M15 4h5l-5 6h5"/><path d="M15 20v-3.5a2.5 2.5 0 0 1 5 0V20"/><path d="M20 18h-5"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    // A sheet with a folded corner and text lines — the Word-preview toggle.
+    "file-page": '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/>',
     bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
     link:
       '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',

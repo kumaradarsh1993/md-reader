@@ -184,7 +184,7 @@
           checked={settings.s.resumeRibbon}
           onchange={(e) => settings.set("resumeRibbon", (e.currentTarget as HTMLInputElement).checked)}
         />
-        <span>Mark the spot with a ribbon <small>(subtle "you left off here" line)</small></span>
+        <span>Bookmark the spot <small>("Last here" mark in the right margin — click to jump back, ✕ to remove; it retires itself once you have read a screen past it)</small></span>
       </label>
       <div class="presets">
         <button type="button" onclick={() => settings.clearScrollMemory()} disabled={markCount === 0}>
@@ -329,25 +329,63 @@
     background: rgba(0, 0, 0, .35);
     z-index: 20;
   }
+  /* A right-hand drawer, not a centred box.
+     The centred 460px card was the wrong shape for this content: the window is
+     usually maximised, so a small rectangle floating in the middle of a
+     1900px screen wasted the space it was covering *and* forced a five-section
+     list through a narrow column. A full-height drawer gives the list its
+     length back, mirrors the left panel (same idea, opposite edge), and leaves
+     the document visible beside it instead of blanking the middle of it. */
   .panel {
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(460px, 92vw);
-    max-height: 86vh;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(560px, 96vw);
     overflow: auto;
+    overscroll-behavior: contain;
     background: var(--bg);
     color: var(--fg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.25rem 1.5rem;
+    border-left: 1px solid var(--border);
+    padding: 1.1rem 1.6rem 3rem;
     z-index: 21;
-    box-shadow: 0 12px 48px rgba(0, 0, 0, .25);
+    box-shadow: -12px 0 48px rgba(0, 0, 0, .18);
+    animation: drawer-in 180ms cubic-bezier(.2, .8, .3, 1) both;
   }
-  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-  header h2 { font-size: 1.1rem; margin: 0; }
-  .close { background: none; border: 0; color: var(--fg); cursor: pointer; font-size: 1rem; }
+  @keyframes drawer-in {
+    from { transform: translateX(18px); opacity: 0; }
+    to   { transform: translateX(0); opacity: 1; }
+  }
+  /* The header rides along at the top of the scroller, so the title and the
+     way out are reachable from anywhere in a long settings list. */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: -1.1rem -1.6rem 1rem;
+    padding: .9rem 1.6rem .7rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  header h2 { font-size: 1.05rem; margin: 0; }
+  .close {
+    background: none;
+    border: 0;
+    color: var(--muted-strong);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: .25rem .4rem;
+    border-radius: 6px;
+  }
+  .close:hover { background: var(--hover-bg); color: var(--fg-strong); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel { animation: none; }
+  }
   label {
     display: flex;
     flex-direction: column;

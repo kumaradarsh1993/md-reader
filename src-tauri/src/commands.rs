@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -20,6 +21,10 @@ pub struct DirEntry {
     pub path: String,
     pub is_dir: bool,
     pub is_md: bool,
+    /// Last-modified time, ms since the Unix epoch. `None` when the platform
+    /// or filesystem won't report one — the frontend falls back to sorting
+    /// those entries last rather than pretending they are from 1970.
+    pub modified: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -95,14 +100,23 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
                         .as_deref(),
                     Some("md") | Some("markdown") | Some("mdown") | Some("mkd") | Some("mkdn")
                 );
+            let modified = e
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64);
             Some(DirEntry {
                 name,
                 path: path_buf.to_string_lossy().to_string(),
                 is_dir,
                 is_md,
+                modified,
             })
         })
         .collect();
+    // Name order, folders first — the frontend re-sorts when the user asks
+    // for something else, but an unsorted listing should never reach the UI.
     entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
         (true, false) => Ordering::Less,
         (false, true) => Ordering::Greater,

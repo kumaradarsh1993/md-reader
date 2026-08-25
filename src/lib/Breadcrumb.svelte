@@ -20,26 +20,25 @@
     path: string;
     /** Unsaved-changes marker, rendered inside the crumb trail. */
     dirty?: boolean;
-    /** How many ancestor folders to keep before eliding. */
+    /** How many ancestor folders to show. One, by default: the owner's
+     *  verdict on the three-deep trail was "this is unnecessary" — the folder
+     *  a document sits in is orientation, everything above it is noise in a
+     *  toolbar. The full path is still one hover (title) or one right-click
+     *  (Copy full path) away. */
     maxCrumbs?: number;
     onContextMenu?: (e: MouseEvent) => void;
   }
-  let { path, dirty = false, maxCrumbs = 2, onContextMenu }: Props = $props();
+  let { path, dirty = false, maxCrumbs = 1, onContextMenu }: Props = $props();
 
   let parts = $derived(path.split(/[\\/]/).filter(Boolean));
   let fileName = $derived(parts.length ? parts[parts.length - 1] : path);
   /** Everything above the file, nearest-first order preserved. */
   let dirs = $derived(parts.slice(0, -1));
-  let shown = $derived(dirs.slice(-maxCrumbs));
-  let elided = $derived(dirs.length > maxCrumbs);
+  let shown = $derived(maxCrumbs > 0 ? dirs.slice(-maxCrumbs) : []);
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="crumbs" title={path} oncontextmenu={onContextMenu}>
-  {#if elided}
-    <span class="crumb ellipsis" title={dirs.join(" › ")}>…</span>
-    <span class="sep" aria-hidden="true"><Icon name="chevron-right" size={11} /></span>
-  {/if}
   {#each shown as d (d)}
     <span class="crumb dir">{d}</span>
     <span class="sep" aria-hidden="true"><Icon name="chevron-right" size={11} /></span>
@@ -58,8 +57,11 @@
     min-width: 0;
     max-width: 100%;
     font-size: 12px;
-    line-height: 1;
     white-space: nowrap;
+    /* 1.4, not 1. Descenders (p, y, g, j) were being sliced off by the
+       `overflow: hidden` on each crumb, because a line box exactly as tall as
+       the font size has nowhere to put them. */
+    line-height: 1.4;
     /* The trail is a label, not a control — but it is the drag handle for the
        window, so it must not swallow the pointer. */
     cursor: default;
@@ -78,12 +80,6 @@
     opacity: .72;
     flex: 0 1 auto;
     min-width: 2.5em;
-  }
-  .crumb.ellipsis {
-    color: var(--chrome-fg);
-    opacity: .5;
-    flex: 0 0 auto;
-    letter-spacing: .05em;
   }
   .crumb.leaf {
     color: var(--fg);

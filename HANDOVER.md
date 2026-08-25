@@ -1,17 +1,19 @@
 # Handover — Fox MD (repo: md-reader)
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-08-25: **v0.8.0-nightly.2**. The v0.8 line is a
-> reading-comfort pass — refresh from disk, an outline that tracks the middle
-> of the screen, tables that wrap, a hover-only side-panel scrollbar, and a
-> layered surface style with its own setting. v0.7.0 remains stable `latest`.
+> Last updated 2026-08-25: **v0.8.0 is stable `latest`** (the v0.8 reading-comfort
+> pass: refresh from disk, mid-screen outline tracking, wrapping tables, a
+> hover-only side-panel scrollbar, layered surfaces). **v0.9.0-nightly.1** opens
+> the next line: Page preview (Word geometry, real page count), the resume
+> bookmark rebuilt as one dismissible margin mark, Settings as a right-hand
+> drawer, and file-list sorting.
 
 ## Where things stand
 
-**Release channel policy (2026-08-01, still current):** v0.7.0 is the stable
-line. v0.7.0-nightly.1 should never be promoted: nightly.2 fixed its
-cross-platform defects, and the clean stable tag additionally carries the Fox MD
-identity plus keyring migration. New work goes on `v0.8.0-nightly.N`.
+**Release channel policy (2026-08-25):** **v0.8.0 is stable `latest`**, cut from
+the same commit as `v0.8.0-nightly.2` at the owner's explicit "put it as a
+stable". New work goes on `v0.9.0-nightly.N`. The v0.7 and v0.8 nightly draft
+releases are kept as drafts and should not be promoted.
 
 | Version | Status | Headline |
 |---|---|---|
@@ -21,9 +23,11 @@ identity plus keyring migration. New work goes on `v0.8.0-nightly.N`.
 | v0.5.0 | Published | Theatre v2: recede-not-shrink, fresh/stale highlights, leader lines, Groq |
 | v0.5.1 | Published | Sepia reading theme + toolbar 3-way theme switch |
 | v0.6.0 | Published (stable) | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
-| **v0.7.0** | **Published — stable `latest`** | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, renderer fixes, completed security baseline |
+| v0.7.0 | Published (was stable until 2026-08-25) | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, renderer fixes, completed security baseline |
 | v0.8.0-nightly.1 | Tagged → CI draft | Refresh from disk (button / `Ctrl+R` / `F5` / on window focus); outline tracks the mid-screen reading line |
 | v0.8.0-nightly.2 | Tagged → CI draft | Tables wrap; hover-only panel scrollbar; layered surface style + sectioned Settings; files-panel polish |
+| **v0.8.0** | **Published — stable `latest`** | The v0.8 reading-comfort pass, promoted from nightly.2 unchanged |
+| v0.9.0-nightly.1 | Tagged → CI draft | Page preview (Word geometry + real page count); resume bookmark rebuilt; Settings drawer; file sorting |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 onwards was committed straight to master
@@ -102,6 +106,66 @@ no longer true.
   mark must name the block that was at the top. Do not "unify" these two probes.
 - `viewNav.topLine` was renamed `viewNav.readingLine`, because "top" had become
   actively wrong.
+
+## What v0.9.0-nightly.1 added
+
+### Page preview (`src/lib/WordPreview.svelte`)
+
+The workflow it serves: drafts are written here as markdown (often by an agent),
+then have to go to a team as a Word document in the house format. The only
+question before exporting is *how long is it and where do the pages break*, and
+answering it used to mean actually converting the file.
+
+- **It is a preview, not a converter.** Nothing is written; no .docx is produced.
+- Geometry: US Letter (816×1056 px at 96dpi), Word "Normal" margins (1in), text
+  column 624px, 9in of content per page. Body 11pt Calibri Light, line-height
+  1.37 (Word's 1.08 multiple), 8pt paragraph spacing.
+- **How pagination works, because this is the part worth not breaking:** the
+  content is laid out *once*, off-screen, at exactly the text-column width.
+  Every visual line is measured with `Range.getClientRects()` — one rect per
+  line box, which is why wrapped paragraphs, tables and headings are all
+  countable without assuming a line height. Rects that overlap vertically are
+  merged (a bold run, an inline code span, a table row's cells are one line).
+  Page breaks then land on the **last line boundary** that fits inside 9in, so a
+  line is never sliced across a break. Each page renders a clipped window onto
+  the same content, offset to its slice.
+- The measured line array does double duty: margin line numbers and break
+  positions come from the same data, so they cannot disagree.
+- **`MIN_TAIL` exists for a real bug**: `scrollHeight` rounds up to a whole pixel
+  while the last line's bottom is fractional, so an exact end-comparison left a
+  1.5px sliver and reported one page too many. Measured before/after: a 3-page
+  document reported 4.
+- Measurement waits on `document.fonts.ready` and image loads. A page count
+  measured before the webfont lands is confidently wrong.
+- `content-visibility: auto` on each page — the content is duplicated per page,
+  so a 40-page document would otherwise lay out 40 copies on every scroll.
+- Verified by measurement in the browser pane: 88 lines, 3 pages, 35/35/18 line
+  numbers, every painted number's Y matching its source line's midpoint to 0.0px.
+
+### Resume bookmark → `ResumeMarker.svelte` (replaces `ResumeRibbon.svelte`)
+
+- One element, `position: fixed` in the right margin. Never crosses the text.
+- Tracks the anchor while it is on screen; pins to the nearer viewport edge with
+  a ▲/▼ when it is not — which doubles as "scroll this way to get back".
+- Dismiss is on the mark itself, so the thing you can see is the thing you can
+  remove. The old design put the tag on the left and the pill on the right.
+- **Auto-retires** once the reader is `RESUME_RETIRE_SCREENS` (1) viewport past
+  it; that call goes through the same `onDismissResume` the ✕ uses.
+- The `resumeRibbon` settings *key* is unchanged (persisted), only its label.
+- Note the prop is `anchor`, not `state`: a local binding called `state` shadows
+  the `$state` rune and svelte-check reports every use as a store subscription.
+
+### Settings drawer, file sorting, and the descender bug
+
+- Settings is a full-height right-hand drawer (≤560px) with a sticky header.
+- `list_dir` now returns `modified` (ms epoch, `Option<u64>`); sorting is done in
+  the frontend so switching order costs no disk read. Folders first in both
+  orders; entries with no mtime sort last rather than pretending to be 1970.
+- **The descender bug is worth remembering as a pattern:** `line-height: 1` on a
+  box with `overflow: hidden` has nowhere to put a descender, so every p/y/g/j is
+  sliced at the stem. It was in `.cm-item` (context menus), and the same shape
+  was latent in both crumb trails. If you set `line-height: 1`, make sure
+  nothing inside is clipping.
 
 ## What v0.8.0-nightly.2 added
 

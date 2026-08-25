@@ -10,6 +10,43 @@
   }
   let { onNewTab }: Props = $props();
 
+  /**
+   * Hover tooltip for the tab's full path.
+   *
+   * The native `title` attribute was doing this job and doing it badly: the OS
+   * tooltip is a black box with white text drawn by the platform, so it
+   * ignores the app's theme entirely and looks like a stray Windows control
+   * sitting on a cream page. It also can't wrap a long path sensibly. This is
+   * the same information, drawn by the app.
+   *
+   * `position: fixed` off the hovered tab's own rect, because the tab strip is
+   * a horizontal scroller — an absolutely-positioned tooltip inside it would
+   * be clipped by the very overflow that makes the strip work.
+   */
+  let hint = $state<{ dir: string; name: string; x: number; y: number } | null>(null);
+  let hintTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showHint(e: PointerEvent, t: Tab) {
+    const el = e.currentTarget as HTMLElement;
+    if (hintTimer) clearTimeout(hintTimer);
+    // A short delay, so sweeping the pointer across the strip doesn't strobe.
+    hintTimer = setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      hint = {
+        dir: t.path.replace(/[\/][^\/]*$/, ""),
+        name: tabName(t.path),
+        x: Math.min(r.left, window.innerWidth - 340),
+        y: r.bottom + 6,
+      };
+    }, 450);
+  }
+
+  function hideHint() {
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = null;
+    hint = null;
+  }
+
   let dragId = $state<string | null>(null);
   let dragOverId = $state<string | null>(null);
   /// Set by per-tab onDrop. If true, the drop was a successful in-bar reorder
@@ -192,7 +229,9 @@
         onauxclick={(e) => onAuxClick(e, t)}
         oncontextmenu={(e) => contextMenu.open(e, tabMenu(t))}
         onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tabs.switchTo(t.id); } }}
-        title={t.path}
+        onpointerenter={(e) => showHint(e, t)}
+        onpointerleave={hideHint}
+        onpointerdown={hideHint}
       >
         <span class="name">{tabName(t.path)}</span>
         <!-- One slot, two states. An unsaved tab shows a dot that becomes the
@@ -210,6 +249,13 @@
       <Icon name="plus" size={14} />
     </button>
   </div>
+
+  {#if hint}
+    <div class="tab-hint" style="left: {hint.x}px; top: {hint.y}px" role="tooltip">
+      <span class="hint-name">{hint.name}</span>
+      {#if hint.dir}<span class="hint-dir">{hint.dir}</span>{/if}
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -241,6 +287,45 @@
     z-index: 2;
   }
   .tab-bar::-webkit-scrollbar { height: 0; }
+
+  /* App-drawn replacement for the OS tooltip. Same surface tokens as the
+     context menu, so every floating thing in the app is made of one material. */
+  .tab-hint {
+    position: fixed;
+    z-index: 30;
+    max-width: 330px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: .35rem .5rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    animation: hint-in 100ms ease both;
+  }
+  @keyframes hint-in {
+    from { opacity: 0; transform: translateY(-2px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .hint-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg-strong);
+    line-height: 1.4;
+  }
+  .hint-dir {
+    font-size: 10.5px;
+    color: var(--muted);
+    line-height: 1.45;
+    /* The path is the part that can be long. Break it on separators rather
+       than truncating: a path you can't read the end of answers nothing. */
+    word-break: break-all;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tab-hint { animation: none; }
+  }
 
   .tab {
     display: inline-flex;

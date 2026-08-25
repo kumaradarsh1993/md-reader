@@ -154,7 +154,12 @@
     color: var(--fg);
     font: inherit;
     font-size: 13px;
-    line-height: 1;
+    /* NOT 1. `.cm-label` is `overflow: hidden` for its ellipsis, and a line
+       box exactly as tall as the font has nowhere to put a descender — so
+       every p, y, g and j in the menu was sliced off at the stem ("Copy
+       folder path" being the one that made it obvious). The row's height is
+       fixed at 28px above, so a normal line-height changes nothing else. */
+    line-height: 1.4;
     text-align: left;
     cursor: default;
   }

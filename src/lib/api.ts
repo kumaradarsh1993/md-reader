@@ -12,6 +12,8 @@ export interface DirEntry {
   path: string;
   is_dir: boolean;
   is_md: boolean;
+  /** Last-modified time, ms since the Unix epoch; null when unavailable. */
+  modified: number | null;
 }
 
 export type SecretProvider = "groq" | "anthropic";

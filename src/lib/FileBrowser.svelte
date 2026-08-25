@@ -4,6 +4,7 @@
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { isMac, copyText, revealInFileManager } from "./platform";
   import { refresher } from "./refresh.svelte";
+  import { settings, type FileSort } from "./settings-store.svelte";
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
 
@@ -153,6 +154,17 @@
       },
       { separator: true },
       {
+        label: "Sort by name",
+        icon: settings.s.fileSort === "name" ? "check" : undefined,
+        action: () => setSort("name"),
+      },
+      {
+        label: "Sort by date modified",
+        icon: settings.s.fileSort === "modified" ? "check" : undefined,
+        action: () => setSort("modified"),
+      },
+      { separator: true },
+      {
         label: "Copy folder path",
         icon: "copy",
         disabled: !currentDir,
@@ -165,6 +177,60 @@
         action: () => currentDir && revealInFileManager(currentDir),
       },
     ];
+  }
+
+  /**
+   * Sorted view of the listing.
+   *
+   * The backend returns name order; this is where the user's choice is
+   * applied, so switching sort is instant and costs no disk read. Folders stay
+   * first in both orders — a folder and a file are different kinds of thing,
+   * and interleaving them by date makes a tree hard to scan. Entries whose
+   * mtime the filesystem wouldn't report sort last rather than pretending to
+   * be from 1970.
+   */
+  let sorted = $derived.by(() => {
+    const list = [...entries];
+    const byName = (a: DirEntry, b: DirEntry) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+    list.sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      if (settings.s.fileSort === "modified") {
+        const am = a.modified ?? -1;
+        const bm = b.modified ?? -1;
+        if (am !== bm) return bm - am; // newest first
+      }
+      return byName(a, b);
+    });
+    return list;
+  });
+
+  const SORT_LABEL: Record<FileSort, string> = {
+    name: "Name",
+    modified: "Recent",
+  };
+
+  function setSort(mode: FileSort) {
+    settings.set("fileSort", mode);
+  }
+
+  /** Short "2h ago" / "12 Aug" for the recency view. Absolute dates past a
+   *  week: "43 days ago" is a number nobody converts back into a date. */
+  function relativeTime(ms: number | null): string {
+    if (!ms) return "";
+    const diff = Date.now() - ms;
+    if (diff < 60_000) return "just now";
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    const d = new Date(ms);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString(undefined, sameYear
+      ? { day: "numeric", month: "short" }
+      : { day: "numeric", month: "short", year: "2-digit" });
   }
 
   /** Leaf folder name — the crumb the user actually reads. */
@@ -193,6 +259,20 @@
         <span class="crumb-leaf muted">No folder</span>
       {/if}
     </span>
+    <!-- Two orders is a toggle, not a menu. A dropdown for a binary choice
+         costs two clicks to do what one does, and the button's own label
+         already says which order you are in. -->
+    <button
+      class="sort"
+      onclick={() => setSort(settings.s.fileSort === "name" ? "modified" : "name")}
+      title={settings.s.fileSort === "name"
+        ? "Sorted by name — click to sort by most recently changed"
+        : "Sorted by most recently changed — click to sort by name"}
+      aria-label="Change sort order"
+    >
+      <Icon name={settings.s.fileSort === "name" ? "sort-az" : "clock"} size={12} />
+      <span>{SORT_LABEL[settings.s.fileSort]}</span>
+    </button>
   </div>
 
   {#if error}
@@ -203,7 +283,7 @@
     <div class="empty">Empty folder</div>
   {:else}
     <ul>
-      {#each entries as e (e.path)}
+      {#each sorted as e (e.path)}
         <li>
           <button
             class="entry"
@@ -224,6 +304,9 @@
               {:else}<span class="inert-dot" aria-hidden="true"></span>{/if}
             </span>
             <span class="name">{e.name}</span>
+            {#if settings.s.fileSort === "modified" && e.modified}
+              <span class="when">{relativeTime(e.modified)}</span>
+            {/if}
           </button>
         </li>
       {/each}
@@ -270,9 +353,11 @@
   .up[disabled] { opacity: .35; cursor: default; }
   .crumbs {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: .15rem;
     font-size: 11px;
+    /* Room for descenders inside the crumbs' `overflow: hidden`. */
+    line-height: 1.45;
     min-width: 0;
     flex: 1 1 auto;
     overflow: hidden;
@@ -290,6 +375,37 @@
     flex: 1 1 auto;
   }
   .crumb-leaf.muted { color: var(--muted); font-weight: 400; font-style: italic; }
+
+  .sort {
+    display: inline-flex;
+    align-items: center;
+    gap: .2rem;
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 10px;
+    font-weight: 550;
+    letter-spacing: .02em;
+    padding: .1rem .3rem;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1.5;
+    transition: background-color 90ms ease, color 90ms ease;
+  }
+  .sort:hover { background: var(--hover-bg); color: var(--fg-strong); }
+
+  /* The timestamp only appears in the recency view, where it is the thing
+     being sorted on. In name order it would be noise in every row. */
+  .when {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    opacity: .8;
+  }
+  .entry.active .when, .entry:hover .when { opacity: 1; }
 
   ul {
     list-style: none;

@@ -13,6 +13,9 @@ export type ThemeMode = "auto" | "light" | "dark" | "sepia";
  */
 export type SurfaceStyle = "flat" | "layered";
 
+/** v0.9.0+: ordering for the Files panel. Folders always come first in both. */
+export type FileSort = "name" | "modified";
+
 /** v0.5.0+: which provider drives the sidebar's "✨ Summary" mode. */
 export type LLMProvider = "groq" | "anthropic";
 
@@ -46,6 +49,8 @@ export interface AppSettings {
   theme: ThemeMode;
   /** v0.8.0+: flat vs layered chrome. See SurfaceStyle. */
   surfaceStyle: SurfaceStyle;
+  /** v0.9.0+: Files panel ordering — name (A→Z) or most recently changed. */
+  fileSort: FileSort;
   contentWidthCh: number;   // continuous: chars-wide cap on content (40..160)
   fullWidth: boolean;       // ignore contentWidthCh, use viewport
   centerHeadings: boolean;  // opt-in: center h1-h6 (resumes / formal docs)
@@ -126,6 +131,7 @@ const DEFAULTS: AppSettings = {
     "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif",
   theme: "auto",
   surfaceStyle: "layered",
+  fileSort: "name",
   contentWidthCh: WIDTH_DEFAULT,
   fullWidth: false,
   centerHeadings: false,

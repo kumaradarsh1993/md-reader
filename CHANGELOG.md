@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.9.0-nightly.1 — 2026-08-25
+
+### Added — Page preview
+
+- **A new toolbar button (and `Ctrl/⌘+Shift+P`) lays the open document out as a
+  Word-style page**: US Letter, Word's "Normal" 1in margins, 11pt Calibri Light,
+  Word's default paragraph spacing, and continuous line numbers down the left
+  margin. It reports a **real page count** with **real page breaks** — breaks
+  land on line boundaries, so a line is never sliced across two pages.
+- It is a *preview*, not a converter: nothing is written to disk and no .docx is
+  produced. The point is answering "how long is this, and where do the pages
+  fall?" before exporting, instead of converting the file to find out.
+- Zoom 50–150%, page count / line count / word count in the bar, `Esc` to leave.
+- Headings carry a rule across the full text column. That is what Word does with
+  a heading's *paragraph bottom border* — which is why the line runs the width of
+  the column instead of stopping where the words do, as a character underline
+  would.
+
+### Changed — the resume bookmark is one dismissible mark in the margin
+
+The old "you left off here" ribbon is gone. It drew a rule **across the text**
+with its tag on the left, while a second pill sat in the right gutter — so the
+half you could see was never the half you could dismiss, and getting rid of it
+meant scrolling the rule back into view to find its ✕.
+
+- **One mark, always in the right margin**, never over the text. It tracks the
+  remembered line while that line is on screen, and pins to the nearer edge with
+  a ▲/▼ when it isn't — which is also what tells you which way to scroll back.
+- **Click it to jump; ✕ to remove.** One thing to dismiss, always reachable.
+- **It retires itself** once you have read a full screen past it.
+- It says "Last here", not "You left off here" — the app remembers the block
+  that was at the top of your viewport, not the sentence you stopped on, and the
+  label should not claim more than that.
+
+### Changed — Settings is a drawer
+
+- Settings now opens as a **full-height panel on the right** at up to 560px wide,
+  instead of a 460px card floating in the middle of a maximised window. The
+  document stays visible beside it, and the five sections get their length back.
+  The header sticks, so the way out is reachable from anywhere in the list.
+
+### Added — sort the file list
+
+- **Name (A→Z) or Recent (most recently changed first)**, toggled from the Files
+  panel header or its right-click menu, and remembered. Folders stay first in
+  both orders. In Recent, each row shows a short relative timestamp — the thing
+  being sorted on — and in Name order it stays out of the way.
+
+### Fixed
+
+- **Descenders were being sliced off in the right-click menus** — the p, y, g and
+  j in "Copy folder path" lost their stems. A label with `overflow: hidden` for
+  its ellipsis had a line box exactly as tall as the font, leaving nowhere to put
+  a descender. Fixed there, and in the two crumb trails with the same shape of
+  bug.
+- **The toolbar shows one folder, not the whole path.** `… › a › b › file.md` is
+  now `folder › file.md`; the full path is still in the hover tooltip and the
+  right-click menu.
+- **Tab tooltips are drawn by the app**, not by Windows. The native tooltip was a
+  black box with white text pasted onto a cream page, and it could not wrap a
+  long path sensibly. Now it shows the file name and its folder, in the app's own
+  theme.
+
+## 0.8.0 — 2026-08-25 (Stable)
+
+Promoted from `v0.8.0-nightly.2` with no further changes — the two nightlies
+below are the whole of this release. Refresh from disk, an outline that tracks
+the reading line, wrapping tables, a hover-only side-panel scrollbar, layered
+window surfaces, and a sectioned Settings.
+
 ## 0.8.0-nightly.2 — 2026-08-25
 
 Reading-comfort pass. Everything here came from one round of feedback on

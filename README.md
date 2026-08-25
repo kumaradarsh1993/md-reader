@@ -5,13 +5,11 @@
 **A Markdown reader and editor built for the AI era.**
 Re-renders as Claude, ChatGPT, or Cursor writes. Edit visually, without ever seeing `##` or `**`.
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?logo=windows&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_x64-setup.exe)
-[![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_universal.dmg)
-[![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.7.0/Fox.MD_0.7.0_amd64.AppImage)
+### [⬇ All releases — stable and nightly →](https://github.com/kumaradarsh1993/md-reader/releases)
 
-[Interactive website](https://kumaradarsh1993.github.io/md-reader/) · [All builds](https://github.com/kumaradarsh1993/md-reader/releases)
+**Current stable: v0.8.0**
 
-[Releases](https://github.com/kumaradarsh1993/md-reader/releases) · [Report a bug](https://github.com/kumaradarsh1993/md-reader/issues/new?template=bug.md) · [Request a feature](https://github.com/kumaradarsh1993/md-reader/issues/new?template=feature.md)
+[Website](https://kumaradarsh1993.github.io/md-reader/) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/kumaradarsh1993/md-reader/issues/new?template=bug.md) · [Request a feature](https://github.com/kumaradarsh1993/md-reader/issues/new?template=feature.md)
 
 <!-- TODO: hero GIF (4-6s) — open a file, watch it stream, switch to smart edit, type a paragraph. Save as docs/img/hero.gif and uncomment below. -->
 <!--
@@ -32,6 +30,36 @@ Fox MD does two things really well:
 2. **Editing.** A WYSIWYG mode (called *Smart edit*) where markdown syntax is never visible. You type into the rendered view like it's a Notion or Word document. Bold, italics, headings, lists, tables, links — all there, none of the symbols. Saves clean markdown back to disk.
 
 Local-only. No telemetry. No accounts. MIT licensed. ~10 MB installer (Tauri 2 — not a 200 MB Electron app).
+
+## Download
+
+The **[releases page](https://github.com/kumaradarsh1993/md-reader/releases)** has everything, including
+pre-release *nightly* builds. Direct links to the current stable build:
+
+| Platform | Stable — v0.8.0 | Other formats |
+|---|---|---|
+| **Windows** | [Fox.MD_0.8.0_x64-setup.exe](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_x64-setup.exe) | [.msi](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_x64_en-US.msi) |
+| **macOS** | [Fox.MD_0.8.0_universal.dmg](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_universal.dmg) | Intel + Apple silicon in one |
+| **Linux** | [Fox.MD_0.8.0_amd64.AppImage](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_amd64.AppImage) | [.deb](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_amd64.deb) · [.rpm](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD-0.8.0-1.x86_64.rpm) |
+
+Installers upgrade an existing Fox MD in place — settings, tabs and reading positions carry over.
+Windows SmartScreen will warn on first run (the build is unsigned): **More info → Run anyway**.
+
+**Nightlies** are on the same [releases page](https://github.com/kumaradarsh1993/md-reader/releases),
+marked *Pre-release*. They are built by CI from a tagged commit and carry whatever is being worked on
+next — useful, occasionally rough.
+
+## What's in it
+
+| | |
+|---|---|
+| **Read** | Open any `.md` by double-clicking. Tabs, a file browser, an outline that follows where you are reading, find-in-page, three themes (light / sepia / dark), adjustable column width and zoom. |
+| **Edit** | *Smart edit* is WYSIWYG — no `##` or `**` on screen — and saves clean markdown back to disk. A raw source editor is one toggle away. |
+| **Never stale** | A refresh button (`Ctrl+R` / `F5`) re-reads the folder and every open tab, and the same sweep runs automatically whenever the window regains focus. Files edited by an agent while you were elsewhere are simply current when you look back. |
+| **Resume** | Every tab keeps its own scroll position, and reopening a file returns you to it, with a "Last here" bookmark in the margin you can jump to or dismiss. |
+| **Page preview** | See the document as a Word-style page — US Letter, 1in margins, Calibri Light 11pt, line numbers — with a real page count and real page breaks. No conversion, no export. |
+| **Live Edit Theatre** *(opt-in)* | When an AI is writing into the open file, highlight the block being edited and show a per-section diff. Off by default. |
+| **Yours** | Local-only. No telemetry, no accounts, plain files. ~10 MB installer — Tauri 2, not Electron. MIT. |
 
 ## Quick start (60 seconds)
 

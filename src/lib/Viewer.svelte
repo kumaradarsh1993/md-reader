@@ -6,7 +6,7 @@
   import { sk, copyText } from "./platform";
   import { postRender } from "./post-render";
   import { viewNav } from "./view-nav.svelte";
-  import ResumeRibbon from "./ResumeRibbon.svelte";
+  import ResumeMarker from "./ResumeMarker.svelte";
 
   type Mode = "view" | "edit" | "split";
 
@@ -24,9 +24,9 @@
      *  scroll, and a reactive read would feed that write straight back into
      *  the render effect. */
     getScrollMark?: (tabId: string) => ScrollMark | null;
-    /** Position carried over from a previous session — anchors the ribbon. */
+    /** Position carried over from a previous session — anchors the marker. */
     resumeMark?: ScrollMark | null;
-    /** User has dismissed the ribbon for this tab. */
+    /** User has dismissed the marker for this tab. */
     resumeDismissed?: boolean;
     /** The cross-session position has already been applied once for this tab,
      *  so a remount (edit ↔ view, theme change) shouldn't re-announce it. */
@@ -35,7 +35,7 @@
     onScrollMark?: (tabId: string, mark: ScrollMark) => void;
     /** Fired once the cross-session position has been applied. */
     onResumeApplied?: (tabId: string) => void;
-    /** User clicked the ribbon's dismiss affordance. */
+    /** User dismissed the marker, or scrolled a full screen past it. */
     onDismissResume?: (tabId: string) => void;
     /** Source content the diff-mode baseline compares against. */
     baselineSource?: string;
@@ -129,7 +129,7 @@
     return best;
   }
 
-  // ═══ Reading position: per-tab memory, scroll-spy, resume ribbon ═══════
+  // ═══ Reading position: per-tab memory, scroll-spy, resume marker ══════
   //
   // One Viewer instance serves every tab, so all of this keys off `tabId`.
   // The invariants that matter:
@@ -154,22 +154,23 @@
   let pendingMarkTabId = "";
   let pendingMark: ScrollMark | null = null;
 
-  // Ribbon geometry, recomputed on scroll / render.
-  let ribbonTop = $state(0);
-  let ribbonInView = $state(true);
-  let ribbonResolved = $state(false);
-  let edgeTop = $state(0);
-  let edgeRight = $state(16);
-  /** True for a few seconds after a resume, so the ribbon can announce itself. */
-  let ribbonFresh = $state(false);
+  // Resume-marker geometry, recomputed on scroll / render. All viewport
+  // coordinates: the marker is position:fixed in the right margin, so unlike
+  // the old ribbon it never participates in the scrolled content's layout.
+  let markerY = $state(0);
+  let markerRight = $state(16);
+  let markerState = $state<"above" | "in-view" | "below">("in-view");
+  let markerResolved = $state(false);
+  /** True for a few seconds after a resume, so the marker can announce itself. */
+  let markerFresh = $state(false);
   let freshTimer: ReturnType<typeof setTimeout> | null = null;
 
-  let ribbonVisible = $derived(
+  let markerVisible = $derived(
     settings.s.resumeRibbon &&
       settings.s.rememberScroll &&
       !!resumeMark &&
       !resumeDismissed &&
-      ribbonResolved &&
+      markerResolved &&
       mode === "view",
   );
 
@@ -320,27 +321,41 @@
     container.scrollTop = Math.max(0, mark.ratio * container.scrollHeight);
   }
 
-  function updateRibbonGeometry() {
+  /** How far past the mark the reader has to travel before it retires itself. */
+  const RESUME_RETIRE_SCREENS = 1;
+
+  function updateMarkerGeometry() {
     if (!container || !resumeMark) {
-      ribbonResolved = false;
+      markerResolved = false;
       return;
     }
     const el = blockForLine(resumeMark.line);
     if (!el) {
-      ribbonResolved = false;
+      markerResolved = false;
       return;
     }
-    const containerRect = container.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    // offsetTop is exact here: `.viewer` is position:relative, so it is the
-    // offsetParent of the content blocks.
-    ribbonTop = el.offsetTop;
-    ribbonResolved = true;
-    ribbonInView = elRect.top >= containerRect.top - 4 && elRect.top <= containerRect.bottom;
-    const trackTop = ribbonTop;
-    const fraction = container.scrollHeight > 0 ? trackTop / container.scrollHeight : 0;
-    edgeTop = containerRect.top + Math.min(Math.max(fraction, 0.02), 0.98) * containerRect.height;
-    edgeRight = Math.max(8, window.innerWidth - containerRect.right + 16);
+    const c = container.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    markerResolved = true;
+    // Above / below decide the chevron, which is the only thing that tells the
+    // reader which way to scroll to get back.
+    markerState = r.top < c.top + 4 ? "above" : r.top > c.bottom - 4 ? "below" : "in-view";
+    // Track the anchor while it is on screen; pin to the nearer edge when not,
+    // so the mark is always reachable without ever leaving the right margin.
+    const pad = 26;
+    markerY = Math.min(Math.max(r.top, c.top + pad), c.bottom - pad);
+    markerRight = Math.max(8, window.innerWidth - c.right + 14);
+
+    // Retire itself once the reader is a full screen past it. At that point
+    // they have plainly resumed, and a bookmark for a place you have already
+    // read past is just something else to dismiss by hand.
+    if (
+      !resumeDismissed &&
+      tabId &&
+      c.top - r.bottom > container.clientHeight * RESUME_RETIRE_SCREENS
+    ) {
+      onDismissResume?.(tabId);
+    }
   }
 
   function publishNav() {
@@ -365,7 +380,7 @@
     navRaf = requestAnimationFrame(() => {
       navRaf = 0;
       publishNav();
-      updateRibbonGeometry();
+      updateMarkerGeometry();
       if (programmaticScroll) return;
       // Per-tab retention is unconditional — it's simply correct behaviour.
       // The `rememberScroll` setting governs only whether the mark is written
@@ -397,7 +412,7 @@
     if (resumeMark) applyMark(resumeMark, true);
   }
 
-  function dismissRibbon() {
+  function dismissMarker() {
     if (tabId) onDismissResume?.(tabId);
   }
 
@@ -471,12 +486,12 @@
         if (isTabSwitch && markToRestore) applyMark(markToRestore);
 
         if (resumeToAnnounce && !resumeApplied && !resumeDismissed && settings.s.resumeRibbon) {
-          ribbonFresh = true;
+          markerFresh = true;
           if (freshTimer) clearTimeout(freshTimer);
-          freshTimer = setTimeout(() => { ribbonFresh = false; }, 5200);
+          freshTimer = setTimeout(() => { markerFresh = false; }, 5200);
           if (tab) onResumeApplied?.(tab);
         }
-        updateRibbonGeometry();
+        updateMarkerGeometry();
         publishNav();
 
         // Live-follow: smart-scroll + flash for the most recent disk edit.
@@ -822,22 +837,21 @@
     oncontextmenu={onProseContextMenu}
   >{@html html}</article>
 
-  <ResumeRibbon
-    show={ribbonVisible}
-    top={ribbonTop}
-    inView={ribbonInView}
-    {edgeTop}
-    {edgeRight}
-    fresh={ribbonFresh}
+  <ResumeMarker
+    show={markerVisible}
+    y={markerY}
+    right={markerRight}
+    anchor={markerState}
+    fresh={markerFresh}
     onJump={jumpToResume}
-    onDismiss={dismissRibbon}
+    onDismiss={dismissMarker}
   />
 </div>
 
 <style>
   /* Outer scroll container — full width of the parent flex slot.
      position:relative makes it the offsetParent for content blocks, which is
-     what lets the resume ribbon and the live-follow maths use offsetTop
+     what lets the live-follow maths use offsetTop
      directly instead of guessing at an ancestor. */
   .viewer {
     position: relative;
@@ -1184,7 +1198,7 @@
   /* 8% tint is invisible against a dark page; lift it to 14% in dark mode.
      Written out per alert rather than as `color-mix(... 14%, transparent)`:
      this codebase deliberately avoids color-mix (see the notes in
-     +page.svelte's palette and in ResumeRibbon) because it is not guaranteed
+     +page.svelte's palette and in ResumeMarker) because it is not guaranteed
      on the older WebView2 and WebKitGTK builds these installers run against,
      and an unsupported declaration here would silently drop the tint
      altogether rather than degrade. */

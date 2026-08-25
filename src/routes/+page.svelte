@@ -15,6 +15,7 @@
   import Viewer from "$lib/Viewer.svelte";
   import WidthControl from "$lib/WidthControl.svelte";
   import Editor from "$lib/Editor.svelte";
+  import WordPreview from "$lib/WordPreview.svelte";
   import SmartEditor from "$lib/SmartEditor.svelte";
   import LeftPanel from "$lib/LeftPanel.svelte";
   import TabBar from "$lib/TabBar.svelte";
@@ -45,6 +46,10 @@
   let settingsOpen = $state(false);
   let aboutOpen = $state(false);
   let fileMenuOpen = $state(false);
+  /** Page preview — the markdown laid out under Word's page geometry. Not a
+   *  mode of the editor: it replaces the document pane and leaves `mode`
+   *  untouched, so closing it puts you back exactly where you were. */
+  let previewOpen = $state(false);
   let viewerEl: HTMLElement | null = $state(null);
   let unlistenChange: UnlistenFn | null = null;
   let unlistenCli: UnlistenFn | null = null;
@@ -443,6 +448,10 @@
     }
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
     else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
+    else if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      if (active) previewOpen = !previewOpen;
+    }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
     else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); bumpZoom(0.1); }
     else if (mod && e.key === "-") { e.preventDefault(); bumpZoom(-0.1); }
@@ -787,6 +796,15 @@
       <div class="tool-divider" aria-hidden="true"></div>
       <button
         class="icon-btn lg"
+        class:on={previewOpen}
+        disabled={!active}
+        onclick={() => (previewOpen = !previewOpen)}
+        title={`Page preview — how this reads as a document: US Letter, 1in margins, Calibri Light 11pt, line numbers (${sk("Mod", "Shift", "P")})`}
+        aria-label="Page preview"
+        aria-pressed={previewOpen}
+      ><Icon name="file-page" size={18} /></button>
+      <button
+        class="icon-btn lg"
         onclick={() => focus.toggle()}
         title={`Focus mode — just the document (${FOCUS_KEY})`}
         aria-label="Focus mode"
@@ -838,6 +856,12 @@
             </div>
           {/if}
         </div>
+      {:else if previewOpen}
+        <WordPreview
+          source={active.source}
+          basePath={active.path}
+          onExit={() => (previewOpen = false)}
+        />
       {:else if mode === "edit" && settings.s.editorMode === "smart"}
         <SmartEditor source={active.source} onChange={onEditorChange} onSave={save} />
       {:else if mode === "edit" || mode === "rawEdit"}
@@ -1323,6 +1347,9 @@
     width: 32px;
   }
   .icon-btn:hover { color: var(--fg-strong); }
+  .icon-btn.on { color: var(--accent); background: var(--accent-soft); }
+  .icon-btn[disabled] { opacity: .35; cursor: default; }
+  .icon-btn[disabled]:hover { background: transparent; color: var(--chrome-fg); }
 
   /* Refresh. The rotation is the entire feedback this button gives — a
      re-read of a few files finishes in single-digit milliseconds, so without
