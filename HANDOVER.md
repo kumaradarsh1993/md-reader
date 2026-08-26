@@ -62,6 +62,51 @@ notes can be written before anyone sees them, then are published by hand
   `assets/legacy-md-reader-icon.png`. Regenerate native assets with
   `npm run tauri -- icon assets/fox-md-icon.png`.
 
+## OPEN: v0.10.0-nightly.2 built but could not publish
+
+**State (2026-08-26):** the tag `v0.10.0-nightly.2` is pushed and its code is on
+`master`. CI **builds all three platforms successfully** and then fails on the
+last step:
+
+```
+Couldn't find release with tag v0.10.0-nightly.2. Creating one.
+##[error]Resource not accessible by integration - .../releases#create-a-release
+```
+
+Three attempts (one fresh run, two `gh run rerun --failed`), all identical, all
+three jobs. Nothing is wrong with the code or the build.
+
+**What it is not.** Checked and ruled out: no repository rulesets (`[]`), no
+Actions access policy, `allowed_actions: all`, and `permissions: contents:
+write` is present at the workflow root *at that tag*. The repo is **public**, so
+this is not an Actions-minutes quota.
+
+**The confusing part, and why this is written down rather than fixed.** The same
+workflow, the same repo and the same settings **succeeded twice earlier the same
+day**: v0.9.0 at 14:57 and v0.10.0-nightly.1 on its second attempt at 16:22. A
+configuration problem does not flicker. GitHub Actions was visibly degraded that
+afternoon — tag pushes took **12 to 17 minutes** to produce a run, and one push
+event was delivered twice. So the most likely cause is a platform incident.
+
+**What to do next, cheapest first:**
+
+1. **Just re-run it.** `gh run rerun <id> --failed`. This is what fixed
+   nightly.1. If the incident has passed, it will publish.
+2. If it still fails, the repository's **default workflow permissions are
+   `read`** (Settings → Actions → General → Workflow permissions). Every one of
+   the owner's repos is set that way and all of them release fine, so this
+   *should* be irrelevant — but switching that repo to **Read and write** is the
+   one-click fix, and it is the owner's call, not an agent's, because it widens
+   what every workflow in the repo can do by default.
+3. The artifacts are not recoverable from the failed runs — there is no
+   `upload-artifact` step. Adding one would make a future failure salvageable
+   from here with `gh release upload`, and is worth doing if this recurs.
+
+**Meanwhile `v0.10.0-nightly.1` is published** with all seven artifacts and
+carries the entire feature set. The only thing it lacks is the effect-loop fix
+in the annotation repaint (see `CHANGELOG.md`), which is a latent risk, not an
+observed break.
+
 ## What v0.10.0-nightly.1 added
 
 The largest release so far. Full user-facing detail in `CHANGELOG.md`; the
