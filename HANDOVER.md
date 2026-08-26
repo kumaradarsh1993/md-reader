@@ -165,6 +165,15 @@ launch its harness here (the test binary links WebView2 —
 screenshotted by agent tooling.
 
 Tree-shaken out of production by an `import.meta.env.DEV` guard in `+layout.ts`.
+
+⚠️ **A hidden Browser pane composites no frames, so `requestAnimationFrame`
+never fires.** The selection toolbar is scheduled on a rAF (to let the browser
+finalise the range), so while the pane is not displayed the toolbar will not
+appear no matter what you select — and it looks exactly like a broken feature.
+The same limitation already bit this workspace as frozen CSS transitions and as
+a `ResizeObserver` that never fired. **Front the pane, or test through the store
+API instead**: Svelte's effect scheduler is a microtask and runs regardless.
+
 **When you add a Rust command, add a handler here too** — a missing one logs
 `[devmock] no handler for …` and returns `undefined`, which usually surfaces
 somewhere far away.

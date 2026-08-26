@@ -552,6 +552,9 @@
   let author = $state("Me");
   let paneWidth = $state(1200);
   let annotationsReady = $state(false);
+  /** Anchors re-found this pass, written back outside the effect. See below. */
+  let repairQueue: Array<{ id: string; anchor: Anchor }> = [];
+  let repairTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * The lane appears for threads that exist *or* for the one being started.
@@ -608,7 +611,16 @@
       }
       // Persist a repair so the next open takes the cheap path and the sidecar
       // keeps pointing at the passage rather than at where it used to be.
-      if (hit.repaired) annotations.updateAnchor(ann.id, hit.anchor);
+      //
+      // **Queued, never written here.** This function runs inside an `$effect`
+      // that reads `annotations.annotations`, and `updateAnchor` replaces that
+      // array — a synchronous write would be an effect feeding its own input.
+      // Svelte 5 reports `effect_update_depth_exceeded` once, to the console,
+      // then aborts the component, at which point *every* handler in the app
+      // silently stops responding. The flush below is deliberately asynchronous
+      // so the write lands in a new effect turn, where the now-correct anchor
+      // takes the cheap path and queues nothing.
+      if (hit.repaired) repairQueue.push({ id: ann.id, anchor: hit.anchor });
 
       const r = hit.range.getBoundingClientRect();
       next.push({
@@ -626,6 +638,15 @@
           groups.set(ann.color, list);
         }
       }
+    }
+
+    if (repairQueue.length > 0 && !repairTimer) {
+      repairTimer = setTimeout(() => {
+        repairTimer = null;
+        const batch = repairQueue;
+        repairQueue = [];
+        for (const r of batch) annotations.updateAnchor(r.id, r.anchor);
+      }, 0);
     }
 
     annotations.setDetached(detached);
@@ -801,6 +822,8 @@
     if (navRaf) cancelAnimationFrame(navRaf);
     if (programmaticTimer) clearTimeout(programmaticTimer);
     if (freshTimer) clearTimeout(freshTimer);
+    if (repairTimer) clearTimeout(repairTimer);
+    clearHighlights();
     viewNav.reset();
   });
 
