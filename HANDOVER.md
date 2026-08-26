@@ -3,10 +3,11 @@
 > Self-contained context for whoever (human or AI) picks up this project next.
 > Last updated **2026-08-26**: **v0.9.0 is stable `latest`** (Page preview,
 > in-app updates, the dismissible resume mark, Settings drawer, file sorting).
-> **v0.10.0-nightly.1** opens the next line and is the largest release so far:
-> highlights and threaded comments with an agent-readable sidecar, a rule-based
-> `.docx` exporter, smooth scrolling, a measured content-width ceiling, and
-> Ctrl/Alt+wheel gestures.
+> **v0.10.0-nightly.3** is the current pre-release: highlights and threaded
+> comments with an agent-readable sidecar, a rule-based `.docx` exporter, smooth
+> scrolling, a measured content-width ceiling, Ctrl/Alt+wheel gestures — and
+> highlight/comment now properly separated (see the first entry in
+> `docs/DECISIONS.md`).
 
 ## Read these three first
 
@@ -39,8 +40,8 @@ notes can be written before anyone sees them, then are published by hand
 | v0.8.0 | Published | Refresh from disk, mid-screen outline tracking, wrapping tables, layered surfaces |
 | **v0.9.0** | **Published — stable `latest`** | Page preview, in-app updater, resume mark, Settings drawer, file sorting |
 | v0.10.0-nightly.1 | Published pre-release | Highlights + threaded comments + `.foxmd` sidecar; `.docx` export; smooth scrolling; measured width ceiling; Ctrl/Alt+wheel |
-| v0.10.0-nightly.2 | Built; publish blocked, see below | Fixes an effect-loop risk in the annotation repaint that could have frozen every handler in the app |
-| v0.10.0-nightly.3 | Tagged → CI | Highlight and comment unbraided: "No highlight", remove-by-overlap, right-click removal, comments no longer take a fill |
+| v0.10.0-nightly.2 | Tagged, never published — superseded by nightly.3 (see below) | Fixes an effect-loop risk in the annotation repaint that could have frozen every handler in the app |
+| **v0.10.0-nightly.3** | **Published pre-release** | Highlight and comment unbraided: "No highlight", remove-by-overlap, right-click removal, comments no longer take a fill. Includes nightly.2. |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 onwards was committed straight to master
@@ -94,9 +95,23 @@ checking when the error is a permission error**, and the repository Settings
 page answers in ten seconds what the REST API's `default_workflow_permissions`
 field does not make obvious.
 
+**A re-run does NOT pick up the new setting.** This is the second half of the
+lesson, and it is what made the fix look like it had not worked: after switching
+the repository to Read and write, `gh run rerun --failed` on the *existing*
+nightly.2 run failed again with the identical error, while a *fresh* run for
+nightly.3 minutes later published all seven artifacts first time. A re-run
+replays the original run's context, token permissions included. **After changing
+workflow permissions, push a new tag — do not re-run the failed one.**
+
+That is also why `v0.10.0-nightly.2` has a tag but no release. Its content is
+entirely contained in nightly.3, so the tag was left in place rather than
+re-cut; if you are comparing the tag list against the release list, that is the
+discrepancy and it is deliberate.
+
 Every one of the owner's other repos is still on `read` and releases fine from
-them, so this remains not fully explained — if another repo starts failing the
-same way, this is the first thing to look at.
+them, so the original intermittency remains not fully explained — if another
+repo starts failing the same way, the Workflow permissions page is the first
+thing to look at.
 
 ## What v0.10.0-nightly.1 added
 
