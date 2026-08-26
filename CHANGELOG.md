@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.0-nightly.2 - 2026-08-26
+
+### Fixed
+
+- **A latent way for the whole app to stop responding.** The code that re-finds
+  a highlight after the document has changed wrote its result back from inside
+  the same reactive pass that read it. In Svelte that is an effect feeding its
+  own input: it reports one line to the console and then abandons the component,
+  after which every button in the app silently does nothing. In practice it
+  settled after two passes, but "usually settles" is not a defence when the
+  failure is the app going dead. Repairs are now applied outside the pass.
+  Verified against a deliberately corrupted anchor: repaired correctly, quote
+  intact, highlight still painted, and the interface still responding.
+
 ## 0.10.0-nightly.1 - 2026-08-26
 
 ### Added - highlights and comments

@@ -38,7 +38,8 @@ notes can be written before anyone sees them, then are published by hand
 | v0.7.0 | Published | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, completed security baseline |
 | v0.8.0 | Published | Refresh from disk, mid-screen outline tracking, wrapping tables, layered surfaces |
 | **v0.9.0** | **Published — stable `latest`** | Page preview, in-app updater, resume mark, Settings drawer, file sorting |
-| v0.10.0-nightly.1 | Tagged → CI pre-release | Highlights + threaded comments + `.foxmd` sidecar; `.docx` export; smooth scrolling; measured width ceiling; Ctrl/Alt+wheel |
+| v0.10.0-nightly.1 | Published pre-release | Highlights + threaded comments + `.foxmd` sidecar; `.docx` export; smooth scrolling; measured width ceiling; Ctrl/Alt+wheel |
+| v0.10.0-nightly.2 | Published pre-release | Fixes an effect-loop risk in the annotation repaint that could have frozen every handler in the app |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 onwards was committed straight to master
