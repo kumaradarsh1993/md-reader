@@ -48,8 +48,14 @@
     source: string;
     basePath: string;
     onExit: () => void;
+    /** Write this document as a .docx. The preview is where the question
+     *  "does this look right?" is answered, so it is where the answer
+     *  "then send it" belongs. */
+    onExport?: () => void;
+    /** Live status of an export started from here. */
+    exporting?: boolean;
   }
-  let { source, basePath, onExit }: Props = $props();
+  let { source, basePath, onExit, onExport, exporting = false }: Props = $props();
 
   // ── Page geometry, in CSS px at 96dpi (1in = 96px) ──────────────────
   const PAGE_W = 816;        // 8.5in
@@ -247,10 +253,34 @@
     if (mod && e.key === "-") { e.preventDefault(); bumpZoom(-1); }
   }
 
+  // Ctrl+wheel scales the page, exactly as it does in Word. Accumulated rather
+  // than stepped per event so a mouse notch and a trackpad swipe agree; see the
+  // same construction in Viewer.svelte for why.
+  const WHEEL_STEP = 120;
+  let wheelAccum = 0;
+
+  function onCanvasWheel(e: WheelEvent) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    wheelAccum += e.deltaY * unit;
+    while (Math.abs(wheelAccum) >= WHEEL_STEP) {
+      const sign = wheelAccum > 0 ? 1 : -1;
+      wheelAccum -= sign * WHEEL_STEP;
+      bumpZoom(sign > 0 ? -1 : 1);
+    }
+  }
+
   onMount(() => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  /** Non-passive so the browser's own Ctrl+wheel page zoom can be suppressed. */
+  function wheelZoom(node: HTMLElement) {
+    node.addEventListener("wheel", onCanvasWheel, { passive: false });
+    return { destroy: () => node.removeEventListener("wheel", onCanvasWheel) };
+  }
 
   /** Rough word count — the other number people ask for before exporting. */
   let wordCount = $derived(
@@ -284,13 +314,19 @@
       <span>{Math.round(zoom * 100)}%</span>
       <button onclick={() => bumpZoom(1)} aria-label="Zoom in" title="Zoom in"><Icon name="plus" size={12} /></button>
     </div>
+    {#if onExport}
+      <button class="wp-export" onclick={onExport} disabled={exporting} title="Save this as a Word document (.docx)">
+        <Icon name={exporting ? "refresh" : "download"} size={13} />
+        <span>{exporting ? "Exporting…" : "Export .docx"}</span>
+      </button>
+    {/if}
     <button class="wp-close" onclick={onExit} title="Back to the document (Esc)">
       <Icon name="x" size={14} />
       <span>Close</span>
     </button>
   </div>
 
-  <div class="wp-canvas">
+  <div class="wp-canvas" use:wheelZoom>
     <div class="wp-pages" style="zoom: {zoom}" bind:this={pagesEl}>
       {#each pageStarts as start, i (i)}
         <div class="wp-page">
@@ -378,6 +414,19 @@
     line-height: 1.4;
   }
   .wp-bar button:hover { background: var(--hover-bg); color: var(--fg-strong); }
+  .wp-bar button:disabled { opacity: .55; cursor: default; }
+  .wp-bar button:disabled:hover { background: none; color: inherit; }
+
+  /* The one action in this bar that writes something. It is the whole point of
+     having looked at the preview, so it carries weight the zoom controls don't. */
+  .wp-export {
+    font-weight: 600;
+    color: var(--fg-strong) !important;
+    background: var(--chrome-bg) !important;
+    border: 1px solid var(--border) !important;
+    padding: .22rem .55rem !important;
+  }
+  .wp-export:hover:not(:disabled) { background: var(--hover-bg) !important; }
 
   /* ─── The desk ────────────────────────────────────────────────────── */
   .wp-canvas {
@@ -483,9 +532,15 @@
   .wp-content :global(h3:first-child) { margin-top: 0; }
   /* The rule that runs the full width of the column. In Word this is a
      paragraph *bottom border*, which is why it doesn't stop where the words
-     do — a character underline would. */
-  .wp-content :global(h1),
-  .wp-content :global(h2) {
+     do — a character underline would.
+
+     **Level 1 only, deliberately (v0.10.0).** It was on h1 *and* h2, and a
+     document that is a stack of ## sections — which is what a briefing note
+     from an agent always is — came out ruled every few paragraphs. The verdict
+     was blunt: "a lot of line segmenters". One rule under the section title is
+     the house format; a rule under every heading is a striped page. Sub-heads
+     already read as sub-heads from their weight and their spacing. */
+  .wp-content :global(h1) {
     border-bottom: 1px solid #000;
     padding-bottom: 2pt;
   }
@@ -550,7 +605,17 @@
     font-size: 9.5pt;
     line-height: 1.3;
   }
-  .wp-content :global(hr) { border: 0; border-top: 1px solid #bfbfbf; margin: 10pt 0; }
+  /* A thematic break (`---`) is a *break*, not a printed line. Markdown written
+     by an agent uses one between every section, so drawing each as a rule was
+     the other half of the "line segmenters" complaint — the page ended up with
+     more horizontal rules than headings. It becomes what it means in a Word
+     document: a paragraph of air. Kept as an element (not `display: none`) so
+     it still occupies a measured line and page breaks land where they should. */
+  .wp-content :global(hr) {
+    border: 0;
+    height: 0;
+    margin: 11pt 0;
+  }
   .wp-content :global(a) { color: #0563c1; text-decoration: underline; }
   /* App furniture that has no business on a printed page. */
   .wp-content :global(.code-copy) { display: none; }

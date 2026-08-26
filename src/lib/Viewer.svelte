@@ -1,7 +1,15 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
   import { api } from "./api";
-  import { settings, effectiveDark, effectiveThemeName, type ScrollMark } from "./settings-store.svelte";
+  import {
+    settings,
+    effectiveDark,
+    effectiveThemeName,
+    bumpZoom,
+    bumpWidth,
+    type ScrollMark,
+  } from "./settings-store.svelte";
+  import { readingMetrics } from "./reading-metrics.svelte";
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { sk, copyText } from "./platform";
   import { postRender } from "./post-render";
@@ -140,10 +148,23 @@
   //     it just restored.
 
   /** Top-level blocks with their source-line ranges, rebuilt after each
-   *  render so scroll handling is a cheap array walk rather than a DOM query. */
-  let lineIndex: Array<{ el: HTMLElement; from: number; to: number }> = [];
+   *  render so scroll handling is a cheap array walk rather than a DOM query.
+   *
+   *  `top`/`bottom` are **content-space** offsets (px from the top of the
+   *  scrollable content), cached at build time. This is the whole reason
+   *  scrolling is smooth: see `blocksAbove`. */
+  let lineIndex: Array<{ el: HTMLElement; from: number; to: number; top: number; bottom: number }> = [];
   /** Same, restricted to headings — drives the outline's active-section mark. */
-  let headingIndex: Array<{ el: HTMLElement; line: number }> = [];
+  let headingIndex: Array<{ el: HTMLElement; line: number; top: number }> = [];
+  /** Geometry has changed under us (font size, width, image load, mermaid) and
+   *  the cached offsets must be re-measured before the next probe. */
+  let geometryDirty = true;
+  let geometryObserver: ResizeObserver | null = null;
+  /** The scroll container's viewport box, cached alongside the block offsets.
+   *  It cannot change while scrolling, only when the window or the surrounding
+   *  chrome resizes — which is what invalidates the whole geometry cache. */
+  let containerBox = { top: 0, bottom: 0, right: 0 };
+  let chProbe: HTMLSpanElement | undefined;
 
   /** Set while we're moving the scroll position ourselves. */
   let programmaticScroll = false;
@@ -191,28 +212,91 @@
     for (const el of Array.from(prose.children) as HTMLElement[]) {
       const range = parseSourcepos(el);
       if (!range) continue;
-      lineIndex.push({ el, from: range.from, to: range.to });
-      if (/^H[1-6]$/.test(el.tagName)) headingIndex.push({ el, line: range.from });
+      lineIndex.push({ el, from: range.from, to: range.to, top: 0, bottom: 0 });
+      if (/^H[1-6]$/.test(el.tagName)) headingIndex.push({ el, line: range.from, top: 0 });
     }
+    geometryDirty = true;
   }
 
-  /** The last indexed block starting at or above `probeY` (a viewport-space Y),
-   *  and the last heading at or above it. Both are needed: the outline
-   *  highlights by heading, but the position we remember should be the exact
-   *  block being read. */
-  function blocksAbove(probeY: number): { block: number | null; heading: number | null } {
-    if (!container || lineIndex.length === 0) return { block: null, heading: null };
-    let block: number | null = lineIndex[0].from;
+  /**
+   * Re-measure every indexed block's content-space offset.
+   *
+   * `.viewer` is `position: relative`, so it is each block's `offsetParent`
+   * and `offsetTop` is already the distance from the top of the scrollable
+   * content — scroll-independent, so it only has to be read when the *layout*
+   * changes, never while scrolling.
+   */
+  function measureGeometry() {
+    if (!container) return;
+    const c = container.getBoundingClientRect();
+    containerBox = { top: c.top, bottom: c.bottom, right: c.right };
+
+    // Publish the reading column's real dimensions so the width controls can
+    // offer a ceiling that matches this monitor instead of a constant.
+    const prose = container.querySelector<HTMLElement>(".prose");
+    if (chProbe && prose) {
+      const cs = getComputedStyle(prose);
+      const gutters = parseFloat(cs.paddingLeft || "0") + parseFloat(cs.paddingRight || "0");
+      readingMetrics.publish(
+        chProbe.getBoundingClientRect().width / 20,
+        container.clientWidth - gutters,
+      );
+    }
     for (const b of lineIndex) {
-      if (b.el.getBoundingClientRect().top <= probeY) block = b.from;
-      else break;
+      b.top = b.el.offsetTop;
+      b.bottom = b.top + b.el.offsetHeight;
     }
+    for (const h of headingIndex) h.top = h.el.offsetTop;
+    geometryDirty = false;
+  }
+
+  function ensureGeometry() {
+    if (geometryDirty) measureGeometry();
+  }
+
+  /**
+   * The last indexed block starting at or above `contentY` (px from the top of
+   * the scrollable content), and the last heading at or above it. Both are
+   * needed: the outline highlights by heading, but the position we remember
+   * should be the exact block being read.
+   *
+   * **Why this is a binary search over cached numbers and must stay that way.**
+   * Until v0.10 this walked the block list calling `getBoundingClientRect()`
+   * on each element until one passed the probe — and it ran *twice* per scroll
+   * frame (once for the reading line, once for the resume mark), plus more
+   * rects in `updateMarkerGeometry`. Every one of those is a forced synchronous
+   * layout. Near the bottom of a long document that is thousands of layout
+   * flushes per frame, which is exactly what the "rattly, unpolished scrolling"
+   * complaint was. Offsets are now measured once per layout change and every
+   * scroll frame is pure arithmetic.
+   */
+  function blocksAbove(contentY: number): { block: number | null; heading: number | null } {
+    if (!container || lineIndex.length === 0) return { block: null, heading: null };
+    ensureGeometry();
+
+    let lo = 0;
+    let hi = lineIndex.length - 1;
+    let blockIdx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (lineIndex[mid].top <= contentY) {
+        blockIdx = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+
     let heading: number | null = null;
-    for (const h of headingIndex) {
-      if (h.el.getBoundingClientRect().top <= probeY) heading = h.line;
-      else break;
+    lo = 0;
+    hi = headingIndex.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (headingIndex[mid].top <= contentY) {
+        heading = headingIndex[mid].line;
+        lo = mid + 1;
+      } else hi = mid - 1;
     }
-    return { block, heading };
+
+    return { block: lineIndex[blockIdx].from, heading };
   }
 
   /** What sits at the very top of the viewport. This is the *resume* position:
@@ -220,7 +304,7 @@
    *  that was at the top, not the one that was being read. */
   function topOfViewport(): { block: number | null; heading: number | null } {
     if (!container) return { block: null, heading: null };
-    return blocksAbove(container.getBoundingClientRect().top + 12);
+    return blocksAbove(container.scrollTop + 12);
   }
 
   /**
@@ -299,11 +383,13 @@
   /** Align a block's top with the top of the viewport (minus a little air). */
   function scrollBlockToTop(el: HTMLElement, smooth: boolean) {
     if (!container) return;
-    const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    ensureGeometry();
     beginProgrammaticScroll();
     container.scrollTo({
-      top: Math.max(0, container.scrollTop + delta - 12),
-      behavior: smooth ? "smooth" : "auto",
+      // `.viewer` is the offsetParent, so offsetTop *is* the content-space
+      // target — no rect subtraction, and no forced layout.
+      top: Math.max(0, el.offsetTop - 12),
+      behavior: smooth && !reduceMotion ? "smooth" : "auto",
     });
   }
 
@@ -334,8 +420,13 @@
       markerResolved = false;
       return;
     }
-    const c = container.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
+    ensureGeometry();
+    // Content-space offsets converted to viewport coordinates by hand. Reading
+    // two more rects here would put the per-frame layout flush straight back.
+    const scrolled = container.scrollTop;
+    const c = { top: containerBox.top, bottom: containerBox.bottom, right: containerBox.right };
+    const elTop = el.offsetTop - scrolled + c.top;
+    const r = { top: elTop, bottom: elTop + el.offsetHeight };
     markerResolved = true;
     // Above / below decide the chevron, which is the only thing that tells the
     // reader which way to scroll to get back.
@@ -362,9 +453,7 @@
     if (!container) return;
     const view = container.clientHeight;
     const fraction = readingFraction();
-    const { block, heading } = blocksAbove(
-      container.getBoundingClientRect().top + fraction * view,
-    );
+    const { block, heading } = blocksAbove(container.scrollTop + fraction * view);
     // The rail measures the same reading line against the whole document, so
     // "how far the bar has filled" and "which entry is lit" can never disagree.
     // It still reads 0 at the top and exactly 1 at the bottom, because the
@@ -402,6 +491,50 @@
     pendingMarkTabId = "";
   }
 
+  // ─── Ctrl+wheel = text size, Alt+wheel = characters per line ──────────
+  //
+  // Both are wired to an *accumulator* rather than one step per event. A mouse
+  // notch arrives as a single 100-unit delta while a trackpad emits a stream of
+  // 2–10 unit ones; stepping per event makes the mouse sluggish and the
+  // trackpad uncontrollable. Accumulating distance travelled makes them agree.
+  //
+  // On macOS a trackpad pinch is reported as a wheel event with `ctrlKey` set,
+  // so pinch-to-zoom comes free from the Ctrl branch.
+  const WHEEL_STEP = 90;
+  let wheelAccum = 0;
+  let wheelKind: "" | "zoom" | "width" = "";
+
+  function onModifiedWheel(e: WheelEvent) {
+    const zoomMod = e.ctrlKey || e.metaKey;
+    const widthMod = e.altKey && !zoomMod;
+    if (!zoomMod && !widthMod) {
+      wheelAccum = 0;
+      wheelKind = "";
+      return; // ordinary scrolling — leave it entirely alone
+    }
+    e.preventDefault();
+
+    const kind: "zoom" | "width" = zoomMod ? "zoom" : "width";
+    if (kind !== wheelKind) {
+      wheelAccum = 0;
+      wheelKind = kind;
+    }
+
+    // Normalise the three deltaModes to pixels so a "line" or "page" wheel
+    // (some Windows mice, and Firefox) travels the same distance as a pixel one.
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? container.clientHeight : 1;
+    wheelAccum += e.deltaY * unit;
+
+    while (Math.abs(wheelAccum) >= WHEEL_STEP) {
+      const sign = wheelAccum > 0 ? 1 : -1;
+      wheelAccum -= sign * WHEEL_STEP;
+      // deltaY > 0 is "scroll down", which means smaller / narrower.
+      const dir = -sign;
+      if (kind === "zoom") bumpZoom(dir * 0.1);
+      else bumpWidth(dir * 4);
+    }
+  }
+
   /** Outline entries call in through the view-nav store. */
   const unregisterScroller = viewNav.registerScroller((line, opts) => {
     const el = blockForLine(line);
@@ -415,6 +548,44 @@
   function dismissMarker() {
     if (tabId) onDismissResume?.(tabId);
   }
+
+  /**
+   * Anything that can change layout without changing the markdown — window
+   * resize, side-panel collapse, font size, content width, an image finally
+   * decoding — invalidates the cached offsets. Marking them dirty is all that
+   * happens here; the re-measure is deferred to the next probe, so a drag of
+   * the panel splitter costs one measurement, not one per pixel.
+   */
+  $effect(() => {
+    if (!container) return;
+    const invalidate = () => { geometryDirty = true; };
+    const ro = new ResizeObserver(invalidate);
+    ro.observe(container);
+    const prose = container.querySelector(".prose");
+    if (prose) ro.observe(prose);
+    geometryObserver = ro;
+    window.addEventListener("resize", invalidate);
+    // Registered by hand, not as `onwheel`, because the handler has to be able
+    // to `preventDefault()`: Ctrl+wheel is the browser's own page-zoom gesture
+    // and a passive listener cannot stop it.
+    container.addEventListener("wheel", onModifiedWheel, { passive: false });
+    return () => {
+      ro.disconnect();
+      geometryObserver = null;
+      window.removeEventListener("resize", invalidate);
+      container?.removeEventListener("wheel", onModifiedWheel);
+    };
+  });
+
+  /** Anything that changes type metrics without changing the markdown. */
+  $effect(() => {
+    void settings.s.fontSize;
+    void settings.s.zoom;
+    void settings.s.fontFamily;
+    void settings.s.contentWidthCh;
+    void settings.s.fullWidth;
+    geometryDirty = true;
+  });
 
   onDestroy(() => {
     unregisterScroller();
@@ -824,6 +995,10 @@
   bind:this={container}
   onscroll={onScroll}
 >
+  <!-- Measures one `ch` in the document's own font, at the document's own
+       zoom. Inside `.viewer` (not `.prose`) so it survives every re-render. -->
+  <span class="ch-probe" bind:this={chProbe} aria-hidden="true">00000000000000000000</span>
+
   <!-- Delegated: the prose is replaced wholesale on every render, so a
        listener on the container is the only place a handler can survive.
        svelte-ignore is correct — this is event delegation over rendered
@@ -886,6 +1061,17 @@
     text-align: start;
   }
   .viewer.full-width .prose { width: 100%; }
+
+  .ch-probe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: pre;
+    font: inherit;
+    letter-spacing: inherit;
+  }
 
   .prose :global(> *:first-child) { margin-top: 0; }
   .prose :global(> *:last-child)  { margin-bottom: 0; }

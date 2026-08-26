@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 export interface OpenedFile {
   path: string;
@@ -46,6 +46,11 @@ export const api = {
   openFile: (path: string) => invoke<OpenedFile>("open_file", { path }),
   saveFile: (path: string, content: string) =>
     invoke<void>("save_file", { path, content }),
+  /** Read a file as base64. Used by the .docx exporter to embed images. */
+  readFileBase64: (path: string) => invoke<string>("read_file_base64", { path }),
+  /** Write raw bytes, given as base64. The .docx exporter's save path. */
+  writeFileBase64: (path: string, data: string) =>
+    invoke<void>("write_file_base64", { path, data }),
   /** `theme` is the resolved palette name: "light" | "dark" | "sepia". */
   renderMarkdown: (source: string, theme: string) =>
     invoke<string>("render_markdown", { source, theme }),
@@ -70,6 +75,15 @@ export const api = {
       filters: [
         { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "mkdn"] },
       ],
+    });
+    return typeof result === "string" ? result : null;
+  },
+
+  /** Where to write an exported Word document. Returns null if cancelled. */
+  pickDocxTarget: async (suggested: string): Promise<string | null> => {
+    const result = await saveDialog({
+      defaultPath: suggested,
+      filters: [{ name: "Word document", extensions: ["docx"] }],
     });
     return typeof result === "string" ? result : null;
   },

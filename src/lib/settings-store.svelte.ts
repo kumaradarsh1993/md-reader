@@ -1,5 +1,6 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { api, type SecretProvider } from "./api";
+import { readingMetrics } from "./reading-metrics.svelte";
 
 export type ThemeMode = "auto" | "light" | "dark" | "sepia";
 
@@ -105,6 +106,11 @@ export interface AppSettings {
 }
 
 export const WIDTH_MIN = 40;
+/**
+ * @deprecated since v0.10.0 — kept only as the *floor* of a measured ceiling.
+ * Use `widthMax()`, which asks the reading pane how many characters actually
+ * fit. A constant here is what stopped a 27" monitor from ever filling.
+ */
 export const WIDTH_MAX = 160;
 /**
  * 76ch ≈ 68 average characters of Latin text, which sits inside the 45–75
@@ -116,6 +122,34 @@ export const WIDTH_MAX = 160;
  * drifted as the window resized.
  */
 export const WIDTH_DEFAULT = 76;
+
+export const ZOOM_MIN = 0.5;
+export const ZOOM_MAX = 2.5;
+
+/**
+ * The live upper bound for `contentWidthCh`: however many characters fit the
+ * reading pane on *this* monitor, floored at the historical 160 so a small
+ * window is never worse off than it was.
+ */
+export function widthMax(): number {
+  return readingMetrics.maxCh;
+}
+
+/** Nudge the text size. The single implementation behind Ctrl+=/-, the
+ *  toolbar, and Ctrl+wheel, so all three clamp identically. */
+export function bumpZoom(delta: number) {
+  const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +(settings.s.zoom + delta).toFixed(2)));
+  settings.set("zoom", z);
+}
+
+/** Nudge characters-per-line. Behind Ctrl+[ / Ctrl+], the width control, and
+ *  Alt+wheel. Leaving full-width is implicit: asking for a specific measure
+ *  plainly means "not the whole window". */
+export function bumpWidth(delta: number) {
+  if (settings.s.fullWidth) settings.set("fullWidth", false);
+  const w = Math.min(widthMax(), Math.max(WIDTH_MIN, settings.s.contentWidthCh + delta));
+  settings.set("contentWidthCh", w);
+}
 
 /** Left-pane width bounds — shared by the toolbar, LeftPanel and the resizer. */
 export const PANEL_WIDTH_MIN = 180;

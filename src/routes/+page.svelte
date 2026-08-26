@@ -7,8 +7,8 @@
   import {
     settings,
     effectiveThemeName,
-    WIDTH_MIN,
-    WIDTH_MAX,
+    bumpZoom,
+    bumpWidth,
     type ThemeMode,
   } from "$lib/settings-store.svelte";
   import { tabs } from "$lib/tabs-store.svelte";
@@ -241,6 +241,56 @@
     if (active) tabs.close(active.id);
   }
 
+  // ─── Export to Word ──────────────────────────────────────────────────
+  /** Transient status for the export, shown in the toolbar. */
+  let exportState = $state<{ phase: "idle" | "working" | "done" | "error"; note: string }>({
+    phase: "idle",
+    note: "",
+  });
+  let exportTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flashExport(phase: "done" | "error", note: string) {
+    exportState = { phase, note };
+    if (exportTimer) clearTimeout(exportTimer);
+    exportTimer = setTimeout(() => { exportState = { phase: "idle", note: "" }; }, 6000);
+  }
+
+  /**
+   * Write the active document as a `.docx` in the house format.
+   *
+   * The suggested filename is the markdown file's own stem, so the pair sits
+   * together in the folder and the export is obviously *of* that document.
+   */
+  async function exportWord() {
+    fileMenuOpen = false;
+    if (!active) return;
+    const stem = active.path.replace(/[\\/][^\\/]*$/, "");
+    const name = (active.path.split(/[\\/]/).pop() ?? "document").replace(/\.[^.]*$/, "");
+    let target: string | null = null;
+    try {
+      target = await api.pickDocxTarget(`${stem}${stem ? "\\" : ""}${name}.docx`);
+    } catch {
+      target = null;
+    }
+    if (!target) return;
+
+    exportState = { phase: "working", note: "Building document…" };
+    try {
+      const { exportDocx } = await import("$lib/docx");
+      const skipped = await exportDocx(active.source, stem, name, target);
+      const file = target.split(/[\\/]/).pop() ?? "document.docx";
+      flashExport(
+        "done",
+        skipped.length === 0
+          ? `Saved ${file}`
+          : `Saved ${file} — ${skipped.length} image${skipped.length === 1 ? "" : "s"} could not be embedded`,
+      );
+    } catch (e) {
+      console.error("[Fox MD] export failed", e);
+      flashExport("error", `Export failed: ${e}`);
+    }
+  }
+
   async function openRecent(p: string) {
     fileMenuOpen = false;
     await openInTab(p);
@@ -284,16 +334,8 @@
   // or "Split" (which always uses raw on the left).
   function toggleEdit() { mode = mode === "view" ? "edit" : "view"; }
 
-  function bumpZoom(delta: number) {
-    const z = Math.min(2.5, Math.max(0.5, +(settings.s.zoom + delta).toFixed(2)));
-    settings.set("zoom", z);
-  }
-
-  function bumpWidth(delta: number) {
-    if (settings.s.fullWidth) settings.set("fullWidth", false);
-    const w = Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, settings.s.contentWidthCh + delta));
-    settings.set("contentWidthCh", w);
-  }
+  // bumpZoom / bumpWidth now live in settings-store so the keyboard, the
+  // toolbar, the width control and Ctrl/Alt+wheel all clamp through one path.
 
   /** Collapse / restore the whole left pane, ChatGPT-style. Which sections are
    *  enabled is left untouched, so expanding gives back exactly what you had. */
@@ -451,6 +493,10 @@
     else if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
       e.preventDefault();
       if (active) previewOpen = !previewOpen;
+    }
+    else if (mod && e.shiftKey && e.key.toLowerCase() === "e") {
+      e.preventDefault();
+      void exportWord();
     }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
     else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); bumpZoom(0.1); }
@@ -861,6 +907,8 @@
           source={active.source}
           basePath={active.path}
           onExit={() => (previewOpen = false)}
+          onExport={exportWord}
+          exporting={exportState.phase === "working"}
         />
       {:else if mode === "edit" && settings.s.editorMode === "smart"}
         <SmartEditor source={active.source} onChange={onEditorChange} onSave={save} />
@@ -922,6 +970,24 @@
   </div>
 {/if}
 
+<!-- Export status. A save that produces a file somewhere else in the filesystem
+     has no other evidence that it happened, and silence after "Export" reads as
+     a failure. Auto-retires; never blocks anything. -->
+{#if exportState.phase !== "idle"}
+  <div class="toast" class:error={exportState.phase === "error"} role="status">
+    <Icon
+      name={exportState.phase === "working" ? "refresh" : exportState.phase === "error" ? "info" : "check"}
+      size={14}
+    />
+    <span>{exportState.phase === "working" ? exportState.note || "Working…" : exportState.note}</span>
+    {#if exportState.phase !== "working"}
+      <button class="toast-x" onclick={() => (exportState = { phase: "idle", note: "" })} aria-label="Dismiss">
+        <Icon name="x" size={12} />
+      </button>
+    {/if}
+  </div>
+{/if}
+
 <ContextMenu />
 
 <Settings bind:open={settingsOpen} />
@@ -950,6 +1016,10 @@
         </button>
       {/each}
     {/if}
+    <div class="menu-sep"></div>
+    <button class="menu-item" disabled={!path} onclick={exportWord}>
+      <span>Export as Word (.docx)…</span><span class="kbd">{sk("Mod", "Shift", "E")}</span>
+    </button>
     <div class="menu-sep"></div>
     <button class="menu-item" disabled={!path} onclick={() => { fileMenuOpen = false; tabs.resetActiveBaseline(); }}>
       <span>Reset diff baseline</span><span class="kbd">diff = now</span>
@@ -1573,6 +1643,49 @@
     .toolbar.focus-hidden { transition: none; }
     :global(.focus-hint) { animation: none; }
   }
+  /* Transient status, bottom-right. Deliberately not a modal and deliberately
+     not in the toolbar: it reports on something that already finished, so it
+     must not take a permanent slot in the chrome. */
+  .toast {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    max-width: min(460px, calc(100vw - 36px));
+    padding: .55rem .7rem .55rem .6rem;
+    border-radius: 9px;
+    background: var(--chrome-bg);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 22px rgba(0, 0, 0, .16);
+    color: var(--fg-strong);
+    font-size: 12.5px;
+    line-height: 1.4;
+    animation: toast-in .18s ease-out;
+  }
+  .toast.error { border-color: var(--danger, #c0392b); }
+  .toast span { flex: 1 1 auto; overflow-wrap: anywhere; }
+  .toast-x {
+    flex: none;
+    background: none;
+    border: 0;
+    color: var(--muted-strong);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    display: inline-flex;
+  }
+  .toast-x:hover { background: var(--hover-bg); color: var(--fg-strong); }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+  }
+
   /* File button & menu */
   /* The caret is an <Icon>, so its class lands inside a child component and
      needs :global to be reachable — see the .file-btn rule above. */

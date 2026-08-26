@@ -52,7 +52,14 @@
     | "sort-az"
     | "clock"
     | "file-page"
-    | "pin";
+    | "pin"
+    | "download"
+    | "highlighter"
+    | "message-square"
+    | "message-square-plus"
+    | "corner-down-right"
+    | "trash"
+    | "eye-off";
 
   /**
    * Path geometry only — every icon inherits the same stroke presentation from
@@ -107,6 +114,23 @@
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     // A sheet with a folded corner and text lines — the Word-preview toggle.
     "file-page": '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/>',
+    download:
+      '<path d="M12 3v12"/><path d="m7 12 5 5 5-5"/><path d="M5 21h14"/>',
+    /* A marker held at the angle a hand holds one, with the wet stroke it
+       just laid down. Reads as "highlight" at 14px, which a plain nib does
+       not. */
+    highlighter:
+      '<path d="m9 11-6 6v3h3l6-6"/><path d="m14 4 6 6-8 8-6-6z"/><path d="M4 20h6"/>',
+    "message-square":
+      '<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    "message-square-plus":
+      '<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/>',
+    "corner-down-right":
+      '<path d="M4 4v7a4 4 0 0 0 4 4h12"/><path d="m16 11 4 4-4 4"/>',
+    trash:
+      '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
+    "eye-off":
+      '<path d="M10.7 5.1A9 9 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 4"/><path d="M6.6 6.6A17 17 0 0 0 2 12s4 7 10 7a9 9 0 0 0 4.7-1.3"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m2 2 20 20"/>',
     bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
     link:
       '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',

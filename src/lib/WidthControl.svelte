@@ -16,7 +16,7 @@
    *
    * v0.6.0+.
    */
-  import { settings, WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT } from "./settings-store.svelte";
+  import { settings, WIDTH_MIN, WIDTH_DEFAULT, widthMax, bumpWidth } from "./settings-store.svelte";
   import { sk } from "./platform";
 
   let dragging = $state(false);
@@ -29,7 +29,7 @@
    *  default look nearly full-width and the control feel dead at the top end). */
   let fraction = $derived.by(() => {
     if (settings.s.fullWidth) return 1;
-    const t = (settings.s.contentWidthCh - WIDTH_MIN) / (WIDTH_MAX - WIDTH_MIN);
+    const t = (settings.s.contentWidthCh - WIDTH_MIN) / (widthMax() - WIDTH_MIN);
     return 0.3 + Math.min(1, Math.max(0, t)) * 0.65;
   });
 
@@ -38,13 +38,13 @@
   );
 
   function setWidth(ch: number) {
-    const next = Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(ch)));
+    const next = Math.min(widthMax(), Math.max(WIDTH_MIN, Math.round(ch)));
     if (settings.s.fullWidth) settings.set("fullWidth", false);
     settings.set("contentWidthCh", next);
   }
 
   function bump(delta: number) {
-    setWidth(settings.s.contentWidthCh + delta);
+    bumpWidth(delta);
   }
 
   /** Map a pointer position across the glyph to a width. The glyph is a page
@@ -57,7 +57,7 @@
     if (half <= 0) return settings.s.contentWidthCh;
     const offset = Math.abs(clientX - (rect.left + half)) / half; // 0 centre → 1 edge
     const t = Math.min(1, Math.max(0, (offset - 0.3) / 0.65));
-    return WIDTH_MIN + t * (WIDTH_MAX - WIDTH_MIN);
+    return WIDTH_MIN + t * (widthMax() - WIDTH_MIN);
   }
 
   function onGlyphPointerDown(e: PointerEvent) {
@@ -87,7 +87,7 @@
     if (e.key === "ArrowLeft") { e.preventDefault(); bump(-4); }
     else if (e.key === "ArrowRight") { e.preventDefault(); bump(4); }
     else if (e.key === "Home") { e.preventDefault(); setWidth(WIDTH_MIN); }
-    else if (e.key === "End") { e.preventDefault(); setWidth(WIDTH_MAX); }
+    else if (e.key === "End") { e.preventDefault(); setWidth(widthMax()); }
     else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       settings.set("fullWidth", !settings.s.fullWidth);
@@ -121,8 +121,8 @@
     tabindex="0"
     aria-label="Content width in characters per line"
     aria-valuemin={WIDTH_MIN}
-    aria-valuemax={WIDTH_MAX}
-    aria-valuenow={settings.s.fullWidth ? WIDTH_MAX : settings.s.contentWidthCh}
+    aria-valuemax={widthMax()}
+    aria-valuenow={settings.s.fullWidth ? widthMax() : settings.s.contentWidthCh}
     aria-valuetext={label}
     style="--frac: {fraction}"
   >

@@ -45,6 +45,101 @@ pub fn save_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(Path::new(&path), content).map_err(|e| format!("write failed: {e}"))
 }
 
+/// Largest image the .docx exporter will embed, in bytes.
+///
+/// Not a guess at what Word can hold — a guard on the transport. The bytes make
+/// the trip to the webview as base64, so a 200MB TIFF someone linked from a
+/// markdown file would be a ~270MB JavaScript string before anything else went
+/// wrong. 24MB covers every screenshot and diagram a document actually carries.
+const MAX_EMBED_BYTES: u64 = 24 * 1024 * 1024;
+
+/// Read a file as base64 so the frontend can embed it in a document it is
+/// building. Used only by the .docx exporter, for images.
+///
+/// Base64 rather than `Vec<u8>`: Tauri serialises a byte vector as a JSON array
+/// of numbers, which costs roughly six characters per byte on the wire and then
+/// allocates a JS array of that length. Base64 is 1.33x and decodes natively.
+#[tauri::command]
+pub fn read_file_base64(path: String) -> Result<String, String> {
+    let p = Path::new(&path);
+    let meta = std::fs::metadata(p).map_err(|e| format!("stat failed: {e}"))?;
+    if meta.len() > MAX_EMBED_BYTES {
+        return Err(format!(
+            "file is {:.1}MB, over the {}MB embed limit",
+            meta.len() as f64 / (1024.0 * 1024.0),
+            MAX_EMBED_BYTES / (1024 * 1024)
+        ));
+    }
+    let bytes = std::fs::read(p).map_err(|e| format!("read failed: {e}"))?;
+    Ok(b64_encode(&bytes))
+}
+
+/// Write raw bytes, decoded from base64. The .docx exporter's save path.
+#[tauri::command]
+pub fn write_file_base64(path: String, data: String) -> Result<(), String> {
+    let bytes = b64_decode(&data)?;
+    std::fs::write(Path::new(&path), bytes).map_err(|e| format!("write failed: {e}"))
+}
+
+const B64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Standard base64 with padding. Hand-rolled rather than adding a crate: it is
+/// twenty lines, it has no configuration to get wrong, and this is the only
+/// place in the app that needs it.
+fn b64_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(B64_ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(B64_ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            B64_ALPHABET[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64_ALPHABET[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+fn b64_value(c: u8) -> Option<u32> {
+    match c {
+        b'A'..=b'Z' => Some((c - b'A') as u32),
+        b'a'..=b'z' => Some((c - b'a') as u32 + 26),
+        b'0'..=b'9' => Some((c - b'0') as u32 + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
+}
+
+fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for c in s.bytes() {
+        if c == b'=' || c.is_ascii_whitespace() {
+            continue;
+        }
+        let v = b64_value(c).ok_or_else(|| format!("bad base64 byte {c:#x}"))?;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Ok(out)
+}
+
 /// `theme` is the *resolved* palette name — "light", "dark" or "sepia" — not
 /// the user's setting (which may be "auto"). The frontend already computes it
 /// via `effectiveThemeName()`; passing a boolean here was what left sepia

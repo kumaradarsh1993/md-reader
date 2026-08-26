@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { settings, type ThemeMode, WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT } from "./settings-store.svelte";
+  import { settings, type ThemeMode, WIDTH_MIN, WIDTH_DEFAULT, widthMax } from "./settings-store.svelte";
   import { MOD, sk } from "./platform";
   import { api, type UpdateStatus, type ReleaseInfo } from "./api";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -158,7 +158,7 @@
       <input
         type="range"
         min={WIDTH_MIN}
-        max={WIDTH_MAX}
+        max={widthMax()}
         step="1"
         disabled={settings.s.fullWidth}
         value={settings.s.contentWidthCh}
