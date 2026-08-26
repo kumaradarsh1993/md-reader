@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0 — 2026-08-26 — stable
+
+Promoted unchanged from `v0.9.0-nightly.2`. The v0.9 line is about **seeing the
+document as it will actually land** and **keeping the app itself current**:
+
+- **Page preview** — the open document laid out as a real Word page: US Letter,
+  Normal margins, 11pt throughout, true page breaks on line boundaries, and a
+  real page count. A preview, not a converter.
+- **In-app updates** — Settings → Updates reads GitHub live, tells you what is
+  running versus what is out, and installs it for you on Windows.
+- **The resume bookmark** rebuilt as a single dismissible mark in the margin
+  that never crosses the text.
+- **Settings as a right-hand drawer**, and **file-list sorting** by name or by
+  most recently changed.
+
+
 ## 0.9.0-nightly.2 — 2026-08-25
 
 ### Added — update from inside the app

@@ -21,18 +21,18 @@ window.PRODUCT_SITE = {
   downloads: [
     {
       label: "Download for Windows",
-      note: "Stable v0.8.0 installer",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_x64-setup.exe"
+      note: "Stable v0.9.0 installer",
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_x64-setup.exe"
     },
     {
       label: "Download for macOS",
       note: "Universal DMG",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_universal.dmg"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_universal.dmg"
     },
     {
       label: "Download for Linux",
       note: "AppImage",
-      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_amd64.AppImage"
+      href: "https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_amd64.AppImage"
     },
     {
       label: "All releases &amp; nightlies",
@@ -92,7 +92,7 @@ window.PRODUCT_SITE = {
     }
   ],
   downloadTitle: "Download the stable reader",
-  downloadIntro: "Fox MD v0.8.0 is the current stable reader. It adds refresh-from-disk (so a file an agent changed is never stale), an outline that tracks where you are actually reading, tables that wrap instead of scrolling sideways, a hover-only side-panel scrollbar, and layered window surfaces you can switch off.",
+  downloadIntro: "Fox MD v0.9.0 is the current stable reader. It lays any document out as a real Word page — true margins, true page breaks, a real page count — before you export it, keeps itself up to date from inside Settings, marks where you left off without crossing the text, and sorts your files by name or by what changed last.",
   panels: [
     {
       title: "Reader first",
