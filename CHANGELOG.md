@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.10.0-nightly.3 - 2026-08-26
+
+### Fixed - highlighting and commenting were the same thing, and should not have been
+
+Three related complaints, one cause: the first version treated a comment as "a
+highlight that has something to say", so the two shared one record and one
+colour.
+
+- **Commenting no longer paints a highlighter colour.** A commented passage now
+  gets a rule under the text - the mark a document editor uses for "there is
+  something written about this" - instead of a colour you never chose. If you
+  want it highlighted as well, pick a colour; it is optional and it always was
+  meant to be.
+- **There is a "No highlight" option**, in the colour row of the selection bar
+  where every editor puts it. It clears the fill on everything the selection
+  touches.
+- **You do not have to select a highlight exactly to remove it.** Select the
+  whole paragraph - or just right-click inside the highlight without selecting
+  anything at all - and choose **Remove highlight**. Overlap is enough.
+- **Clearing a highlight never deletes a comment.** A mark that carries a
+  conversation keeps the conversation and only loses its colour. Only a bare
+  highlight, with nothing said about it, disappears.
+- The right-click menu inside a document now also offers **Highlight**, **Add
+  comment** and **Open comment** when they apply.
+- Re-highlighting the same words in a different colour recolours the existing
+  mark instead of stacking a second one on top of it.
+
 ## 0.10.0-nightly.2 - 2026-08-26
 
 ### Fixed

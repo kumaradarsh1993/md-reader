@@ -186,7 +186,7 @@ export function renderDigest(document: string, annotations: Annotation[]): strin
   if (highlights.length > 0) {
     out.push("## Highlights", "");
     for (const a of highlights) {
-      out.push(`- **Line ${a.anchor.blockLine}** (${a.color}) — ${a.anchor.quote.replace(/\s+/g, " ").trim()}`);
+      out.push(`- **Line ${a.anchor.blockLine}** (${a.color ?? "no fill"}) — ${a.anchor.quote.replace(/\s+/g, " ").trim()}`);
     }
     out.push("");
   }

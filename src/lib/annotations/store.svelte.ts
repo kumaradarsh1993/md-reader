@@ -20,7 +20,7 @@
 
 import { api } from "../api";
 import { loadNotes, saveNotes } from "./sidecar";
-import { newId, walkThread, type Annotation, type CommentNode, type HighlightColor } from "./types";
+import { hasFill, hasThread, newId, walkThread, type Annotation, type CommentNode, type HighlightColor } from "./types";
 
 const SAVE_DEBOUNCE = 600;
 
@@ -122,13 +122,85 @@ class AnnotationStore {
     return ann;
   }
 
-  /** Start a comment. A comment is a highlight that has something to say, so
-   *  it is the same record with a thread — which is why "add a note to this
-   *  highlight" and "comment on this selection" converge here. */
-  addComment(anchor: Annotation["anchor"], color: HighlightColor, author: string, body: string): Annotation {
-    const ann = this.addHighlight(anchor, color);
+  /**
+   * Anchor a comment.
+   *
+   * **Created with no fill.** Commenting on a passage is not highlighting it,
+   * and forcing a highlighter colour on every comment was the original design
+   * mistake here — the reader ends up with five colours of paint they never
+   * asked for. The passage is marked as *commented* (a rule under the text,
+   * see paint.ts), which is a different mark for a different act. Adding a
+   * fill afterwards is one click, and stays optional.
+   */
+  addComment(anchor: Annotation["anchor"], author: string, body: string): Annotation {
+    const ann = this.startComment(anchor);
     this.reply(ann.id, null, author, body);
     return ann;
+  }
+
+  /** An anchored comment with nothing written in it yet — the state between
+   *  choosing "Comment" and typing. Carries no fill. */
+  startComment(anchor: Annotation["anchor"]): Annotation {
+    const now = Date.now();
+    const ann: Annotation = {
+      id: newId(),
+      kind: "comment",
+      color: null,
+      anchor,
+      thread: [],
+      createdAt: now,
+      updatedAt: now,
+      resolved: false,
+    };
+    this.annotations = [...this.annotations, ann];
+    this.touch();
+    return ann;
+  }
+
+  /**
+   * Remove the highlighter fill.
+   *
+   * **A thread is never collateral damage.** Clearing formatting must not
+   * delete what someone wrote: if the mark carries a comment it keeps it and
+   * simply loses its colour. Only a bare highlight — nothing said about it —
+   * disappears entirely, which is what "No highlight" means for it.
+   */
+  clearFill(annId: string): void {
+    const ann = this.byId(annId);
+    if (!ann) return;
+    if (!hasThread(ann)) {
+      this.remove(annId);
+      return;
+    }
+    ann.color = null;
+    ann.updatedAt = Date.now();
+    this.annotations = [...this.annotations];
+    this.touch();
+  }
+
+  /** "No highlight" over a run of text: clear every mark it touches, in one
+   *  undoable-looking step rather than one call per mark. */
+  clearFillFor(ids: string[]): number {
+    if (ids.length === 0) return 0;
+    const set = new Set(ids);
+    let cleared = 0;
+    const kept: Annotation[] = [];
+    for (const ann of this.annotations) {
+      if (!set.has(ann.id)) { kept.push(ann); continue; }
+      if (!hasFill(ann) && !hasThread(ann)) { cleared += 1; continue; }
+      if (!hasThread(ann)) { cleared += 1; continue; }   // bare highlight: gone
+      if (hasFill(ann)) {
+        ann.color = null;
+        ann.updatedAt = Date.now();
+        cleared += 1;
+      }
+      kept.push(ann);
+    }
+    if (cleared === 0) return 0;
+    for (const id of ids) if (this.expandedId === id && !kept.some((a) => a.id === id)) this.expandedId = null;
+    this.annotations = kept;
+    this.touch();
+    return cleared;
   }
 
   /** Append a note. `parentId` null adds at the top level of the thread. */
@@ -152,7 +224,9 @@ class AnnotationStore {
       if (!parent) return null;
       (parent as CommentNode).replies.push(node);
     }
-    ann.kind = "comment";
+    // `kind` is deliberately NOT touched: adding a note to a highlight does not
+    // turn it into something else, and a comment does not acquire a fill. The
+    // two properties are independent — see the Annotation docs.
     ann.updatedAt = Date.now();
     this.annotations = [...this.annotations];
     this.touch();
@@ -183,8 +257,11 @@ class AnnotationStore {
    *
    * Its replies go with it — an orphaned reply to a deleted note is worse than
    * no reply, because it reads as a response to whatever now sits above it.
-   * Deleting the last note demotes the record back to a plain highlight rather
-   * than removing the mark, so the passage the reader had flagged stays flagged.
+   *
+   * Deleting the last note leaves the highlight behind **if there is one**, so
+   * a passage you had also painted stays painted. If the mark had no fill —
+   * it was only ever a comment — there is nothing left for it to be, and it
+   * goes.
    */
   deleteNote(annId: string, noteId: string): void {
     const ann = this.byId(annId);
@@ -193,7 +270,10 @@ class AnnotationStore {
       nodes.filter((n) => n.id !== noteId).map((n) => ({ ...n, replies: prune(n.replies) }));
     ann.thread = prune(ann.thread);
     if (ann.thread.length === 0) {
-      ann.kind = "highlight";
+      if (!hasFill(ann)) {
+        this.remove(annId);
+        return;
+      }
       ann.resolved = false;
     }
     ann.updatedAt = Date.now();
@@ -207,7 +287,9 @@ class AnnotationStore {
     this.touch();
   }
 
-  setColor(annId: string, color: HighlightColor): void {
+  /** `null` clears the fill; see `clearFill` for why that can delete the mark. */
+  setColor(annId: string, color: HighlightColor | null): void {
+    if (color === null) { this.clearFill(annId); return; }
     const ann = this.byId(annId);
     if (!ann) return;
     ann.color = color;

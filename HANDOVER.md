@@ -39,7 +39,8 @@ notes can be written before anyone sees them, then are published by hand
 | v0.8.0 | Published | Refresh from disk, mid-screen outline tracking, wrapping tables, layered surfaces |
 | **v0.9.0** | **Published — stable `latest`** | Page preview, in-app updater, resume mark, Settings drawer, file sorting |
 | v0.10.0-nightly.1 | Published pre-release | Highlights + threaded comments + `.foxmd` sidecar; `.docx` export; smooth scrolling; measured width ceiling; Ctrl/Alt+wheel |
-| v0.10.0-nightly.2 | Published pre-release | Fixes an effect-loop risk in the annotation repaint that could have frozen every handler in the app |
+| v0.10.0-nightly.2 | Built; publish blocked, see below | Fixes an effect-loop risk in the annotation repaint that could have frozen every handler in the app |
+| v0.10.0-nightly.3 | Tagged → CI | Highlight and comment unbraided: "No highlight", remove-by-overlap, right-click removal, comments no longer take a fill |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 onwards was committed straight to master
@@ -62,50 +63,40 @@ notes can be written before anyone sees them, then are published by hand
   `assets/legacy-md-reader-icon.png`. Regenerate native assets with
   `npm run tauri -- icon assets/fox-md-icon.png`.
 
-## OPEN: v0.10.0-nightly.2 built but could not publish
+## RESOLVED: the release-publish permission error
 
-**State (2026-08-26):** the tag `v0.10.0-nightly.2` is pushed and its code is on
-`master`. CI **builds all three platforms successfully** and then fails on the
-last step:
+**Symptom (2026-08-26):** CI built all three platforms and then failed on the
+last step with
 
 ```
-Couldn't find release with tag v0.10.0-nightly.2. Creating one.
+Couldn't find release with tag <tag>. Creating one.
 ##[error]Resource not accessible by integration - .../releases#create-a-release
 ```
 
-Three attempts (one fresh run, two `gh run rerun --failed`), all identical, all
-three jobs. Nothing is wrong with the code or the build.
+**Cause:** the repository's **Workflow permissions** were set to *"Read
+repository contents and packages permissions"*. The `GITHUB_TOKEN` was capped at
+read, so creating a release was denied.
 
-**What it is not.** Checked and ruled out: no repository rulesets (`[]`), no
-Actions access policy, `allowed_actions: all`, and `permissions: contents:
-write` is present at the workflow root *at that tag*. The repo is **public**, so
-this is not an Actions-minutes quota.
+**Fix:** Settings → Actions → General → Workflow permissions → **Read and write
+permissions**. Changed 2026-08-26 with the owner's explicit go-ahead.
+`can_approve_pull_request_reviews` was deliberately left `false` — nothing here
+needs Actions to open or approve pull requests.
 
-**The confusing part, and why this is written down rather than fixed.** The same
-workflow, the same repo and the same settings **succeeded twice earlier the same
-day**: v0.9.0 at 14:57 and v0.10.0-nightly.1 on its second attempt at 16:22. A
-configuration problem does not flicker. GitHub Actions was visibly degraded that
-afternoon — tag pushes took **12 to 17 minutes** to produce a run, and one push
-event was delivered twice. So the most likely cause is a platform incident.
+**Why this took four attempts to pin down, which is the part worth remembering.**
+The workflow declares `permissions: contents: write` at its root, and GitHub's
+documentation says a workflow may grant itself more than the repository default.
+That reads as "the setting cannot be the cause", which is what sent the
+investigation elsewhere — rulesets, access policies, `allowed_actions`, the
+minutes quota (the repo is public, so there is none). Worse, the *same workflow
+published twice earlier the same day*, so it looked intermittent rather than
+configured. **A setting that is supposed to be overridable is still worth
+checking when the error is a permission error**, and the repository Settings
+page answers in ten seconds what the REST API's `default_workflow_permissions`
+field does not make obvious.
 
-**What to do next, cheapest first:**
-
-1. **Just re-run it.** `gh run rerun <id> --failed`. This is what fixed
-   nightly.1. If the incident has passed, it will publish.
-2. If it still fails, the repository's **default workflow permissions are
-   `read`** (Settings → Actions → General → Workflow permissions). Every one of
-   the owner's repos is set that way and all of them release fine, so this
-   *should* be irrelevant — but switching that repo to **Read and write** is the
-   one-click fix, and it is the owner's call, not an agent's, because it widens
-   what every workflow in the repo can do by default.
-3. The artifacts are not recoverable from the failed runs — there is no
-   `upload-artifact` step. Adding one would make a future failure salvageable
-   from here with `gh release upload`, and is worth doing if this recurs.
-
-**Meanwhile `v0.10.0-nightly.1` is published** with all seven artifacts and
-carries the entire feature set. The only thing it lacks is the effect-loop fix
-in the annotation repaint (see `CHANGELOG.md`), which is a latent risk, not an
-observed break.
+Every one of the owner's other repos is still on `read` and releases fine from
+them, so this remains not fully explained — if another repo starts failing the
+same way, this is the first thing to look at.
 
 ## What v0.10.0-nightly.1 added
 
@@ -127,8 +118,15 @@ src/lib/annotations/
   CommentCard.svelte     - one thread, collapsed marker or expanded card
 ```
 
-Five things in here are load-bearing and should not be "simplified":
+Six things in here are load-bearing and should not be "simplified":
 
+0. **Fill and comment are independent properties of one anchor.** `color` is
+   the highlighter (`null` = no fill, a real state); `thread` is the
+   conversation. **Never branch on `kind`** — it survives in the file format as
+   provenance only. The first version fused them ("a comment is a highlight
+   that has something to say") and that single decision is what made
+   unhighlighting impossible to express and forced a colour onto every comment.
+   If these ever share a field again, all three complaints come back.
 1. **Anchors carry two coordinate systems.** `(blockLine, start, length)` is the
    fast path; `quote` + 48 chars of `prefix`/`suffix` is what re-finds the
    passage after the document changes. `resolveAnchor` tries four things in

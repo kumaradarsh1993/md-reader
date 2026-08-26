@@ -50,18 +50,59 @@ export interface CommentNode {
   replies: CommentNode[];
 }
 
+/**
+ * One anchored mark.
+ *
+ * ## Fill and comment are independent, and that is the whole model
+ *
+ * The first version conflated them: "a comment is a highlight that has
+ * something to say", so commenting on a passage silently painted it in a
+ * highlighter colour the reader never chose. That is wrong — in any editor,
+ * highlighting text and commenting on it are two separate acts, and either can
+ * exist without the other.
+ *
+ * So an annotation carries two independent properties:
+ *
+ *  - **`color`** — the highlighter fill. `null` means *no fill*, which is a
+ *    real, reachable state (that is what "No highlight" sets, and what a
+ *    comment starts in), not a missing value.
+ *  - **`thread`** — the conversation. Empty means there is nothing to say.
+ *
+ * All four combinations are meaningful except one: an annotation with no fill
+ * **and** no thread has nothing left to be, and the store deletes it rather
+ * than keeping an invisible anchor around.
+ */
 export interface Annotation {
   id: string;
-  /** A `comment` always carries at least one note; a `highlight` never does.
-   *  Adding the first note to a highlight promotes it, and deleting the last
-   *  note demotes it back — so there is no such thing as an empty thread. */
+  /**
+   * @deprecated Provenance only — how the mark was first made. Never branch on
+   * it: `color !== null` decides whether there is a fill, `thread.length > 0`
+   * decides whether there is a comment. Kept so that a file written here still
+   * opens in v0.10.0-nightly.1, and so the two never drift back together.
+   */
   kind: "highlight" | "comment";
-  color: HighlightColor;
+  /** The highlighter fill, or `null` for none. */
+  color: HighlightColor | null;
   anchor: Anchor;
   thread: CommentNode[];
   createdAt: number;
   updatedAt: number;
   resolved: boolean;
+}
+
+/** Does this mark paint a highlighter fill? */
+export function hasFill(ann: Annotation): boolean {
+  return ann.color !== null && ann.color !== undefined;
+}
+
+/** Does this mark carry a conversation? */
+export function hasThread(ann: Annotation): boolean {
+  return ann.thread.length > 0;
+}
+
+/** Nothing left to show and nothing left to say — the store drops these. */
+export function isEmptyMark(ann: Annotation): boolean {
+  return !hasFill(ann) && !hasThread(ann);
 }
 
 /** What is written to `.foxmd/<name>.notes.json`. */

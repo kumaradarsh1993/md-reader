@@ -30,7 +30,8 @@
     onEdit: (noteId: string, body: string) => void;
     onDeleteNote: (noteId: string) => void;
     onDelete: () => void;
-    onColor: (color: HighlightColor) => void;
+    /** `null` clears the fill — a comment does not have to be highlighted. */
+    onColor: (color: HighlightColor | null) => void;
     onToggleResolved: () => void;
     /** Scroll the document to this annotation's text. */
     onGoTo: () => void;
@@ -128,7 +129,7 @@
   <!-- Collapsed: the marker. Wide enough to be an easy target, quiet enough to
        scroll past. The count is the only information worth showing here. -->
   <button
-    class="marker {ann.color}"
+    class="marker {ann.color ?? 'none'}"
     class:resolved={ann.resolved}
     class:detached
     onclick={onToggle}
@@ -141,7 +142,7 @@
     {#if count > 1}<span class="n">{count}</span>{/if}
   </button>
 {:else}
-  <div class="card {ann.color}" class:resolved={ann.resolved} class:detached>
+  <div class="card {ann.color ?? 'none'}" class:resolved={ann.resolved} class:detached>
     <div class="card-head">
       <button class="quote" onclick={onGoTo} title="Go to this passage">
         <span class="quote-bar"></span>
@@ -154,17 +155,26 @@
             onclick={() => (colorOpen = !colorOpen)}
             title="Change colour"
             aria-label="Change colour"
-          ><span class="dot {ann.color}"></span></button>
+          ><span class="dot {ann.color ?? 'none'}"></span></button>
           {#if colorOpen}
             <div class="color-pop">
               {#each HIGHLIGHT_COLORS as c (c)}
                 <button
                   class="dot {c}"
+                  class:on={ann.color === c}
                   onclick={() => { onColor(c); colorOpen = false; }}
                   aria-label="Colour {c}"
                   title={c}
                 ></button>
               {/each}
+              <!-- A comment starts unhighlighted and can go back to it. -->
+              <button
+                class="dot none"
+                class:on={ann.color === null}
+                onclick={() => { onColor(null); colorOpen = false; }}
+                aria-label="No highlight"
+                title="No highlight"
+              ></button>
             </div>
           {/if}
         </div>
@@ -296,6 +306,9 @@
   }
   /* The marker carries its thread's colour on its left edge, so the mark in the
      text and the mark in the margin are visibly the same object. */
+  /* A comment with no fill still needs an identity in the margin: it takes the
+     comment mark's own tone rather than borrowing a highlighter colour. */
+  .marker.none { border-left: 3px solid var(--accent); }
   .marker.yellow { border-left: 3px solid #e5b800; }
   .marker.green  { border-left: 3px solid #45b06c; }
   .marker.blue   { border-left: 3px solid #3d95d8; }
@@ -318,6 +331,7 @@
     line-height: 1.5;
     color: var(--fg);
   }
+  .card.none   { --accent: var(--comment-accent, #b4622a); }
   .card.yellow { --accent: #e5b800; }
   .card.green  { --accent: #45b06c; }
   .card.blue   { --accent: #3d95d8; }
@@ -396,6 +410,15 @@
   .dot.blue   { background: #86c5f5; }
   .dot.pink   { background: #f9a3bd; }
   .dot.purple { background: #c3a5f0; }
+  /* No fill. A slashed circle, so it reads as "none" and not as white paint. */
+  .dot.none {
+    background:
+      linear-gradient(to top right,
+        transparent calc(50% - .8px), var(--muted-strong) calc(50% - .8px),
+        var(--muted-strong) calc(50% + .8px), transparent calc(50% + .8px)),
+      var(--bg);
+  }
+  .dot.on { box-shadow: 0 0 0 1.5px var(--chrome-bg), 0 0 0 3px var(--fg-strong); }
 
   .mini {
     display: inline-flex;

@@ -13,6 +13,89 @@ part worth keeping: the wrong turn.
 
 ---
 
+## v0.10.0 (revised) — 2026-08-26 — unbraiding highlight from comment
+
+### The complaint
+
+Same day, on the first build: *"why is there not an option to unhighlight… and
+similarly why does commenting always take a highlight colour, weird no… can I
+not select the entire block, right click and say remove highlights, because it
+might be very difficult to actually select the entire thing… the same principle
+that you would do in any other typical editor of sorts."*
+
+Three complaints, one cause, and the cause was a design decision made in this
+file a few hours earlier:
+
+> **"A comment is a highlight that has something to say, so it is the same
+> record with a thread."**
+
+That sentence is wrong, and everything that followed from it was wrong.
+
+### Why it was wrong
+
+Highlighting a passage and commenting on it are **two different acts**. Every
+editor treats them that way, and readers expect it: you can highlight without
+saying anything, and you can say something without painting the text. Fusing
+them meant a comment had to borrow a colour it never asked for, and the reader
+ends up with five colours of paint they did not choose.
+
+It also made removal incoherent. If the record *is* the highlight, then "remove
+the highlight" and "delete the comment" are the same operation — so the safe
+thing to do was neither, and the app simply offered no way to unhighlight at
+all. **The missing feature was a symptom; the model was the defect.**
+
+### The model now
+
+Two independent properties on one anchor:
+
+- **`color: HighlightColor | null`** — the fill. `null` is a real, reachable
+  state, not a missing value.
+- **`thread: CommentNode[]`** — the conversation.
+
+All four combinations mean something, except no-fill-and-no-thread, which has
+nothing left to be and is deleted. `kind` survives in the file format as
+provenance only, explicitly marked never-branch-on, so the two cannot silently
+braid back together.
+
+### Decisions that follow
+
+**A comment paints a rule, not a wash.** Its own `::highlight()` registry
+contributing only `text-decoration`, while the colour registries contribute
+only `background-color` — so a passage that is *both* highlighted and commented
+gets both marks rather than one winning. Verified in the browser: such a
+passage appears in `foxmd-hl-blue` and `foxmd-hl-comment` at once.
+
+**Clearing a fill must never delete what someone wrote.** "No highlight" over a
+run of text removes bare highlights outright but leaves any mark that carries a
+thread, minus its colour. Formatting and content are not the same thing, and a
+gesture aimed at one must not destroy the other. Measured: a selection over
+three fills left exactly the commented one, with its note intact.
+
+**Overlap, not containment, decides what a gesture touches.** Dragging across a
+paragraph never lands exactly on the ends of the marks inside it, and requiring
+an exact match is precisely what makes people ask "why can't I just remove
+this?". `compareBoundaryPoints` on the two ranges is exact and costs no layout.
+
+**Right-clicking inside a mark counts as selecting it.** Re-selecting an
+existing highlight by hand is fiddly; being unable to remove one without doing
+so is the complaint. With nothing selected, the caret position under the cursor
+identifies the mark.
+
+**Re-highlighting recolours rather than stacks.** Painting a second mark over
+the same words leaves two records on one passage that the reader cannot tell
+apart.
+
+### The lesson worth keeping
+
+The original decision was written down *as a decision*, with a rationale, in
+this file — and it still deserved to be thrown out within hours. A justification
+in the log is not evidence that a model is right; it only records what was
+believed. **When a user asks "why can't I do X", check whether the model makes
+X expressible at all before reaching for the UI.** Here, three separate UI
+complaints all dissolved the moment one field stopped being shared.
+
+---
+
 ## v0.10.0 — 2026-08-26 — annotation, export, and the mechanics of reading
 
 ### What was asked for
@@ -145,9 +228,11 @@ authoritative; `<name>.notes.md` is generated from it on every save and is what
 gets read. Strictly one direction, so there is no sync problem — if the markdown
 were lost or hand-edited, the next save regenerates it.
 
-**Deleting the last note demotes to a highlight rather than removing the mark.**
-The passage was flagged for a reason; deleting a sentence you wrote about it is
-not the same as deciding it no longer matters.
+**Deleting the last note keeps the highlight if there is one.** The passage was
+flagged for a reason; deleting a sentence you wrote about it is not the same as
+deciding it no longer matters. (Revised the same day — if the mark had *no*
+fill, it was only ever a comment and there is nothing left for it to be, so it
+goes. See the revision entry above.)
 
 **A detached annotation is kept, not dropped.** When the quoted passage is no
 longer anywhere in the document the note is shown as detached. Deleting someone's

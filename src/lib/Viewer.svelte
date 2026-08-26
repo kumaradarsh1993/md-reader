@@ -598,7 +598,8 @@
     const blocks: BlockText[] = indexBlocks(prose);
     const next: Placed[] = [];
     const detached: string[] = [];
-    const groups = new Map<HighlightColor, Range[]>();
+    const fills = new Map<HighlightColor, Range[]>();
+    const commented: Range[] = [];
     const active: Range[] = [];
     const scrolled = container.scrollTop;
     const top0 = containerBox.top;
@@ -630,13 +631,18 @@
         range: hit.range,
       });
 
-      if (settings.s.showHighlights) {
-        if (annotations.expandedId === ann.id) active.push(hit.range);
-        else {
-          const list = groups.get(ann.color) ?? [];
+      // Fill and comment mark are decided independently, because they are
+      // independent properties of the mark — a comment with no fill paints only
+      // the rule, a highlight with a comment paints both.
+      if (annotations.expandedId === ann.id) {
+        active.push(hit.range);
+      } else {
+        if (settings.s.showHighlights && ann.color) {
+          const list = fills.get(ann.color) ?? [];
           list.push(hit.range);
-          groups.set(ann.color, list);
+          fills.set(ann.color, list);
         }
+        if (settings.s.showComments && ann.thread.length > 0) commented.push(hit.range);
       }
     }
 
@@ -651,8 +657,8 @@
 
     annotations.setDetached(detached);
     placed = next;
-    if (settings.s.showHighlights) paintHighlights(groups, active);
-    else clearHighlights();
+    paintHighlights({ fills, commented, active });
+    liveMarkIds = markIdsIn(currentSelectionRange(), next);
     paneWidth = container.clientWidth;
     annotationsReady = true;
   }
@@ -670,15 +676,16 @@
 
   /** A new selection inside the prose raises the annotate toolbar. */
   function updateSelection() {
-    if (mode !== "view") { selRect = null; return; }
+    if (mode !== "view") { selRect = null; liveMarkIds = []; return; }
     const sel = window.getSelection();
     const prose = container?.querySelector<HTMLElement>(".prose");
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !prose) { selRect = null; return; }
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !prose) { selRect = null; liveMarkIds = []; return; }
     const range = sel.getRangeAt(0);
-    if (!prose.contains(range.commonAncestorContainer)) { selRect = null; return; }
+    if (!prose.contains(range.commonAncestorContainer)) { selRect = null; liveMarkIds = []; return; }
     const r = range.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) { selRect = null; return; }
     selRect = { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    liveMarkIds = markIdsIn(range);
   }
 
   function currentAnchor(): Anchor | null {
@@ -688,21 +695,93 @@
     return anchorFromSelection(prose, sel);
   }
 
+  /** The live selection, or null. Used both for the toolbar and for deciding
+   *  which marks a "No highlight" would touch. */
+  function currentSelectionRange(): Range | null {
+    const sel = window.getSelection();
+    const prose = container?.querySelector<HTMLElement>(".prose");
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !prose) return null;
+    const r = sel.getRangeAt(0);
+    return prose.contains(r.commonAncestorContainer) ? r : null;
+  }
+
+  /**
+   * Every mark whose painted range overlaps `range`.
+   *
+   * Overlap, not containment — this is what makes "select roughly the right
+   * area and clear it" work. Dragging across a paragraph rarely lands exactly
+   * on the ends of the marks inside it, and requiring an exact match is the
+   * reason "why can't I just remove this highlight?" gets asked.
+   *
+   * `compareBoundaryPoints` on the two ranges is exact and costs no layout:
+   * they overlap unless one ends before the other starts.
+   */
+  function markIdsIn(range: Range | null, from: Placed[] = placed): string[] {
+    if (!range) return [];
+    const out: string[] = [];
+    for (const p of from) {
+      try {
+        const startsAfterEnd = range.compareBoundaryPoints(Range.START_TO_END, p.range) <= 0;
+        const endsBeforeStart = range.compareBoundaryPoints(Range.END_TO_START, p.range) >= 0;
+        if (!startsAfterEnd && !endsBeforeStart) out.push(p.ann.id);
+      } catch {
+        // Ranges in different documents can't be compared; skip rather than
+        // take the whole clear-highlights action down with one stale range.
+      }
+    }
+    return out;
+  }
+
+  /** Marks the current selection is sitting on — drives the toolbar's state. */
+  let liveMarkIds = $state<string[]>([]);
+  let selectionCanClear = $derived(
+    liveMarkIds.some((id) => {
+      const a = annotations.byId(id);
+      return !!a && (a.color !== null || a.thread.length === 0);
+    }),
+  );
+
   function highlightSelection(color: HighlightColor) {
+    const range = currentSelectionRange();
     const anchor = currentAnchor();
     if (!anchor) return;
-    annotations.addHighlight(anchor, color);
+    // Re-colouring beats stacking. Painting a new mark over one that already
+    // covers the same words leaves two records on the same passage, and the
+    // reader has no way to tell — so an exact-span match is recoloured instead.
+    const overlapping = markIdsIn(range);
+    const exact = overlapping
+      .map((id) => annotations.byId(id))
+      .find((a) => a && a.anchor.quote === anchor.quote && a.anchor.blockLine === anchor.blockLine);
+    if (exact) annotations.setColor(exact.id, color);
+    else annotations.addHighlight(anchor, color);
     window.getSelection()?.removeAllRanges();
     selRect = null;
+  }
+
+  /**
+   * "No highlight" — the same gesture every editor has.
+   *
+   * Clears the fill on everything the selection touches. A mark that also
+   * carries a comment keeps the comment and just loses its colour; a bare
+   * highlight goes entirely. See `clearFill` in the store for why that
+   * asymmetry is the safe one.
+   */
+  function clearHighlightsInSelection() {
+    const ids = markIdsIn(currentSelectionRange());
+    const n = annotations.clearFillFor(ids);
+    window.getSelection()?.removeAllRanges();
+    selRect = null;
+    return n;
   }
 
   function commentOnSelection() {
     const anchor = currentAnchor();
     if (!anchor) return;
-    // Created as a bare highlight and immediately expanded, so the composer in
-    // the margin is where the comment is written — one place to type a note,
-    // whether it is the first or the fifth.
-    const ann = annotations.addHighlight(anchor, settings.s.defaultHighlightColor);
+    // Anchored with NO fill and immediately expanded, so the composer in the
+    // margin is where the comment is written — one place to type a note,
+    // whether it is the first or the fifth. Commenting is not highlighting;
+    // the passage gets a rule under it, not a colour over it.
+    const ann = annotations.startComment(anchor);
     if (!settings.s.showComments) settings.set("showComments", true);
     annotations.expandedId = ann.id;
     window.getSelection()?.removeAllRanges();
@@ -1200,6 +1279,59 @@
       items.push({ separator: true });
     }
 
+    // ── Annotations ──────────────────────────────────────────────────
+    // Two paths, because there are two ways to mean "this one": a selection
+    // dragged across the passage, or simply right-clicking inside a mark. The
+    // second matters more than it looks — re-selecting an existing highlight
+    // exactly is fiddly, and being unable to remove one without doing so is
+    // the reason this menu exists.
+    if (mode === "view") {
+      const selRange = currentSelectionRange();
+      const selIds = markIdsIn(selRange);
+      const underCursor = selIds.length === 0 ? annotationAtPoint(e.clientX, e.clientY) : null;
+      const ids = selIds.length > 0 ? selIds : underCursor ? [underCursor] : [];
+      const marks = ids.map((id) => annotations.byId(id)).filter(Boolean) as typeof annotations.annotations;
+      const fills = marks.filter((a) => a.color !== null).length;
+
+      if (selection) {
+        items.push({
+          label: "Highlight",
+          icon: "highlighter",
+          action: () => highlightSelection(settings.s.defaultHighlightColor),
+        });
+        items.push({
+          label: "Add comment",
+          icon: "message-square-plus",
+          action: commentOnSelection,
+        });
+      }
+
+      if (fills > 0) {
+        items.push({
+          label: fills === 1 ? "Remove highlight" : `Remove ${fills} highlights`,
+          icon: "eye-off",
+          action: () => {
+            if (selIds.length > 0) clearHighlightsInSelection();
+            else if (underCursor) annotations.clearFill(underCursor);
+          },
+        });
+      }
+
+      const threads = marks.filter((a) => a.thread.length > 0);
+      if (threads.length === 1) {
+        items.push({
+          label: "Open comment",
+          icon: "message-square",
+          action: () => {
+            if (!settings.s.showComments) settings.set("showComments", true);
+            annotations.expandedId = threads[0].id;
+          },
+        });
+      }
+
+      if (items.length > 0 && (selection || ids.length > 0)) items.push({ separator: true });
+    }
+
     if (anchor && /^(https?|mailto):/i.test(href)) {
       items.push({
         label: "Open link in browser",
@@ -1285,6 +1417,8 @@
 <SelectionToolbar
   rect={mode === "view" ? selRect : null}
   onHighlight={highlightSelection}
+  onClear={clearHighlightsInSelection}
+  canClear={selectionCanClear}
   onComment={commentOnSelection}
   onCopy={copySelection}
 />

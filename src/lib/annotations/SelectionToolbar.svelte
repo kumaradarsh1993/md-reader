@@ -17,10 +17,16 @@
     /** Viewport coordinates of the selection's bounding box. */
     rect: { top: number; bottom: number; left: number; right: number } | null;
     onHighlight: (color: HighlightColor) => void;
+    /** "No highlight" — clears the fill on everything the selection touches. */
+    onClear: () => void;
+    /** True when the selection is actually sitting on something clearable, so
+     *  the control can be present-but-inert rather than appearing and
+     *  disappearing as the selection moves. */
+    canClear: boolean;
     onComment: () => void;
     onCopy: () => void;
   }
-  let { rect, onHighlight, onComment, onCopy }: Props = $props();
+  let { rect, onHighlight, onClear, canClear, onComment, onCopy }: Props = $props();
 
   const BAR_H = 36;
   const GAP = 8;
@@ -67,6 +73,21 @@
           aria-label="Highlight {c}"
         ></button>
       {/each}
+      <!-- The "no fill" swatch, in the colour row where every editor puts it.
+           Always present, so its position never moves; dimmed when the
+           selection has nothing to clear. -->
+      <button
+        class="swatch none"
+        class:inert={!canClear}
+        onclick={onClear}
+        disabled={!canClear}
+        title={canClear ? "No highlight — remove it from this selection" : "No highlight here"}
+        aria-label="No highlight"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <line x1="4.5" y1="15.5" x2="15.5" y2="4.5" />
+        </svg>
+      </button>
     </div>
     <span class="divider"></span>
     <button class="action" onclick={onComment} title="Comment on this selection">
@@ -127,6 +148,25 @@
   .swatch.blue   { background: #86c5f5; }
   .swatch.pink   { background: #f9a3bd; }
   .swatch.purple { background: #c3a5f0; }
+  /* No fill: the paper itself, with a slash. Reads as "none" rather than as a
+     sixth colour, which a white circle alone would not. */
+  .swatch.none {
+    background: var(--bg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .swatch.none svg {
+    width: 100%;
+    height: 100%;
+    stroke: var(--danger, #c0392b);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    fill: none;
+  }
+  .swatch.none.inert { opacity: .35; cursor: default; }
+  .swatch.none.inert:hover { transform: none; }
 
   .divider {
     width: 1px;

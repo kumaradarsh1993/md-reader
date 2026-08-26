@@ -1394,6 +1394,21 @@
   :global(::highlight(foxmd-hl-blue))   { background-color: rgba(70, 160, 235, .28); }
   :global(::highlight(foxmd-hl-pink))   { background-color: rgba(240, 105, 150, .28); }
   :global(::highlight(foxmd-hl-purple)) { background-color: rgba(150, 110, 225, .28); }
+  /* **A commented passage is NOT highlighted.** It gets a rule under the text
+     — the mark a document editor uses for "there is something written about
+     this" — in the app's accent, not in one of the five highlighter colours.
+     Commenting and highlighting are separate acts and must not look alike.
+
+     A passage that is both keeps both: this registry contributes only
+     `text-decoration`, the colour registries only `background-color`, so an
+     overlapping range gets the rule *and* the fill instead of one winning. */
+  :global(::highlight(foxmd-hl-comment)) {
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+
   /* The thread that is currently open in the margin. Underlined as well as
      tinted, so "which passage is this card about?" is answerable at a glance
      without the tint having to shout. */

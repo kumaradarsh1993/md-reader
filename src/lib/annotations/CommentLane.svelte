@@ -79,7 +79,9 @@
     return { destroy: () => ro.disconnect() };
   }
 
-  function onColor(id: string, c: HighlightColor) { annotations.setColor(id, c); }
+  /** `null` is "no highlight" — the store turns that into a fill clear, which
+   *  keeps the thread and only removes the colour. */
+  function onColor(id: string, c: HighlightColor | null) { annotations.setColor(id, c); }
 </script>
 
 <div class="lane" class:floating bind:this={laneEl} aria-label="Comments">

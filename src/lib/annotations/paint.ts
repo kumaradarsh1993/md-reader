@@ -39,25 +39,42 @@ export function supported(): boolean {
  * rule styles a whole registry — per-range colours are not a thing. Six
  * registries is the entire cost of five colours.
  */
-export function paintHighlights(
-  groups: Map<HighlightColor, Range[]>,
-  active: Range[],
-): void {
+export interface PaintSets {
+  /** Highlighter fills, by colour. Only marks with a colour appear here. */
+  fills: Map<HighlightColor, Range[]>;
+  /**
+   * Passages that carry a comment.
+   *
+   * A separate registry, because **a comment is not a highlight.** It paints a
+   * rule under the text rather than a colour over it — the mark a document
+   * editor uses to say "there is something written about this", which is a
+   * different statement from "I have marked this passage". A passage that is
+   * both highlighted and commented lands in both sets and gets both marks:
+   * one contributes `background-color`, the other `text-decoration`, so they
+   * compose rather than fight.
+   */
+  commented: Range[];
+  /** The one thread currently open in the margin. */
+  active: Range[];
+}
+
+const EXTRA = ["comment", "active"] as const;
+
+export function paintHighlights(sets: PaintSets): void {
   if (!supported()) return;
   const registry = (CSS as any).highlights as Map<string, unknown>;
-  for (const color of HIGHLIGHT_COLORS) {
-    const ranges = groups.get(color);
-    const key = PREFIX + color;
-    if (!ranges || ranges.length === 0) registry.delete(key);
-    else registry.set(key, new Highlight(...ranges));
-  }
-  if (active.length === 0) registry.delete(PREFIX + "active");
-  else registry.set(PREFIX + "active", new Highlight(...active));
+  const put = (key: string, ranges: Range[]) => {
+    if (ranges.length === 0) registry.delete(PREFIX + key);
+    else registry.set(PREFIX + key, new Highlight(...ranges));
+  };
+  for (const color of HIGHLIGHT_COLORS) put(color, sets.fills.get(color) ?? []);
+  put("comment", sets.commented);
+  put("active", sets.active);
 }
 
 export function clearHighlights(): void {
   if (!supported()) return;
   const registry = (CSS as any).highlights as Map<string, unknown>;
   for (const color of HIGHLIGHT_COLORS) registry.delete(PREFIX + color);
-  registry.delete(PREFIX + "active");
+  for (const key of EXTRA) registry.delete(PREFIX + key);
 }
