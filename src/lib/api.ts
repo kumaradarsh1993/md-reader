@@ -46,6 +46,18 @@ export const api = {
   openFile: (path: string) => invoke<OpenedFile>("open_file", { path }),
   saveFile: (path: string, content: string) =>
     invoke<void>("save_file", { path, content }),
+  /** The OS account's name, as a first guess at who is commenting. */
+  userDisplayName: () => invoke<string>("user_display_name"),
+  /** Read a text file, or null when it is simply not there. */
+  readTextFileOpt: (path: string) => invoke<string | null>("read_text_file_opt", { path }),
+  /** Write a text file, creating parent directories. */
+  writeTextFileMkdir: (path: string, content: string) =>
+    invoke<void>("write_text_file_mkdir", { path, content }),
+  /** Write only if nothing is there — never clobbers. */
+  writeTextFileIfAbsent: (path: string, content: string) =>
+    invoke<void>("write_text_file_if_absent", { path, content }),
+  /** Delete a regular file if it exists; a no-op otherwise. */
+  removeFileIfPresent: (path: string) => invoke<void>("remove_file_if_present", { path }),
   /** Read a file as base64. Used by the .docx exporter to embed images. */
   readFileBase64: (path: string) => invoke<string>("read_file_base64", { path }),
   /** Write raw bytes, given as base64. The .docx exporter's save path. */

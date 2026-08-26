@@ -76,6 +76,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::open_file,
             commands::save_file,
+            commands::user_display_name,
+            commands::read_text_file_opt,
+            commands::write_text_file_mkdir,
+            commands::write_text_file_if_absent,
+            commands::remove_file_if_present,
             commands::read_file_base64,
             commands::write_file_base64,
             commands::render_markdown,

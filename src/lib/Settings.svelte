@@ -2,6 +2,8 @@
   import { settings, type ThemeMode, WIDTH_MIN, WIDTH_DEFAULT, widthMax } from "./settings-store.svelte";
   import { MOD, sk } from "./platform";
   import { api, type UpdateStatus, type ReleaseInfo } from "./api";
+  import { annotations } from "./annotations/store.svelte";
+  import { HIGHLIGHT_COLORS } from "./annotations/types";
   import { openUrl } from "@tauri-apps/plugin-opener";
 
   interface Props { open: boolean }
@@ -179,7 +181,7 @@
           onclick={() => settings.set("fullWidth", !settings.s.fullWidth)}
         >Full</button>
       </div>
-      <small class="hint">Tip: <kbd>{MOD}</kbd>+<kbd>]</kbd> wider · <kbd>{MOD}</kbd>+<kbd>[</kbd> narrower · <kbd>{MOD}</kbd>+<kbd>\\</kbd> full</small>
+      <small class="hint">Tip: <kbd>{MOD}</kbd>+<kbd>]</kbd> wider · <kbd>{MOD}</kbd>+<kbd>[</kbd> narrower · <kbd>{MOD}</kbd>+<kbd>\\</kbd> full · <kbd>Alt</kbd>+scroll over the page</small>
     </fieldset>
 
     <label>
@@ -276,6 +278,60 @@
         <button type="button" onclick={() => settings.clearScrollMemory()} disabled={markCount === 0}>
           Forget saved positions
         </button>
+      </div>
+    </fieldset>
+
+    <h3 class="group-head">Notes</h3>
+
+    <fieldset class="notes-group">
+      <legend>
+        <span>Highlights &amp; comments</span>
+        <span class="value">{annotations.count === 0 ? "none here" : `${annotations.count} on this file`}</span>
+      </legend>
+      <p class="hint smart-hint">
+        Select any text to highlight it or leave a comment. Notes are saved
+        beside the document in a <code>.foxmd</code> folder, as JSON plus a
+        readable markdown digest &mdash; so an assistant working on the file can
+        read what you said about it. They save themselves; there is nothing to press.
+      </p>
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={settings.s.showHighlights}
+          onchange={(e) => settings.set("showHighlights", (e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>Show highlights <small>({MOD}+Shift+H &mdash; hides the colour, never the note)</small></span>
+      </label>
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={settings.s.showComments}
+          onchange={(e) => settings.set("showComments", (e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>Show the comment margin <small>({MOD}+Shift+M &mdash; reserves a column on the right when the file has comments)</small></span>
+      </label>
+      <label>
+        <span>Your name on new comments</span>
+        <input
+          type="text"
+          class="text-input"
+          placeholder="from your Windows account"
+          value={settings.s.authorName}
+          oninput={(e) => settings.set("authorName", (e.currentTarget as HTMLInputElement).value)}
+        />
+      </label>
+      <div class="presets swatch-row">
+        <span class="swatch-label">Default colour</span>
+        {#each HIGHLIGHT_COLORS as c (c)}
+          <button
+            type="button"
+            class="swatch-btn {c}"
+            class:active={settings.s.defaultHighlightColor === c}
+            onclick={() => settings.set("defaultHighlightColor", c)}
+            aria-label={c}
+            title={c}
+          ></button>
+        {/each}
       </div>
     </fieldset>
 
@@ -481,6 +537,37 @@
 {/if}
 
 <style>
+  /* Notes section */
+  .text-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: .35rem .5rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: 12.5px;
+  }
+  .swatch-row { align-items: center; gap: .35rem; }
+  .swatch-label { font-size: 12px; color: var(--muted-strong); margin-right: .2rem; }
+  .swatch-btn {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, .18);
+    cursor: pointer;
+  }
+  /* The selected colour is marked with a ring rather than a tick: a tick has to
+     be drawn in a colour, and there is no one colour that reads on all five. */
+  .swatch-btn.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--fg-strong); }
+  .swatch-btn.yellow { background: #ffd84d; }
+  .swatch-btn.green  { background: #7fd99a; }
+  .swatch-btn.blue   { background: #86c5f5; }
+  .swatch-btn.pink   { background: #f9a3bd; }
+  .swatch-btn.purple { background: #c3a5f0; }
+
   .backdrop {
     position: fixed;
     inset: 0;

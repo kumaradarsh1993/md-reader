@@ -1,6 +1,7 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { api, type SecretProvider } from "./api";
 import { readingMetrics } from "./reading-metrics.svelte";
+import type { HighlightColor } from "./annotations/types";
 
 export type ThemeMode = "auto" | "light" | "dark" | "sepia";
 
@@ -16,6 +17,10 @@ export type SurfaceStyle = "flat" | "layered";
 
 /** v0.9.0+: ordering for the Files panel. Folders always come first in both. */
 export type FileSort = "name" | "modified";
+
+/** Re-exported so consumers of the settings schema don't reach into the
+ *  annotations module for one string union. */
+export type { HighlightColor };
 
 /** v0.5.0+: which provider drives the sidebar's "✨ Summary" mode. */
 export type LLMProvider = "groq" | "anthropic";
@@ -100,6 +105,15 @@ export interface AppSettings {
   resumeRibbon: boolean;
   /** Per-file-path reading positions. Bounded to SCROLL_MEMORY_CAP entries. */
   scrollMemory: Record<string, ScrollMark>;
+  // ─── Annotations (v0.10.0+) ──────────────────────────────────────
+  /** Paint highlights in the document. Off hides the colour, never the data. */
+  showHighlights: boolean;
+  /** Show the comment lane in the right margin. */
+  showComments: boolean;
+  /** Name new comments are attributed to. Seeded from the OS account. */
+  authorName: string;
+  /** Colour a fresh highlight takes when made from the keyboard. */
+  defaultHighlightColor: HighlightColor;
   recentFiles: string[];
   openTabs: string[];
   activeTabPath: string | null;
@@ -181,6 +195,10 @@ const DEFAULTS: AppSettings = {
   showToc: true,
   showFiles: false,
   panelWidth: 280,
+  showHighlights: true,
+  showComments: true,
+  authorName: "",
+  defaultHighlightColor: "yellow",
   panelCollapsed: false,
   panelSplit: 0.45,
   panelHoverPeek: true,

@@ -10,6 +10,12 @@
     type ScrollMark,
   } from "./settings-store.svelte";
   import { readingMetrics } from "./reading-metrics.svelte";
+  import { annotations, defaultAuthor } from "./annotations/store.svelte";
+  import { anchorFromSelection, indexBlocks, offsetAtPoint, resolveAnchor, type BlockText } from "./annotations/anchor";
+  import { clearHighlights, paintHighlights } from "./annotations/paint";
+  import CommentLane from "./annotations/CommentLane.svelte";
+  import SelectionToolbar from "./annotations/SelectionToolbar.svelte";
+  import type { Anchor, HighlightColor, Placed } from "./annotations/types";
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { sk, copyText } from "./platform";
   import { postRender } from "./post-render";
@@ -237,9 +243,13 @@
     if (chProbe && prose) {
       const cs = getComputedStyle(prose);
       const gutters = parseFloat(cs.paddingLeft || "0") + parseFloat(cs.paddingRight || "0");
+      // The viewer's own padding is the reserved comment lane. It is not space
+      // the text may use, so the ceiling must not offer it.
+      const vs = getComputedStyle(container);
+      const reserved = parseFloat(vs.paddingLeft || "0") + parseFloat(vs.paddingRight || "0");
       readingMetrics.publish(
         chProbe.getBoundingClientRect().width / 20,
-        container.clientWidth - gutters,
+        container.clientWidth - reserved - gutters,
       );
     }
     for (const b of lineIndex) {
@@ -535,6 +545,181 @@
     }
   }
 
+  // ─── Annotations ──────────────────────────────────────────────────────
+
+  let placed = $state<Placed[]>([]);
+  let selRect = $state<{ top: number; bottom: number; left: number; right: number } | null>(null);
+  let author = $state("Me");
+  let paneWidth = $state(1200);
+  let annotationsReady = $state(false);
+
+  /**
+   * The lane appears for threads that exist *or* for the one being started.
+   *
+   * The `expandedId` half is not a nicety: "Comment" on a selection creates a
+   * highlight with an empty thread and opens its composer, so a lane gated on
+   * `thread.length > 0` would never show the box the comment is typed into —
+   * the button would look broken every first time.
+   */
+  let laneOn = $derived(
+    settings.s.showComments &&
+      mode === "view" &&
+      placed.some((p) => p.ann.thread.length > 0 || annotations.expandedId === p.ann.id),
+  );
+
+  $effect(() => {
+    void (async () => {
+      author = settings.s.authorName || (await defaultAuthor());
+    })();
+  });
+
+  /**
+   * Re-resolve every annotation against the DOM as it stands now, repaint, and
+   * republish the lane positions.
+   *
+   * Called after each render, after each annotation change, and whenever the
+   * cached block geometry is invalidated. It is O(annotations × blocks) in the
+   * worst case — but only annotations whose cheap path failed reach the scan,
+   * and the block text is indexed once per call rather than once per annotation.
+   */
+  function refreshAnnotations() {
+    if (!container) return;
+    const prose = container.querySelector<HTMLElement>(".prose");
+    if (!prose || mode !== "view") {
+      placed = [];
+      clearHighlights();
+      return;
+    }
+    ensureGeometry();
+
+    const blocks: BlockText[] = indexBlocks(prose);
+    const next: Placed[] = [];
+    const detached: string[] = [];
+    const groups = new Map<HighlightColor, Range[]>();
+    const active: Range[] = [];
+    const scrolled = container.scrollTop;
+    const top0 = containerBox.top;
+
+    for (const ann of annotations.annotations) {
+      const hit = resolveAnchor(blocks, ann.anchor);
+      if (!hit) {
+        detached.push(ann.id);
+        continue;
+      }
+      // Persist a repair so the next open takes the cheap path and the sidecar
+      // keeps pointing at the passage rather than at where it used to be.
+      if (hit.repaired) annotations.updateAnchor(ann.id, hit.anchor);
+
+      const r = hit.range.getBoundingClientRect();
+      next.push({
+        ann,
+        top: r.top - top0 + scrolled,
+        bottom: r.bottom - top0 + scrolled,
+        range: hit.range,
+      });
+
+      if (settings.s.showHighlights) {
+        if (annotations.expandedId === ann.id) active.push(hit.range);
+        else {
+          const list = groups.get(ann.color) ?? [];
+          list.push(hit.range);
+          groups.set(ann.color, list);
+        }
+      }
+    }
+
+    annotations.setDetached(detached);
+    placed = next;
+    if (settings.s.showHighlights) paintHighlights(groups, active);
+    else clearHighlights();
+    paneWidth = container.clientWidth;
+    annotationsReady = true;
+  }
+
+  /** Repaint whenever the model or the layers change. Reads the store's array
+   *  identity, which every mutation replaces, so this is the single trigger. */
+  $effect(() => {
+    void annotations.annotations;
+    void annotations.expandedId;
+    void settings.s.showHighlights;
+    void settings.s.showComments;
+    void mode;
+    if (renderedTabId) refreshAnnotations();
+  });
+
+  /** A new selection inside the prose raises the annotate toolbar. */
+  function updateSelection() {
+    if (mode !== "view") { selRect = null; return; }
+    const sel = window.getSelection();
+    const prose = container?.querySelector<HTMLElement>(".prose");
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !prose) { selRect = null; return; }
+    const range = sel.getRangeAt(0);
+    if (!prose.contains(range.commonAncestorContainer)) { selRect = null; return; }
+    const r = range.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) { selRect = null; return; }
+    selRect = { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  }
+
+  function currentAnchor(): Anchor | null {
+    const sel = window.getSelection();
+    const prose = container?.querySelector<HTMLElement>(".prose");
+    if (!sel || !prose) return null;
+    return anchorFromSelection(prose, sel);
+  }
+
+  function highlightSelection(color: HighlightColor) {
+    const anchor = currentAnchor();
+    if (!anchor) return;
+    annotations.addHighlight(anchor, color);
+    window.getSelection()?.removeAllRanges();
+    selRect = null;
+  }
+
+  function commentOnSelection() {
+    const anchor = currentAnchor();
+    if (!anchor) return;
+    // Created as a bare highlight and immediately expanded, so the composer in
+    // the margin is where the comment is written — one place to type a note,
+    // whether it is the first or the fifth.
+    const ann = annotations.addHighlight(anchor, settings.s.defaultHighlightColor);
+    if (!settings.s.showComments) settings.set("showComments", true);
+    annotations.expandedId = ann.id;
+    window.getSelection()?.removeAllRanges();
+    selRect = null;
+  }
+
+  function copySelection() {
+    const text = window.getSelection()?.toString() ?? "";
+    if (text) void copyText(text);
+    selRect = null;
+  }
+
+  /** Bring an annotation's passage into view, roughly a third down the screen —
+   *  high enough to read what follows, low enough to see what preceded it. */
+  function goToAnnotation(id: string) {
+    const p = placed.find((x) => x.ann.id === id);
+    if (!p || !container) return;
+    beginProgrammaticScroll();
+    container.scrollTo({
+      top: Math.max(0, p.top - container.clientHeight / 3),
+      behavior: reduceMotion ? "auto" : "smooth",
+    });
+  }
+
+  /** Clicking highlighted text opens its thread. `::highlight()` is not
+   *  hit-testable, so the hit is recovered from the caret position. */
+  function annotationAtPoint(x: number, y: number): string | null {
+    const prose = container?.querySelector<HTMLElement>(".prose");
+    if (!prose || annotations.annotations.length === 0) return null;
+    const hit = offsetAtPoint(indexBlocks(prose), x, y);
+    if (!hit) return null;
+    for (const ann of annotations.annotations) {
+      const a = ann.anchor;
+      if (a.blockLine === hit.line && hit.at >= a.start && hit.at < a.start + a.length) return ann.id;
+    }
+    return null;
+  }
+
   /** Outline entries call in through the view-nav store. */
   const unregisterScroller = viewNav.registerScroller((line, opts) => {
     const el = blockForLine(line);
@@ -558,7 +743,18 @@
    */
   $effect(() => {
     if (!container) return;
-    const invalidate = () => { geometryDirty = true; };
+    // A layout change moves the text, so it moves every highlight and every
+    // card with it. Coalesced into one frame: dragging the panel splitter
+    // fires the observer continuously.
+    let reflowRaf = 0;
+    const invalidate = () => {
+      geometryDirty = true;
+      if (reflowRaf) return;
+      reflowRaf = requestAnimationFrame(() => {
+        reflowRaf = 0;
+        refreshAnnotations();
+      });
+    };
     const ro = new ResizeObserver(invalidate);
     ro.observe(container);
     const prose = container.querySelector(".prose");
@@ -569,10 +765,22 @@
     // to `preventDefault()`: Ctrl+wheel is the browser's own page-zoom gesture
     // and a passive listener cannot stop it.
     container.addEventListener("wheel", onModifiedWheel, { passive: false });
+    // `selectionchange` fires on the document, which is the only event that
+    // catches every way a selection is made: drag, double-click, Shift+arrow,
+    // and Ctrl+A. Read one frame later so the browser has finalised the range.
+    let selRaf = 0;
+    const onSelectionChange = () => {
+      if (selRaf) cancelAnimationFrame(selRaf);
+      selRaf = requestAnimationFrame(() => { selRaf = 0; updateSelection(); });
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
     return () => {
       ro.disconnect();
       geometryObserver = null;
+      if (reflowRaf) cancelAnimationFrame(reflowRaf);
+      if (selRaf) cancelAnimationFrame(selRaf);
       window.removeEventListener("resize", invalidate);
+      document.removeEventListener("selectionchange", onSelectionChange);
       container?.removeEventListener("wheel", onModifiedWheel);
     };
   });
@@ -664,6 +872,10 @@
         }
         updateMarkerGeometry();
         publishNav();
+        // After postRender, not before: heading ids, math and diagrams all
+        // change block text and heights, and an anchor resolved against the
+        // pre-postRender DOM would be painted in the wrong place.
+        refreshAnnotations();
 
         // Live-follow: smart-scroll + flash for the most recent disk edit.
         if (isDiskChange && changedLine != null && currentMode === "view") {
@@ -890,7 +1102,19 @@
    */
   async function onProseClick(e: MouseEvent) {
     const anchor = (e.target as HTMLElement | null)?.closest("a");
-    if (!anchor) return;
+    if (!anchor) {
+      // A click that isn't on a link might be on a highlight. Only checked when
+      // the click did not end a drag-selection, or selecting text inside an
+      // existing highlight would pop its thread open every time.
+      if (window.getSelection()?.isCollapsed !== false) {
+        const id = annotationAtPoint(e.clientX, e.clientY);
+        if (id) {
+          if (!settings.s.showComments) settings.set("showComments", true);
+          annotations.expandedId = annotations.expandedId === id ? null : id;
+        }
+      }
+      return;
+    }
     const href = anchor.getAttribute("href");
     if (!href) return;
 
@@ -989,6 +1213,8 @@
 
 <div
   class="viewer"
+  class:lane-on={laneOn}
+  class:lane-float={laneOn && paneWidth < 900}
   class:full-width={settings.s.fullWidth}
   class:center-headings={settings.s.centerHeadings}
   style="--zoom: {settings.s.zoom}; --font-size: {settings.s.fontSize}px; --font-family: {settings.s.fontFamily}; --content-width: {settings.s.contentWidthCh}ch;"
@@ -1012,6 +1238,16 @@
     oncontextmenu={onProseContextMenu}
   >{@html html}</article>
 
+  {#if laneOn}
+    <CommentLane
+      {placed}
+      detachedIds={annotations.detached}
+      {author}
+      {paneWidth}
+      onGoTo={goToAnnotation}
+    />
+  {/if}
+
   <ResumeMarker
     show={markerVisible}
     y={markerY}
@@ -1022,6 +1258,13 @@
     onDismiss={dismissMarker}
   />
 </div>
+
+<SelectionToolbar
+  rect={mode === "view" ? selRect : null}
+  onHighlight={highlightSelection}
+  onComment={commentOnSelection}
+  onCopy={copySelection}
+/>
 
 <style>
   /* Outer scroll container — full width of the parent flex slot.
@@ -1061,6 +1304,23 @@
     text-align: start;
   }
   .viewer.full-width .prose { width: 100%; }
+
+  /* The comment lane is *reserved*, by padding the scroll container. `.prose`
+     still centres itself with `margin: 0 auto`, now inside a narrower content
+     box — so an expanded card never covers text, and expanding one costs no
+     reflow because the space was already there.
+
+     Padding rather than a margin on `.prose`: an absolutely positioned child is
+     laid out against the *padding* box, so `right: 0` on the lane puts it
+     exactly in the reserved strip, and `margin-right` on a `margin: 0 auto`
+     block would shove the column right instead of re-centring it. */
+  .viewer.lane-on { --comment-lane: clamp(272px, 26%, 344px); padding-right: var(--comment-lane); }
+  /* Below the lane's minimum width the cards float over the edge instead (see
+     CommentLane), so the text must not be squeezed for a column that is no
+     longer being reserved. Measured in JS, not a container query: making
+     `.viewer` a size container adds `contain` to the app's main scroller, which
+     is not a side effect worth accepting for one breakpoint. */
+  .viewer.lane-on.lane-float { padding-right: 40px; }
 
   .ch-probe {
     position: absolute;

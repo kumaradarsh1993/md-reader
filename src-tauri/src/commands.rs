@@ -45,6 +45,71 @@ pub fn save_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(Path::new(&path), content).map_err(|e| format!("write failed: {e}"))
 }
 
+/// A human name to attribute a comment to.
+///
+/// Read from the environment rather than asked for: a reader app should not
+/// open with a "what is your name?" prompt to let you highlight a sentence.
+/// The user can override it in Settings; this is only the first guess.
+#[tauri::command]
+pub fn user_display_name() -> String {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// Read a text file, or `None` if it is not there.
+///
+/// Distinct from `open_file` because "no notes yet" is the normal state for
+/// most documents, not an error worth surfacing. A missing file returns `None`;
+/// anything else — a permissions failure, a directory where a file was expected
+/// — still returns `Err`, because those the user does want to hear about.
+#[tauri::command]
+pub fn read_text_file_opt(path: String) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(Path::new(&path)) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("read failed: {e}")),
+    }
+}
+
+/// Write a text file, creating parent directories as needed.
+///
+/// The sidecar lives in a `.foxmd/` folder that will not exist the first time
+/// anyone highlights anything, and a plain write fails on a missing parent with
+/// an error that reads like a permissions problem.
+#[tauri::command]
+pub fn write_text_file_mkdir(path: String, content: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir failed: {e}"))?;
+    }
+    std::fs::write(p, content).map_err(|e| format!("write failed: {e}"))
+}
+
+/// Write only if nothing is there. Used for the `.foxmd/README.md`, which
+/// explains the folder once and must never clobber a hand-edited version.
+#[tauri::command]
+pub fn write_text_file_if_absent(path: String, content: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if p.exists() {
+        return Ok(());
+    }
+    write_text_file_mkdir(path, content)
+}
+
+/// Delete a file if it exists. Deliberately narrow: it refuses anything that is
+/// not a regular file, so a bad path can never take a directory with it.
+#[tauri::command]
+pub fn remove_file_if_present(path: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if !p.is_file() {
+        return Ok(());
+    }
+    std::fs::remove_file(p).map_err(|e| format!("delete failed: {e}"))
+}
+
 /// Largest image the .docx exporter will embed, in bytes.
 ///
 /// Not a guess at what Word can hold — a guard on the transport. The bytes make

@@ -12,6 +12,7 @@
     type ThemeMode,
   } from "$lib/settings-store.svelte";
   import { tabs } from "$lib/tabs-store.svelte";
+  import { annotations } from "$lib/annotations/store.svelte";
   import Viewer from "$lib/Viewer.svelte";
   import WidthControl from "$lib/WidthControl.svelte";
   import Editor from "$lib/Editor.svelte";
@@ -63,6 +64,13 @@
   // Convenience derived state from active tab
   let active = $derived(tabs.active);
   let path = $derived(active?.path ?? null);
+
+  /** Point the annotation store at whatever document is on screen. It flushes
+   *  the outgoing document's pending write before loading the incoming one, so
+   *  a fast Ctrl+Tab cannot lose a comment written a moment earlier. */
+  $effect(() => {
+    void annotations.open(path ?? "");
+  });
   let source = $derived(active?.source ?? "");
   let dirty = $derived(active?.dirty ?? false);
   let cwd = $derived(path ? path.replace(/[\\/][^\\/]*$/, "") : null);
@@ -498,6 +506,14 @@
       e.preventDefault();
       void exportWord();
     }
+    else if (mod && e.shiftKey && e.key.toLowerCase() === "h") {
+      e.preventDefault();
+      settings.set("showHighlights", !settings.s.showHighlights);
+    }
+    else if (mod && e.shiftKey && e.key.toLowerCase() === "m") {
+      e.preventDefault();
+      settings.set("showComments", !settings.s.showComments);
+    }
     else if (mod && e.key.toLowerCase() === "f") { e.preventDefault(); findOpen = true; }
     else if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); bumpZoom(0.1); }
     else if (mod && e.key === "-") { e.preventDefault(); bumpZoom(-0.1); }
@@ -839,6 +855,39 @@
           title="Dark"
         ><Icon name="moon" size={14} /></button>
       </div>
+      <div class="tool-divider" aria-hidden="true"></div>
+      <!-- The two annotation layers. Separate toggles because they answer
+           different questions: "is this passage marked?" and "what did someone
+           say about it?" — and the second costs a column of the window. Each
+           carries a count so turning one off is visibly hiding something. -->
+      <button
+        class="icon-btn lg"
+        class:on={settings.s.showHighlights}
+        disabled={!active}
+        onclick={() => settings.set("showHighlights", !settings.s.showHighlights)}
+        title={annotations.count === 0
+          ? "Highlights — select text to make one"
+          : `${settings.s.showHighlights ? "Hide" : "Show"} ${annotations.count} highlight${annotations.count === 1 ? "" : "s"} (${sk("Mod", "Shift", "H")})`}
+        aria-label="Toggle highlights"
+        aria-pressed={settings.s.showHighlights}
+      >
+        <Icon name={settings.s.showHighlights ? "highlighter" : "eye-off"} size={18} />
+        {#if annotations.count > 0}<span class="badge">{annotations.count}</span>{/if}
+      </button>
+      <button
+        class="icon-btn lg"
+        class:on={settings.s.showComments}
+        disabled={!active}
+        onclick={() => settings.set("showComments", !settings.s.showComments)}
+        title={annotations.commentCount === 0
+          ? "Comments — select text and choose Comment"
+          : `${settings.s.showComments ? "Hide" : "Show"} ${annotations.commentCount} comment thread${annotations.commentCount === 1 ? "" : "s"} (${sk("Mod", "Shift", "M")})`}
+        aria-label="Toggle comments"
+        aria-pressed={settings.s.showComments}
+      >
+        <Icon name="message-square" size={18} />
+        {#if annotations.commentCount > 0}<span class="badge">{annotations.commentCount}</span>{/if}
+      </button>
       <div class="tool-divider" aria-hidden="true"></div>
       <button
         class="icon-btn lg"
@@ -1329,6 +1378,38 @@
   :global(mark.find-hit) { background: #ffe066; color: #111; padding: 0 1px; border-radius: 2px; }
   :global(mark.find-hit.active) { background: #ff9f0a; color: #111; }
 
+  /* ─── Annotation highlights ─────────────────────────────────────────
+     `::highlight()` names a *document-level* registry, not an element, so
+     these rules cannot be component-scoped — `:global` is required, not a
+     shortcut. Only colour, background-color, text-decoration and text-shadow
+     are honoured inside a highlight pseudo-element; that is the whole reason
+     the design is a wash of colour rather than a bordered chip.
+
+     The tints are deliberately weak (they sit *under* body text that must stay
+     readable) and are re-mixed for dark mode, where the same yellow would glow.
+     `--fg` is not set: inheriting the document's own text colour is what keeps
+     a highlight from turning black-on-yellow in dark mode. */
+  :global(::highlight(foxmd-hl-yellow)) { background-color: rgba(255, 214, 0, .34); }
+  :global(::highlight(foxmd-hl-green))  { background-color: rgba(64, 200, 118, .30); }
+  :global(::highlight(foxmd-hl-blue))   { background-color: rgba(70, 160, 235, .28); }
+  :global(::highlight(foxmd-hl-pink))   { background-color: rgba(240, 105, 150, .28); }
+  :global(::highlight(foxmd-hl-purple)) { background-color: rgba(150, 110, 225, .28); }
+  /* The thread that is currently open in the margin. Underlined as well as
+     tinted, so "which passage is this card about?" is answerable at a glance
+     without the tint having to shout. */
+  :global(::highlight(foxmd-hl-active)) {
+    background-color: rgba(255, 176, 32, .42);
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+  :global(html[data-theme="dark"] ::highlight(foxmd-hl-yellow)) { background-color: rgba(224, 176, 0, .34); }
+  :global(html[data-theme="dark"] ::highlight(foxmd-hl-green))  { background-color: rgba(40, 150, 90, .38); }
+  :global(html[data-theme="dark"] ::highlight(foxmd-hl-blue))   { background-color: rgba(45, 110, 180, .40); }
+  :global(html[data-theme="dark"] ::highlight(foxmd-hl-pink))   { background-color: rgba(190, 70, 110, .38); }
+  :global(html[data-theme="dark"] ::highlight(foxmd-hl-purple)) { background-color: rgba(115, 80, 185, .40); }
+  :global(html[data-theme="dark"] ::highlight(foxmd-hl-active)) { background-color: rgba(210, 140, 20, .48); }
+
   .shell {
     display: flex;
     flex-direction: column;
@@ -1404,6 +1485,7 @@
     flex-shrink: 0;
   }
   .icon-btn {
+    position: relative; /* the annotation-count badge anchors to this */
     height: 30px;
     width: 30px;
     padding: 0;
@@ -1420,6 +1502,28 @@
   .icon-btn.on { color: var(--accent); background: var(--accent-soft); }
   .icon-btn[disabled] { opacity: .35; cursor: default; }
   .icon-btn[disabled]:hover { background: transparent; color: var(--chrome-fg); }
+
+  /* The count on the two annotation toggles. Sits on the button's corner rather
+     than beside the glyph so the toolbar's rhythm of equal squares survives —
+     a button that gets wider when a document has notes would make the whole
+     right-hand group shuffle as you switch tabs. */
+  .icon-btn .badge {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    min-width: 13px;
+    height: 13px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--accent);
+    color: var(--bg);
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 13px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
 
   /* Refresh. The rotation is the entire feedback this button gives — a
      re-read of a few files finishes in single-digit milliseconds, so without
