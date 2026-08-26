@@ -75,13 +75,17 @@ jobs:
       # tauri-action builds the app and, when given a tagName, creates a draft
       # GitHub Release for that tag and uploads the platform artifacts to it.
       # The first job to run creates the draft; subsequent jobs upload into it.
+      # `github.ref_name` is ALWAYS set — on a workflow_dispatch it is the
+      # branch the run was started from — so the old `github.ref_name ||
+      # inputs.tag` never fell through, and a hand-triggered build would have
+      # cut a release literally named "master". The event has to be tested.
       - name: Build & publish
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name || inputs.tag }}
-          releaseName: "Fox MD ${{ github.ref_name || inputs.tag }}"
+          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          releaseName: "Fox MD ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           releaseBody: |
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for full notes.
 
