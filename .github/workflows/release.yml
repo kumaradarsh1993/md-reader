@@ -38,6 +38,14 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
 
+    # Resolved once, because `github.ref_name` means two different things: the
+    # TAG on a tag push, the BRANCH on a workflow_dispatch. Every consumer below
+    # reads this instead — otherwise a hand-triggered nightly is published as a
+    # non-prerelease draft named "master".
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+
     steps:
       - uses: actions/checkout@v4
 
@@ -75,17 +83,14 @@ jobs:
       # tauri-action builds the app and, when given a tagName, creates a draft
       # GitHub Release for that tag and uploads the platform artifacts to it.
       # The first job to run creates the draft; subsequent jobs upload into it.
-      # `github.ref_name` is ALWAYS set — on a workflow_dispatch it is the
-      # branch the run was started from — so the old `github.ref_name ||
-      # inputs.tag` never fell through, and a hand-triggered build would have
       # cut a release literally named "master". The event has to be tested.
       - name: Build & publish
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          releaseName: "Fox MD ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "Fox MD ${{ env.RELEASE_TAG }}"
           releaseBody: |
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md) for full notes.
 
@@ -103,6 +108,6 @@ jobs:
           # caller, so while nightlies were drafts the app could not see that a
           # newer build existed. A pre-release is public and is excluded from
           # `latest`, which is exactly the semantics a nightly wants.
-          releaseDraft: ${{ !contains(github.ref_name, '-nightly') }}
-          prerelease: ${{ contains(github.ref_name, '-nightly') }}
+          releaseDraft: ${{ !contains(env.RELEASE_TAG, '-nightly') }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-nightly') }}
           args: ${{ matrix.args }}
