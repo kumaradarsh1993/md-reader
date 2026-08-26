@@ -1,39 +1,44 @@
 # Handover — Fox MD (repo: md-reader)
 
 > Self-contained context for whoever (human or AI) picks up this project next.
-> Last updated 2026-08-25: **v0.8.0 is stable `latest`** (the v0.8 reading-comfort
-> pass: refresh from disk, mid-screen outline tracking, wrapping tables, a
-> hover-only side-panel scrollbar, layered surfaces). **v0.9.0-nightly.1** opens
-> the next line: Page preview (Word geometry, real page count), the resume
-> bookmark rebuilt as one dismissible margin mark, Settings as a right-hand
-> drawer, and file-list sorting.
+> Last updated **2026-08-26**: **v0.9.0 is stable `latest`** (Page preview,
+> in-app updates, the dismissible resume mark, Settings drawer, file sorting).
+> **v0.10.0-nightly.1** opens the next line and is the largest release so far:
+> highlights and threaded comments with an agent-readable sidecar, a rule-based
+> `.docx` exporter, smooth scrolling, a measured content-width ceiling, and
+> Ctrl/Alt+wheel gestures.
+
+## Read these three first
+
+| Document | What it holds |
+|---|---|
+| **This file** | The state of the world: what is released, what the traps are, how to ship. |
+| **`docs/DECISIONS.md`** | *Why* the product is shaped this way — every ask, the reasoning behind it, what was hard, what was deliberately not built. Add an entry in the same session as the work. |
+| **`docs/ROADMAP.md`** | What is next, in order. Includes the narration decision and the Android sequence. |
+
+`docs/MOBILE-PLAN.md` is the Android companion's architecture (planned, not
+started). `CHANGELOG.md` is user-facing and newest-first.
 
 ## Where things stand
 
-**Release channel policy (2026-08-25):** **v0.8.0 is stable `latest`**, cut from
-the same commit as `v0.8.0-nightly.2` at the owner's explicit "put it as a
-stable". New work goes on `v0.9.0-nightly.N`.
+**Release channel policy:** **v0.9.0 is stable `latest`** (published
+2026-08-26). New work goes on `v0.10.0-nightly.N`.
 
-**Nightlies are now published pre-releases, not drafts** (`release.yml` keys off
+**Nightlies are published pre-releases, not drafts** (`release.yml` keys off
 `-nightly` in the tag). This is load-bearing for the in-app updater, not a
 preference: GitHub's API hides draft releases from unauthenticated callers, so a
 draft nightly is invisible to the app. Stable tags still land as drafts so the
-notes can be written before anyone sees them, then are published by hand.
+notes can be written before anyone sees them, then are published by hand
+(`gh release edit vX.Y.Z --draft=false --latest --notes-file …`).
 
 | Version | Status | Headline |
 |---|---|---|
-| v0.2.0 | Published (stable) | Smart edit mode + user-first README + CI workflow |
-| v0.3.0 | Published (stable) | Toolbar cleanup, About dialog, tab tear-out z-order fix |
-| v0.4.0 | Published | Live Edit Theatre + Diff Tracker sidebar |
-| v0.5.0 | Published | Theatre v2: recede-not-shrink, fresh/stale highlights, leader lines, Groq |
-| v0.5.1 | Published | Sepia reading theme + toolbar 3-way theme switch |
-| v0.6.0 | Published (stable) | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control, Theatre audit |
-| v0.7.0 | Published (was stable until 2026-08-25) | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, renderer fixes, completed security baseline |
-| v0.8.0-nightly.1 | Tagged → CI draft | Refresh from disk (button / `Ctrl+R` / `F5` / on window focus); outline tracks the mid-screen reading line |
-| v0.8.0-nightly.2 | Tagged → CI draft | Tables wrap; hover-only panel scrollbar; layered surface style + sectioned Settings; files-panel polish |
-| **v0.8.0** | **Published — stable `latest`** | The v0.8 reading-comfort pass, promoted from nightly.2 unchanged |
-| v0.9.0-nightly.1 | Tagged → CI draft | Page preview (Word geometry + real page count); resume bookmark rebuilt; Settings drawer; file sorting |
-| v0.9.0-nightly.2 | Tagged → CI **pre-release** | In-app updater (Settings → Updates); Page preview retuned to 11pt-everything, zero indentation |
+| v0.2.0 – v0.5.1 | Published | Smart edit mode, toolbar/About, Live Edit Theatre v1 and v2, sepia theme. See `docs/DECISIONS.md`. |
+| v0.6.0 | Published | Reading-position memory, outline scroll-spy, collapsible side panel, visual width control |
+| v0.7.0 | Published | Fox MD identity + icon, chrome/paper redesign, focus mode, context menus, completed security baseline |
+| v0.8.0 | Published | Refresh from disk, mid-screen outline tracking, wrapping tables, layered surfaces |
+| **v0.9.0** | **Published — stable `latest`** | Page preview, in-app updater, resume mark, Settings drawer, file sorting |
+| v0.10.0-nightly.1 | Tagged → CI pre-release | Highlights + threaded comments + `.foxmd` sidecar; `.docx` export; smooth scrolling; measured width ceiling; Ctrl/Alt+wheel |
 
 - **Repo**: <https://github.com/kumaradarsh1993/md-reader>
 - **Branch**: `master`. v0.6.0 onwards was committed straight to master
@@ -56,62 +61,113 @@ notes can be written before anyone sees them, then are published by hand.
   `assets/legacy-md-reader-icon.png`. Regenerate native assets with
   `npm run tauri -- icon assets/fox-md-icon.png`.
 
-## What v0.8.0-nightly.1 added
+## What v0.10.0-nightly.1 added
 
-Two complaints, one theme: the app was confidently showing something that was
-no longer true.
+The largest release so far. Full user-facing detail in `CHANGELOG.md`; the
+reasoning in `docs/DECISIONS.md`. This is the orientation for the code.
 
-### Refresh from disk
+### Annotations (`src/lib/annotations/`)
 
-- `src/lib/refresh.svelte.ts` (`refresher`) is the single entry point. It calls
-  `tabs.reloadAllFromDisk()` and then bumps a `tick` counter that
-  `FileBrowser.svelte` watches, so the folder listing and the open tabs come
-  back together. Surfaces: a toolbar button beside **File**,
-  `Ctrl/⌘+R`, `F5`, File → Refresh from disk, the shell right-click menu, and
-  the file-browser right-click menu — all one code path.
-- **`Ctrl+R` and `F5` are `preventDefault`ed.** In a webview those mean "reload
-  the page", which here would discard the whole session's tab state to achieve
-  strictly less than refresh does.
-- **Automatic sweep on `window.focus`**, coalesced at 400ms and silent (no
-  spinner). This is the one that actually fixes the reported problem: the
-  changes come from a terminal or an editor, so the moment you look back at Fox
-  MD is the moment it is most likely to be stale.
-- **Dirty tabs are skipped, unconditionally.** A refresh that could discard
-  unsaved edits would be a worse bug than the staleness it fixes. Missing files
-  are counted, not closed.
-- **Why this exists at all — do not "simplify" it away:** `watcher.rs` arms on
-  exactly *one* file, the active tab, and emits only that path. Background tabs,
-  new files appearing in the open folder (the listing is read once, on entry),
-  and every synced/virtual filesystem where `ReadDirectoryChangesW` is
-  unreliable all fall straight through it. Extending the watcher to a *set* of
-  files is the deeper fix and is still open; refresh is the escape hatch that
-  works regardless. Torn-out windows are separate OS processes, so no refresh
-  can cross windows — each one sweeps itself on focus, which is why the focus
-  hook matters more than the button.
+```
+src/lib/annotations/
+  types.ts               - Anchor, Annotation, CommentNode, NotesFile
+  anchor.ts              - DOM selection <-> durable anchor; block text index;
+                           four-step resolution; caret hit-testing
+  paint.ts               - CSS Custom Highlight API registries, one per colour
+  sidecar.ts             - .foxmd paths, load/save, the markdown digest
+  store.svelte.ts        - per-document state, debounced autosave, mutations
+  SelectionToolbar.svelte- the bar that appears on selection
+  CommentLane.svelte     - the right margin: stacking, collision, float mode
+  CommentCard.svelte     - one thread, collapsed marker or expanded card
+```
 
-### The outline follows a reading line, not the top border
+Five things in here are load-bearing and should not be "simplified":
 
-- `readingFraction()` in `Viewer.svelte` decides where in the viewport the
-  "reading line" sits: **the middle**, ramping to the true top within the first
-  half-screen of scrolling and to the true bottom within the last (documents
-  shorter than two screens just get shorter ramps and no flat middle; nothing
-  scrollable → the top). `publishNav()` probes the block/heading indexes at that
-  line instead of `container.top + 12`.
-- That single change fixes both halves of the complaint: with three sections on
-  screen the one you are *looking at* is lit rather than the one touching the
-  top border, and hitting the bottom of the document finally moves the mark to
-  the last section — previously impossible for any final section shorter than
-  the viewport, since it could never reach the top border.
-- **Ramps, not snaps.** A hard "top edge below 50% scroll, middle above" rule
-  would make the highlight jump a section on a one-pixel scroll. The ramp is
-  monotonic and continuous end to end.
-- The progress rail is now derived from the same reading line
-  (`readY / scrollHeight`), so the bar and the lit entry cannot disagree.
-- **`topOfViewport()` still exists and is still top-anchored** — it feeds
-  `currentMark()`. Reading position is restored with `scrollBlockToTop`, so the
-  mark must name the block that was at the top. Do not "unify" these two probes.
-- `viewNav.topLine` was renamed `viewNav.readingLine`, because "top" had become
-  actively wrong.
+1. **Anchors carry two coordinate systems.** `(blockLine, start, length)` is the
+   fast path; `quote` + 48 chars of `prefix`/`suffix` is what re-finds the
+   passage after the document changes. `resolveAnchor` tries four things in
+   order — named block at recorded offsets, named block by content, *any* block
+   by content, then detached. Dropping the second pair makes every note fragile
+   the moment an agent edits the file above it.
+2. **Highlights paint through `CSS.highlights`, never by wrapping text.** The
+   Find bar (`Find.svelte`) and `postRender` both already split this DOM's text
+   nodes. A third text-splitting painter has to interleave with both, and the
+   failure mode is silent fragments. See the header comment in `paint.ts`.
+3. **`::highlight()` rules live in `+page.svelte` under `:global`.** A highlight
+   pseudo-element names a document-level registry, not an element, so component
+   scoping cannot reach it.
+4. **The lane is reserved by `.viewer`'s padding**, not by a margin on `.prose`.
+   An absolutely positioned child is laid out against the padding box, so
+   `right: 0` lands the lane exactly in the reserved strip; a `margin-right` on
+   a `margin: 0 auto` block would shove the column right instead of re-centring
+   it. `measureGeometry()` subtracts that padding before publishing the width
+   ceiling, or the ceiling would offer the lane's space to the text.
+5. **`laneOn` includes `expandedId`, not just non-empty threads.** "Comment" on
+   a selection creates a highlight with an *empty* thread and opens its
+   composer; gating the lane on `thread.length > 0` means the box you type the
+   first comment into never appears. This was a real bug, caught in the mock.
+
+Storage is `.foxmd/` beside the document: `<name>.notes.json` authoritative,
+`<name>.notes.md` generated from it every save, `README.md` written once.
+Rust side: `read_text_file_opt`, `write_text_file_mkdir`,
+`write_text_file_if_absent`, `remove_file_if_present`, `user_display_name`.
+
+### Word export (`src/lib/docx/`)
+
+```
+src/lib/docx/
+  zip.ts    - minimal store-only ZIP writer (CRC-32 is the only algorithm)
+  parts.ts  - the fixed OOXML parts and the house format, in one place
+  build.ts  - rendered HTML -> OOXML body
+  index.ts  - orchestration, image resolution, save
+```
+
+- **`parts.ts` mirrors `WordPreview.svelte` deliberately.** The preview's whole
+  job is to be an honest picture of the exported file. Change a number in one,
+  change it in the other, or the preview starts lying.
+- **OOXML child order is a schema sequence, not a style.** `CT_RPr` and `CT_Lvl`
+  both are. Word rejects an out-of-order part outright with no indication of
+  which element was wrong. `rPr` order and the `suff`-before-`lvlText` ordering
+  in `parts.ts` are there for that reason.
+- **Every ordered list gets its own `numId` with a `startOverride`.** Sharing one
+  makes the second numbered list continue the first one's count — the classic
+  Word bug — and it is also what lets a markdown `5.` actually start at 5.
+- **`textRun` collapses whitespace the way HTML does.** A newline in a text node
+  is formatting, not content; comrak emits an explicit `<br/>` for a hard break.
+  Mapping newlines to `<w:br/>` put a spurious line break at the end of every
+  list item containing a nested list.
+- **Verified against Word itself** via COM, not against a schema validator. See
+  "Useful commands" for the incantation — re-run it after any change here.
+
+### Scrolling, width and wheel (`Viewer.svelte`, `reading-metrics.svelte.ts`)
+
+- **Block offsets are cached, and every scroll frame is a binary search.**
+  `blocksAbove` used to call `getBoundingClientRect()` in a loop, twice per
+  frame. `.viewer` is the `offsetParent`, so `offsetTop` is scroll-independent
+  and only has to be re-read when the layout changes; a `ResizeObserver` marks
+  it dirty and the re-measure is deferred to the next probe.
+- **`WIDTH_MAX` is now only a floor.** `widthMax()` asks `readingMetrics`, which
+  the Viewer feeds from a hidden `20ch` probe in the document's own font. A
+  constant here is what stopped a 27" monitor from ever filling.
+- **Wheel gestures accumulate distance, they do not step per event.** A mouse
+  notch is one 100-unit delta; a trackpad emits a stream of 2–10 unit ones.
+  Registered with `{ passive: false }` by hand, because Ctrl+wheel is the
+  browser's own zoom gesture and a passive listener cannot stop it.
+
+### The dev mock (`src/lib/devmock.ts`)
+
+`?devmock=1` in a dev build installs `window.__TAURI_INTERNALS__`, so the real
+frontend runs in an ordinary browser against a fake backend — which is how every
+claim about the annotation layer above was measured. Before this, there was no
+way to look at a UI change short of building an installer: `cargo test` cannot
+launch its harness here (the test binary links WebView2 —
+`STATUS_ENTRYPOINT_NOT_FOUND`), and a Tauri window cannot be driven or
+screenshotted by agent tooling.
+
+Tree-shaken out of production by an `import.meta.env.DEV` guard in `+layout.ts`.
+**When you add a Rust command, add a handler here too** — a missing one logs
+`[devmock] no handler for …` and returns `undefined`, which usually surfaces
+somewhere far away.
 
 ## What v0.9.0-nightly.2 added
 
@@ -270,6 +326,63 @@ answering it used to mean actually converting the file.
   Smart-diff provider + API key fields moved inside Advanced and render only
   when `advancedLiveEditTheatre` is on — they configure nothing otherwise.
 
+## What v0.8.0-nightly.1 added
+
+Two complaints, one theme: the app was confidently showing something that was
+no longer true.
+
+### Refresh from disk
+
+- `src/lib/refresh.svelte.ts` (`refresher`) is the single entry point. It calls
+  `tabs.reloadAllFromDisk()` and then bumps a `tick` counter that
+  `FileBrowser.svelte` watches, so the folder listing and the open tabs come
+  back together. Surfaces: a toolbar button beside **File**,
+  `Ctrl/⌘+R`, `F5`, File → Refresh from disk, the shell right-click menu, and
+  the file-browser right-click menu — all one code path.
+- **`Ctrl+R` and `F5` are `preventDefault`ed.** In a webview those mean "reload
+  the page", which here would discard the whole session's tab state to achieve
+  strictly less than refresh does.
+- **Automatic sweep on `window.focus`**, coalesced at 400ms and silent (no
+  spinner). This is the one that actually fixes the reported problem: the
+  changes come from a terminal or an editor, so the moment you look back at Fox
+  MD is the moment it is most likely to be stale.
+- **Dirty tabs are skipped, unconditionally.** A refresh that could discard
+  unsaved edits would be a worse bug than the staleness it fixes. Missing files
+  are counted, not closed.
+- **Why this exists at all — do not "simplify" it away:** `watcher.rs` arms on
+  exactly *one* file, the active tab, and emits only that path. Background tabs,
+  new files appearing in the open folder (the listing is read once, on entry),
+  and every synced/virtual filesystem where `ReadDirectoryChangesW` is
+  unreliable all fall straight through it. Extending the watcher to a *set* of
+  files is the deeper fix and is still open; refresh is the escape hatch that
+  works regardless. Torn-out windows are separate OS processes, so no refresh
+  can cross windows — each one sweeps itself on focus, which is why the focus
+  hook matters more than the button.
+
+### The outline follows a reading line, not the top border
+
+- `readingFraction()` in `Viewer.svelte` decides where in the viewport the
+  "reading line" sits: **the middle**, ramping to the true top within the first
+  half-screen of scrolling and to the true bottom within the last (documents
+  shorter than two screens just get shorter ramps and no flat middle; nothing
+  scrollable → the top). `publishNav()` probes the block/heading indexes at that
+  line instead of `container.top + 12`.
+- That single change fixes both halves of the complaint: with three sections on
+  screen the one you are *looking at* is lit rather than the one touching the
+  top border, and hitting the bottom of the document finally moves the mark to
+  the last section — previously impossible for any final section shorter than
+  the viewport, since it could never reach the top border.
+- **Ramps, not snaps.** A hard "top edge below 50% scroll, middle above" rule
+  would make the highlight jump a section on a one-pixel scroll. The ramp is
+  monotonic and continuous end to end.
+- The progress rail is now derived from the same reading line
+  (`readY / scrollHeight`), so the bar and the lit entry cannot disagree.
+- **`topOfViewport()` still exists and is still top-anchored** — it feeds
+  `currentMark()`. Reading position is restored with `scrollBlockToTop`, so the
+  mark must name the block that was at the top. Do not "unify" these two probes.
+- `viewNav.topLine` was renamed `viewNav.readingLine`, because "top" had become
+  actively wrong.
+
 ## What v0.7.0 added
 
 Full detail in `CHANGELOG.md`; this is the orientation.
@@ -403,6 +516,13 @@ buttons (8ch), horizontal drag, or the wheel; the number appears on hover only.
 | `src/lib/ResumeRibbon.svelte` | "You left off here" ribbon + gutter marker. |
 | `src/lib/WidthControl.svelte` | Visual content-width control. |
 | `src/lib/LeftPanel.svelte` | Collapsible/peekable panel, both dividers. |
+| `docs/DECISIONS.md` | **Why the product is shaped this way.** Add an entry in the same session as the work. |
+| `docs/ROADMAP.md` | What is next, in order. The single task list. |
+| `docs/MOBILE-PLAN.md` | Fox MD for Android — architecture, sync protocol, the QR answer. Planned, not started. |
+| `src/lib/annotations/` | Highlights and threaded comments. See the v0.10 section above before touching it. |
+| `src/lib/docx/` | Markdown → `.docx`. `parts.ts` and `WordPreview.svelte` encode the same format and must agree. |
+| `src/lib/devmock.ts` | `?devmock=1` runs the real frontend against a fake Tauri backend. Add a handler when you add a command. |
+| `src/lib/reading-metrics.svelte.ts` | Measured `ch` width and pane width, so the content-width ceiling follows the monitor. |
 | `src/lib/settings-store.svelte.ts` | Settings schema + scroll-memory persistence. API keys are memory-only here; it migrates old plaintext values into the keyring and writes a marked fallback only after a genuine native-store failure. |
 | `src-tauri/src/secrets.rs` | Allow-listed Groq/Anthropic get/set/delete commands backed by Windows Credential Manager, macOS Keychain or Linux Secret Service. Service stays `com.mdreader.app` across the rename. |
 | `src/lib/tabs-store.svelte.ts` | Per-tab state: source, baseline, scroll/resume marks, theatre fields. `reloadAllFromDisk()` is the refresh path — it skips dirty tabs on purpose. |
@@ -425,48 +545,21 @@ src/lib/theatre/
   SidebarConnectors.svelte — SVG leader lines from paragraphs to cards
 ```
 
-## Outstanding tasks (in priority order)
+## Outstanding tasks
 
-### High priority
+**Moved to `docs/ROADMAP.md`** — one list, kept in order, reviewed every
+nightly. Keeping a second copy here is how the old one came to still list
+"auto-update mechanism" after v0.9.0 shipped it.
 
-1. **Real-install visual smoke test.** The code gates and 32/128/1024px icon
-   assets are verified, and CI builds all platforms, but the final Fox MD shell
-   should still be looked at in an installed Windows and macOS build when
-   convenient: title bar, Start/Dock icon, About icon, focus mode and all three
-   themes.
-2. **Enable GitHub Discussions** (Settings → General → Features). The
-   issue-template `config.yml` already routes questions there.
-3. **Record demo assets.** Storyboards in `DEMO.md`. Hero GIF + 5 README
-   screenshots are the minimum. The new resume-ribbon and width control are
-   both very demoable.
-4. **Post the launch.** `LINKEDIN_POST.md` has the current business-audience
-   drafts; update the product name and final stable link before posting.
+Still true and not in the roadmap because they are chores, not features:
 
-### Medium priority
-
-5. **Multi-provider LLM support** beyond Groq/Anthropic (Gemini free tier).
-6. **Mac-native polish.** The code-level pass is *done* as of
-   `v0.7.0-nightly.2`: every shortcut label is platform-aware via `sk()`, focus
-   mode uses ⌃⌘F, there is no traffic-light gutter (the title bar stays
-   native), elastic-overscroll no longer corrupts the saved reading position,
-   and tab tear-out goes through `open -n -a` so LaunchServices sees the new
-   instance. But *nobody has ever run a macOS build*, so these are reasoned
-   fixes, not observed ones. Still unverified by eye: the Theatre recede
-   animation on WKWebView, the hover-peek gesture with a trackpad,
-   `-webkit-scrollbar` styling against macOS overlay scrollbars, and whether
-   `open -n -a` actually produces the second window (the fallback path means a
-   failure degrades rather than breaks).
-7. **Make the breadcrumb's `…` clickable** — a menu of the elided ancestors,
-   each opening that folder in the Files panel. The context-menu primitive
-   already exists.
-8. **Nested folder tree** in the file browser (currently single-level).
-9. **Outline drag-to-reorder sections** would be a natural next step now that
-    the outline knows exact source lines for every heading.
-
-### Low priority
-
-10. Auto-update mechanism (Tauri 2 supports it; needs a signing key).
-11. Code-signed builds for Windows + Mac.
+- **Enable GitHub Discussions** (Settings → General → Features). The
+  issue-template `config.yml` already routes questions there.
+- **Record demo assets.** Storyboards in `DEMO.md`. Hero GIF + 5 README
+  screenshots are the minimum. Now that `?devmock=1` exists, these can be
+  captured from a browser rather than an installed build.
+- **Post the launch.** `LINKEDIN_POST.md` has the current drafts; update the
+  product name and the stable link before posting.
 
 ## Known quirks / gotchas
 
@@ -513,20 +606,48 @@ src/lib/theatre/
 ```bash
 npm run tauri dev          # dev with HMR
 npm run check              # svelte-check (must stay 0/0)
+cargo check                # from src-tauri/ — the Rust gate
 npm run build              # frontend-only production build
-
-# Local production build (Windows — needs the job cap)
-$env:CARGO_BUILD_JOBS = "2"
-npm run tauri build
-
-# Cut a release
-git tag v0.X.Y && git push --tags     # CI → draft release with installers
-gh release edit v0.X.Y --draft=false --latest
 ```
+
+**Look at the UI without building an installer** — start the dev server (the
+workspace `.claude/launch.json` has an `md-reader` entry on port 1430) and open:
+
+```
+http://localhost:1430/?devmock=1
+```
+
+**Verify a `.docx` export against Word itself.** A schema validator passes files
+Word will not open, and Word is the thing that has to open it. From PowerShell,
+with a file the app exported:
+
+```powershell
+$w = New-Object -ComObject Word.Application
+$w.Visible = $false; $w.DisplayAlerts = 0
+$doc = $w.Documents.Open("C:/path/to/export.docx", $false, $true)
+"pages=$($doc.ComputeStatistics(2)) tables=$($doc.Tables.Count) lists=$($doc.Lists.Count)"
+$doc.Paragraphs.Item(1).Style.NameLocal        # expect "Heading 1"
+$doc.Paragraphs.Item(1).Borders.Item(-3).LineStyle   # expect 1 (the rule)
+$doc.Close($false); $w.Quit()
+```
+
+**Cut a release**
+
+```bash
+# Nightly — publishes as a pre-release, which the in-app updater can see
+git tag v0.X.Y-nightly.N && git push origin v0.X.Y-nightly.N
+
+# Stable — lands as a draft so the notes can be written first
+git tag v0.X.Y && git push origin v0.X.Y
+gh release edit v0.X.Y --draft=false --latest --notes-file notes.md
+```
+
+Bump the version in **three** places before tagging: `package.json`,
+`src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`. And on a stable, bump
+`docs/site-data.js` — the landing page's download links are version-pinned.
 
 ---
 
-If you're a Claude session picking this up cold: read this file, then
-`README.md`, then the top of `CHANGELOG.md`. Then ask the user what they want
-next — the obvious candidates are (a) publish the pending release, (b) record
-demo assets, (c) post the launch, (d) the medium-priority items above.
+If you are a Claude session picking this up cold: read this file, then
+`docs/DECISIONS.md` for why, then `docs/ROADMAP.md` for what is next. Then ask
+the user which roadmap item they want — do not guess.

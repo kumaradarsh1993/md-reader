@@ -1,6 +1,6 @@
 [package]
 name = "md-reader"
-version = "0.9.0"
+version = "0.10.0"
 description = "Fox MD — a warm, lightweight cross-platform Markdown reader and editor"
 authors = ["Fox MD contributors"]
 edition = "2021"

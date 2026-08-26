@@ -7,7 +7,7 @@ Re-renders as Claude, ChatGPT, or Cursor writes. Edit visually, without ever see
 
 ### [⬇ All releases — stable and nightly →](https://github.com/kumaradarsh1993/md-reader/releases)
 
-**Current stable: v0.8.0**
+**Current stable: v0.9.0**
 
 [Website](https://kumaradarsh1993.github.io/md-reader/) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/kumaradarsh1993/md-reader/issues/new?template=bug.md) · [Request a feature](https://github.com/kumaradarsh1993/md-reader/issues/new?template=feature.md)
 
@@ -36,11 +36,11 @@ Local-only. No telemetry. No accounts. MIT licensed. ~10 MB installer (Tauri 2 �
 The **[releases page](https://github.com/kumaradarsh1993/md-reader/releases)** has everything, including
 pre-release *nightly* builds. Direct links to the current stable build:
 
-| Platform | Stable — v0.8.0 | Other formats |
+| Platform | Stable — v0.9.0 | Other formats |
 |---|---|---|
-| **Windows** | [Fox.MD_0.8.0_x64-setup.exe](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_x64-setup.exe) | [.msi](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_x64_en-US.msi) |
-| **macOS** | [Fox.MD_0.8.0_universal.dmg](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_universal.dmg) | Intel + Apple silicon in one |
-| **Linux** | [Fox.MD_0.8.0_amd64.AppImage](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_amd64.AppImage) | [.deb](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD_0.8.0_amd64.deb) · [.rpm](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.8.0/Fox.MD-0.8.0-1.x86_64.rpm) |
+| **Windows** | [Fox.MD_0.9.0_x64-setup.exe](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_x64-setup.exe) | [.msi](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_x64_en-US.msi) |
+| **macOS** | [Fox.MD_0.9.0_universal.dmg](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_universal.dmg) | Intel + Apple silicon in one |
+| **Linux** | [Fox.MD_0.9.0_amd64.AppImage](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_amd64.AppImage) | [.deb](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_amd64.deb) · [.rpm](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD-0.9.0-1.x86_64.rpm) |
 
 Installers upgrade an existing Fox MD in place — settings, tabs and reading positions carry over.
 Windows SmartScreen will warn on first run (the build is unsigned): **More info → Run anyway**.
@@ -57,6 +57,8 @@ next — useful, occasionally rough.
 | **Edit** | *Smart edit* is WYSIWYG — no `##` or `**` on screen — and saves clean markdown back to disk. A raw source editor is one toggle away. |
 | **Never stale** | A refresh button (`Ctrl+R` / `F5`) re-reads the folder and every open tab, and the same sweep runs automatically whenever the window regains focus. Files edited by an agent while you were elsewhere are simply current when you look back. |
 | **Resume** | Every tab keeps its own scroll position, and reopening a file returns you to it, with a "Last here" bookmark in the margin you can jump to or dismiss. |
+| **Notes** | Select any text to highlight it, or leave a comment. Comments are threads — reply, edit, resolve — and live in a quiet margin that opens on a tap. Saved automatically, next to the document, in a format your AI assistant can read back. |
+| **Export to Word** | `Ctrl+Shift+E` writes a real `.docx` in the house format. Rules, not a language model: the same file every time, and not one word rewritten. |
 | **Page preview** | See the document as a Word-style page — US Letter, 1in margins, Calibri Light 11pt, line numbers — with a real page count and real page breaks. No conversion, no export. |
 | **Live Edit Theatre** *(opt-in)* | When an AI is writing into the open file, highlight the block being edited and show a per-section diff. Off by default. |
 | **Yours** | Local-only. No telemetry, no accounts, plain files. ~10 MB installer — Tauri 2, not Electron. MIT. |
@@ -148,6 +150,12 @@ position.
 | `Ctrl + +` / `Ctrl + -` / `Ctrl + 0` | Zoom in / out / reset |
 | `Ctrl + ]` / `Ctrl + [` | Wider / narrower content column |
 | `Ctrl + \` | Toggle full-window content width |
+| `Ctrl + Shift + P` | Page preview |
+| `Ctrl + Shift + E` | Export as Word (.docx) |
+| `Ctrl + Shift + H` | Show / hide highlights |
+| `Ctrl + Shift + M` | Show / hide the comment margin |
+| `Ctrl + scroll` | Text size — also pinch on a trackpad |
+| `Alt + scroll` | Characters per line |
 | `Ctrl + Shift + D` | Diff sidebar (Live Edit Theatre) |
 | `Esc` | Close find / settings / file menu / diff sidebar |
 

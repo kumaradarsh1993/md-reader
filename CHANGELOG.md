@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.10.0-nightly.1 - 2026-08-26
+
+### Added - highlights and comments
+
+- **Select any text** and a small bar appears: five highlight colours, and
+  **Comment**. A highlight is one click; a comment opens a card in the right
+  margin with the cursor already in it.
+- **Comments are threads.** Reply to a note, reply to a reply, edit any note,
+  delete one (its replies go with it), or mark the whole thread resolved.
+- **The margin does not shout.** A thread you are not reading is a small pill
+  carrying its reply count, at the height of the text it belongs to. Click it
+  and it opens in place and stays open; click again and it closes. Cards scroll
+  with the page because they are positioned in the document's own coordinates,
+  not tracked by a scroll handler.
+- **Nothing overlaps and nothing is covered.** When a document has comments the
+  reading column gives up a fixed strip on the right, so opening a card costs no
+  reflow and never lands on the text. Several notes near the same paragraph
+  stack downward in reading order.
+- **The box fits what you wrote.** No fixed height and no inner scrollbar: a one
+  line note is one line, and three paragraphs of feedback are three paragraphs.
+  Enter is a newline, Ctrl+Enter posts - losing a half-written paragraph to a
+  stray Enter is not acceptable in a box whose purpose is holding a paragraph.
+- **Both layers toggle independently** - `Ctrl/Cmd+Shift+H` for highlights,
+  `Ctrl/Cmd+Shift+M` for the comment margin - and each toolbar button shows a
+  count, so hiding one is visibly hiding something rather than losing it.
+- **Notes save themselves**, 600ms after you stop typing, and again the moment
+  you switch tabs or quit. A failed write is retried rather than dropped.
+
+### Added - your notes are readable by your assistant
+
+Notes live in a `.foxmd` folder beside the document, so they travel with it and
+sync with it (OneDrive included):
+
+- `<document>.notes.json` is authoritative - exact anchors, ids, timestamps.
+- `<document>.notes.md` is generated from it every time you change anything, and
+  is what a person or an AI actually reads: each passage quoted, with the thread
+  underneath it in order.
+- A `.foxmd/README.md` explains the pair, so finding the folder is enough.
+
+An assistant asked to act on your feedback can now read the file it wrote and
+the notes you left on it, without you re-typing either.
+
+### Added - export to Word
+
+- **File -> Export as Word (.docx)**, also on the Page preview bar, also
+  `Ctrl/Cmd+Shift+E`. Rules, not a language model: the same input always
+  produces the same document, and no prose is rewritten on the way through.
+- Headings, lists (nested, numbered, bulleted, task lists), tables with
+  repeating headers, code blocks, block quotes, links, bold/italic/strikethrough
+  and inline code all come through. Local images are embedded.
+- The output is the format Page preview has been showing all along: Letter,
+  1in margins, Calibri Light 11pt throughout, a rule under level-1 headings.
+- Numbered lists behave: a list that starts at 5 starts at 5, and the next
+  numbered list starts again at 1 instead of continuing the previous one.
+
+### Changed - scrolling
+
+- **Scrolling is smooth now.** It was doing thousands of forced layout
+  calculations per frame - the outline probe walked the document element by
+  element on every scroll event, twice - which is what the jitter was. Positions
+  are measured once when the layout changes and every scroll frame is now
+  arithmetic.
+
+### Changed - width and zoom
+
+- **The content-width ceiling follows your monitor.** It was a fixed 160
+  characters, which no laptop can reach and a 27in display hits with an inch of
+  empty paper still on either side. It is now measured from the window you are
+  actually reading in.
+- **Ctrl+scroll resizes the text. Alt+scroll changes the line width.** In Page
+  preview, Ctrl+scroll scales the page as it does in Word. A trackpad pinch
+  works too.
+
+### Changed - Page preview
+
+- **The full-width rule is under level-1 headings only.** It was under h1 and
+  h2, so any document that is a stack of `##` sections came out striped.
+- **`---` is a break, not a printed line.** Markdown written by an agent puts
+  one between every section; drawing each as a rule left the page with more
+  horizontal lines than headings.
+
+### Added - for developers
+
+- `?devmock=1` in a dev build stands in for the Tauri backend so the interface
+  can be opened and driven in an ordinary browser. Stripped from release builds.
+
 ## 0.9.0 — 2026-08-26 — stable
 
 Promoted unchanged from `v0.9.0-nightly.2`. The v0.9 line is about **seeing the
