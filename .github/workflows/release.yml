@@ -91,20 +91,46 @@ jobs:
       # Silent, and indistinguishable from there being no update.
       #
       # The committed files keep the base version; this only rewrites them in CI.
+      #
+      # TWO different versions get written, and they have to be different:
+      #
+      #   Cargo.toml       the FULL tag version, e.g. 0.10.0-nightly.4. This is
+      #                    what becomes CARGO_PKG_VERSION and therefore what the
+      #                    updater reports as the running build. It must be
+      #                    exact or the comparison above is pointless.
+      #
+      #   tauri.conf.json  a WiX-legal version, e.g. 0.10.0-4. Fox MD bundles an
+      #                    .msi (unlike the other three apps, which are NSIS
+      #                    only), and MSI refuses a non-numeric pre-release:
+      #                    "optional pre-release identifier in app version must
+      #                    be numeric-only and cannot be greater than 65535 for
+      #                    msi target". Stamping the full version here fails the
+      #                    Windows job while Linux and macOS pass, which
+      #                    publishes a release with no Windows installer in it.
+      #
+      # Keeping the ordinal (0.10.0-4, not bare 0.10.0) means two nightlies never
+      # produce identically-named installers.
       - name: Stamp version from tag
         shell: bash
         env:
           TAG: ${{ env.RELEASE_TAG }}
         run: |
           VER="${TAG#v}"
-          # `+ "\n"` is deliberately written as String.fromCharCode(10): this
-          # step is a shell string inside YAML, and a literal backslash-n does
-          # not survive the two layers reliably.
+          if [ "$VER" != "${VER%%-*}" ]; then
+            ORDINAL="$(printf '%s' "${VER#*-}" | tr -cd '0-9')"
+            BUNDLE_VER="${VER%%-*}-${ORDINAL:-0}"
+          else
+            BUNDLE_VER="$VER"
+          fi
+          echo "binary version = $VER ; bundle version = $BUNDLE_VER"
+          # The trailing newline is String.fromCharCode(10) rather than a
+          # backslash-n: this is a shell string inside YAML, and the escape does
+          # not survive both layers reliably.
           stamp_json() {
-            node -e "const fs=require('fs');const p=process.argv[1];const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.argv[2];fs.writeFileSync(p,JSON.stringify(c,null,2)+String.fromCharCode(10));console.log(p,'=>',c.version);" "$1" "$VER"
+            node -e "const fs=require('fs');const p=process.argv[1];const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.argv[2];fs.writeFileSync(p,JSON.stringify(c,null,2)+String.fromCharCode(10));console.log(p,'=>',c.version);" "$1" "$2"
           }
-          stamp_json src-tauri/tauri.conf.json
-          stamp_json package.json
+          stamp_json src-tauri/tauri.conf.json "$BUNDLE_VER"
+          stamp_json package.json "$BUNDLE_VER"
           perl -0pi -e "s/^version = \"[^\"]+\"/version = \"${VER}\"/m" src-tauri/Cargo.toml
           grep '^version' src-tauri/Cargo.toml
 
