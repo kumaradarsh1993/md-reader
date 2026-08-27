@@ -95,8 +95,8 @@ pub fn run() {
             commands::set_titlebar_theme,
             secrets::get_secret,
             secrets::set_secret,
-            updates::check_updates,
-            updates::install_update,
+            updates::update_status,
+            updates::download_and_install,
         ])
         .run(tauri::generate_context!());
 

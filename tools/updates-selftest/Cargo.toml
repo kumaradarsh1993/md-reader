@@ -1,0 +1,17 @@
+[package]
+name = "updates-selftest"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone on purpose — NOT a member of any workspace. Being a member would
+# pull the Tauri app crate into the build graph, which is the whole thing this
+# harness exists to get away from.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# `host_allowed` parses with reqwest's re-exported Url. Depending on the same
+# crate the app does keeps the URL semantics identical rather than approximately
+# identical, which for a download allowlist is the difference that matters.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

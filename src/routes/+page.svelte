@@ -22,6 +22,7 @@
   import TabBar from "$lib/TabBar.svelte";
   import Find from "$lib/Find.svelte";
   import Settings from "$lib/Settings.svelte";
+  import { updates, primeUpdateCheck } from "$lib/updates.svelte";
   import About from "$lib/About.svelte";
   import Icon from "$lib/Icon.svelte";
   import Breadcrumb from "$lib/Breadcrumb.svelte";
@@ -563,6 +564,11 @@
   }
 
   onMount(async () => {
+    // One unauthenticated GitHub call per app run, so the gear can carry a dot
+    // when a newer build exists instead of waiting to be opened. Failures are
+    // silent: being offline is not news worth a badge.
+    void primeUpdateCheck();
+
     // ── Local wiring first, and unconditionally ──────────────────────────
     //
     // Ordering here is load-bearing, not stylistic. All of this used to sit
@@ -906,7 +912,13 @@
         aria-pressed={focus.active}
       ><Icon name={focus.active ? "shrink" : "expand"} size={18} /></button>
       <button class="icon-btn lg" onclick={() => (findOpen = true)} title={`Find (${sk("Mod", "F")})`} aria-label="Find"><Icon name="search" size={18} /></button>
-      <button class="icon-btn lg" onclick={() => (settingsOpen = true)} title={`Settings (${sk("Mod", ",")})`} aria-label="Settings"><Icon name="settings" size={18} /></button>
+      <button
+        class="icon-btn lg"
+        class:has-update={updates.available}
+        onclick={() => (settingsOpen = true)}
+        title={updates.available ? "An update is available - Settings > Updates" : `Settings (${sk("Mod", ",")})`}
+        aria-label="Settings"
+      ><Icon name="settings" size={18} /></button>
     </div>
   </header>
 
@@ -1950,4 +1962,17 @@
 
   /* (Smart-diff inline banner CSS removed in v0.3.0. v0.4.0 reintroduces
      LLM-summarised diffs via the per-section sidebar — see proposal.) */
+  /* A newer build exists. Deliberately a dot rather than a badge with a version
+     in it: the only question it answers is "is there something newer". */
+  .icon-btn.has-update { position: relative; }
+  .icon-btn.has-update::after {
+    content: "";
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
 </style>

@@ -18,30 +18,6 @@ export interface DirEntry {
 
 export type SecretProvider = "groq" | "anthropic";
 
-/** One published release, as the updater needs it. See src-tauri/src/updates.rs. */
-export interface ReleaseInfo {
-  tag: string;
-  name: string;
-  prerelease: boolean;
-  /** RFC-3339, or null if GitHub didn't report one. */
-  published_at: string | null;
-  html_url: string;
-  /** The installer for *this* platform — null when the release has none. */
-  asset_name: string | null;
-  asset_url: string | null;
-  asset_size: number | null;
-}
-
-export interface UpdateStatus {
-  /** The running build's version. */
-  current: string;
-  stable: ReleaseInfo | null;
-  nightly: ReleaseInfo | null;
-  /** Set when the check failed; the panel shows it instead of pretending. */
-  error: string | null;
-  releases_url: string;
-}
-
 export const api = {
   openFile: (path: string) => invoke<OpenedFile>("open_file", { path }),
   saveFile: (path: string, content: string) =>
@@ -76,9 +52,6 @@ export const api = {
     invoke<string | null>("get_secret", { provider }),
   setSecret: (provider: SecretProvider, value: string) =>
     invoke<void>("set_secret", { provider, value }),
-  checkUpdates: () => invoke<UpdateStatus>("check_updates"),
-  installUpdate: (url: string, name: string) =>
-    invoke<string>("install_update", { url, name }),
 
   pickFile: async (): Promise<string | null> => {
     const result = await openDialog({

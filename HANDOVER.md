@@ -9,6 +9,33 @@
 > highlight/comment now properly separated (see the first entry in
 > `docs/DECISIONS.md`).
 
+## 2026-08-27 — one update module, shared across all four Fox desktop apps
+
+`docs/UPDATES.md` is the contract; **the same `src-tauri/src/updates.rs` and the
+same `UpdatePanel.svelte` now ship in wispr-fox, FoxCull, Fox MD and Fox Mark**,
+differing only in three constants. Fix a bug in one, copy it to the other three.
+
+What it buys: two channels visible at once, and on Windows an Install button
+that downloads, runs the NSIS installer **silently** (`/S /R`) and relaunches —
+no wizard, no uninstall/reinstall. macOS and Linux download and open, which is as
+far as an unsigned build can honestly go.
+
+Three things that will silently break it, all documented in `docs/UPDATES.md`:
+a nightly published as a **draft** is invisible to the API; a **renamed CI
+artifact** degrades Install to "no installer for this platform" rather than
+erroring; and a **string-compare** version check sorts `nightly.10` below
+`nightly.9`. The last two are pinned by `md-reader/tools/updates-selftest`, which
+slices the real `updates.rs` rather than restating it — 9/9 passing.
+
+Local to this repo: the v0.9.0 updater was the prototype for all of this. Its
+commands were renamed for consistency (`check_updates` → `update_status`,
+`install_update(url, name)` → `download_and_install(tag)` — the tag form never
+lets a URL cross the IPC boundary), streaming download with a progress bar and a
+size check were adopted from wispr-fox, and the hand-rolled Settings block was
+replaced by the shared panel. The self-test harness lives here at
+`tools/updates-selftest` and verifies all four apps at once.
+
+
 ## Read these three first
 
 | Document | What it holds |

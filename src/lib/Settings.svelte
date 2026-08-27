@@ -1,97 +1,14 @@
 <script lang="ts">
   import { settings, type ThemeMode, WIDTH_MIN, WIDTH_DEFAULT, widthMax } from "./settings-store.svelte";
   import { MOD, sk } from "./platform";
-  import { api, type UpdateStatus, type ReleaseInfo } from "./api";
+  import { api } from "./api";
   import { annotations } from "./annotations/store.svelte";
   import { HIGHLIGHT_COLORS } from "./annotations/types";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import UpdatePanel from "./UpdatePanel.svelte";
 
   interface Props { open: boolean }
   let { open = $bindable(false) }: Props = $props();
-
-  // -- Updates ---------------------------------------------------------
-  let updates = $state<UpdateStatus | null>(null);
-  let checking = $state(false);
-  let installing = $state<string | null>(null);
-  let installNote = $state<string | null>(null);
-
-  async function checkUpdates() {
-    checking = true;
-    installNote = null;
-    try {
-      updates = await api.checkUpdates();
-    } catch (e) {
-      updates = {
-        current: "?",
-        stable: null,
-        nightly: null,
-        error: String(e),
-        releases_url: "https://github.com/kumaradarsh1993/md-reader/releases",
-      };
-    } finally {
-      checking = false;
-    }
-  }
-
-  // Checked when the panel opens, not at app start: an update check is a
-  // network call, and the only place its answer is visible is right here.
-  $effect(() => {
-    if (open && !updates && !checking) void checkUpdates();
-  });
-
-  async function install(r: ReleaseInfo) {
-    if (!r.asset_url || !r.asset_name) return;
-    installing = r.tag;
-    installNote = null;
-    try {
-      installNote = await api.installUpdate(r.asset_url, r.asset_name);
-    } catch (e) {
-      installNote = String(e);
-    } finally {
-      installing = null;
-    }
-  }
-
-  /** "3 days ago" / "12 minutes ago" — the question is always how fresh a
-   *  build is, never what o'clock it was published. */
-  function age(iso: string | null): string {
-    if (!iso) return "date unknown";
-    const t = Date.parse(iso);
-    if (Number.isNaN(t)) return "date unknown";
-    const mins = Math.round((Date.now() - t) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-    const days = Math.round(hours / 24);
-    if (days < 31) return `${days} day${days === 1 ? "" : "s"} ago`;
-    return new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-  }
-
-  function mb(bytes: number | null): string {
-    return bytes ? `${(bytes / 1048576).toFixed(1)} MB` : "";
-  }
-
-  /** Base-version compare, ignoring any pre-release suffix.
-   *  A nightly and a stable of the same line report the same
-   *  `CARGO_PKG_VERSION`, so this can say "newer" or "same version number" but
-   *  deliberately never claims "you already have this exact build". */
-  function relation(tag: string, current: string): "newer" | "same" | "older" {
-    const parse = (v: string) =>
-      v.replace(/^v/, "").split("-")[0].split(".").map((n) => parseInt(n, 10) || 0);
-    const a = parse(tag);
-    const b = parse(current);
-    for (let i = 0; i < 3; i++) {
-      if ((a[i] ?? 0) > (b[i] ?? 0)) return "newer";
-      if ((a[i] ?? 0) < (b[i] ?? 0)) return "older";
-    }
-    return "same";
-  }
-
-  let rows = $derived([
-    { key: "stable", label: "Latest stable", r: updates?.stable ?? null },
-    { key: "nightly", label: "Latest nightly", r: updates?.nightly ?? null },
-  ]);
 
   let markCount = $derived(Object.keys(settings.s.scrollMemory ?? {}).length);
 
@@ -360,75 +277,7 @@
 
     <h3 class="group-head">Updates</h3>
 
-    <fieldset class="updates-group">
-      <legend>
-        <span>This build</span>
-        <span class="value">{updates ? updates.current : "\u2026"}</span>
-      </legend>
-
-      {#if checking && !updates}
-        <p class="hint smart-hint">Checking GitHub\u2026</p>
-      {:else if updates?.error}
-        <p class="hint smart-hint err">Couldn't check for updates \u2014 {updates.error}</p>
-      {/if}
-
-      {#each rows as row (row.key)}
-        <div class="rel">
-          <div class="rel-head">
-            <span class="rel-label">{row.label}</span>
-            {#if row.r}
-              <span class="rel-tag">{row.r.tag}</span>
-              {#if relation(row.r.tag, updates?.current ?? "0.0.0") === "newer"}
-                <span class="chip new">newer</span>
-              {:else if relation(row.r.tag, updates?.current ?? "0.0.0") === "same"}
-                <span class="chip">same version</span>
-              {/if}
-            {:else if !checking}
-              <span class="rel-none">none published</span>
-            {/if}
-          </div>
-          {#if row.r}
-            <div class="rel-meta">
-              built {age(row.r.published_at)}
-              {#if row.r.asset_size}<span class="dot">\u00b7</span>{mb(row.r.asset_size)}{/if}
-            </div>
-            {#if row.r.asset_name}
-              <div class="rel-meta rel-file">{row.r.asset_name}</div>
-            {/if}
-            <div class="rel-actions">
-              <button
-                type="button"
-                class="primary"
-                disabled={!row.r.asset_url || installing !== null}
-                onclick={() => install(row.r!)}
-              >{installing === row.r.tag ? "Downloading\u2026" : "Install"}</button>
-              <button type="button" onclick={() => openUrl(row.r!.html_url)}>Release notes</button>
-            </div>
-            {#if !row.r.asset_url}
-              <p class="hint smart-hint">No installer for this platform in that release.</p>
-            {/if}
-          {/if}
-        </div>
-      {/each}
-
-      {#if installNote}
-        <p class="hint smart-hint note">{installNote}</p>
-      {/if}
-
-      <div class="presets">
-        <button type="button" onclick={checkUpdates} disabled={checking}>
-          {checking ? "Checking\u2026" : "Check again"}
-        </button>
-        <button
-          type="button"
-          onclick={() => openUrl(updates?.releases_url ?? "https://github.com/kumaradarsh1993/md-reader/releases")}
-        >All releases</button>
-      </div>
-      <small class="hint">
-        Install downloads the build and runs it silently, then reopens Fox MD.
-        Settings, tabs and reading positions carry over.
-      </small>
-    </fieldset>
+    <UpdatePanel title="Fox MD" />
 
     <h3 class="group-head">Advanced</h3>
 
@@ -665,56 +514,10 @@
   .group-head:first-of-type { margin-top: .2rem; }
 
   /* --- Updates ------------------------------------------------------- */
-  .rel { padding: .55rem 0; border-top: 1px solid var(--border); }
-  .rel:first-of-type { border-top: 0; }
-  .rel-head {
-    display: flex;
-    align-items: center;
-    gap: .4rem;
-    flex-wrap: wrap;
-    font-size: 12.5px;
-    line-height: 1.5;
-  }
-  .rel-label { font-weight: 600; color: var(--fg-strong); }
-  .rel-tag { font-variant-numeric: tabular-nums; color: var(--muted-strong); }
-  .rel-none { color: var(--muted); font-style: italic; }
-  .chip {
-    font-size: 9.5px;
-    font-weight: 650;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    padding: 1px 5px;
-    border-radius: 999px;
-    background: var(--muted-bg);
-    color: var(--muted-strong);
-    line-height: 1.6;
-  }
-  .chip.new { background: var(--accent-soft); color: var(--accent); }
-  .rel-meta { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: .1rem; }
-  .rel-meta .dot { margin: 0 .3rem; opacity: .5; }
-  .rel-file { font-variant-numeric: tabular-nums; word-break: break-all; }
-  .rel-actions { display: flex; gap: .4rem; margin-top: .45rem; }
-  .rel-actions button {
-    display: inline-flex;
-    align-items: center;
-    gap: .3rem;
-    padding: .25rem .6rem;
-    font-size: 12px;
-    line-height: 1.5;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-elevated);
-    color: var(--fg);
-    cursor: pointer;
-  }
-  .rel-actions button:hover:not([disabled]) { background: var(--hover-bg); }
-  .rel-actions button.primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-  .rel-actions button[disabled] { opacity: .45; cursor: default; }
   .hint.err { color: #e5484d; }
   .hint.note { color: var(--accent); }
 
   fieldset.width-group,
-  fieldset.updates-group,
   fieldset.surface-group,
   fieldset.smart-diff-group,
   fieldset.reading-group,
@@ -725,7 +528,6 @@
     margin: .9rem 0;
   }
   fieldset.editor-mode-group legend,
-  fieldset.updates-group legend,
   fieldset.surface-group legend {
     padding: 0 .35rem;
     font-size: 13px;

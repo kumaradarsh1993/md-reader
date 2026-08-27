@@ -142,7 +142,16 @@ export function installDevMock(): boolean {
     current_watch: () => null,
     set_titlebar_theme: () => undefined,
     get_secret: () => null,
-    check_updates: () => ({ current: "dev", stable: null, nightly: null, error: "dev mock", releases_url: "" }),
+    update_status: () => ({
+      product: "Fox MD",
+      current: "dev",
+      current_is_nightly: false,
+      stable: null,
+      nightly: null,
+      can_self_install: false,
+      update_available: false,
+      releases_url: "https://github.com/kumaradarsh1993/md-reader/releases",
+    }),
     // plugin:store — the settings store talks to it directly. `entries` has to
     // return an array of pairs; returning undefined makes the settings loader
     // throw "is not iterable" and fall back to defaults, which looks like a
