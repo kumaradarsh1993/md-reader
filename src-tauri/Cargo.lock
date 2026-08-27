@@ -2365,6 +2365,7 @@ name = "md-reader"
 version = "0.10.0"
 dependencies = [
  "comrak",
+ "getrandom 0.2.17",
  "keyring",
  "notify",
  "notify-debouncer-full",
@@ -2373,6 +2374,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

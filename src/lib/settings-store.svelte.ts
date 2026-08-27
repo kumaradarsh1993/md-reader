@@ -114,6 +114,14 @@ export interface AppSettings {
   authorName: string;
   /** Colour a fresh highlight takes when made from the keyboard. */
   defaultHighlightColor: HighlightColor;
+  // ─── Handover (v0.11.0+) ─────────────────────────────────────────
+  /** Publish this machine's open documents so your phone can pick them up.
+   *  Independent of being signed in: signing in for one machine should not
+   *  silently start publishing from every machine. */
+  handoverEnabled: boolean;
+  /** What this machine is called on the phone — "Home Alienware". Empty means
+   *  fall back to the computer's hostname. */
+  deviceLabel: string;
   recentFiles: string[];
   openTabs: string[];
   activeTabPath: string | null;
@@ -195,6 +203,8 @@ const DEFAULTS: AppSettings = {
   showToc: true,
   showFiles: false,
   panelWidth: 280,
+  handoverEnabled: true,
+  deviceLabel: "",
   showHighlights: true,
   showComments: true,
   authorName: "",

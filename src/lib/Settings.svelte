@@ -3,6 +3,7 @@
   import { MOD, sk } from "./platform";
   import { api } from "./api";
   import { annotations } from "./annotations/store.svelte";
+  import AccountPanel from "./AccountPanel.svelte";
   import { HIGHLIGHT_COLORS } from "./annotations/types";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import UpdatePanel from "./UpdatePanel.svelte";
@@ -197,6 +198,10 @@
         </button>
       </div>
     </fieldset>
+
+    <h3 class="group-head">Handover</h3>
+
+    <AccountPanel />
 
     <h3 class="group-head">Notes</h3>
 

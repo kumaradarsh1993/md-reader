@@ -1,6 +1,9 @@
+mod auth;
 mod commands;
+mod handover;
 pub mod markdown;
 mod secrets;
+mod supabase;
 mod updates;
 mod watcher;
 
@@ -96,6 +99,10 @@ pub fn run() {
             secrets::get_secret,
             secrets::set_secret,
             updates::update_status,
+            account_state,
+            account_sign_in,
+            account_sign_out,
+            handover_push,
             updates::download_and_install,
         ])
         .run(tauri::generate_context!());
@@ -103,4 +110,40 @@ pub fn run() {
     if let Err(e) = result {
         eprintln!("error while running tauri application: {e}");
     }
+}
+
+
+// ─── Account & handover commands ────────────────────────────────────────────
+//
+// The webview never receives a token — only whether someone is signed in and
+// what to call them. See `supabase.rs` for why that boundary is load-bearing
+// in an app that renders arbitrary markdown with raw HTML enabled.
+
+#[tauri::command]
+async fn account_state() -> auth::AccountState {
+    auth::current_account().await
+}
+
+#[tauri::command]
+async fn account_sign_in() -> Result<auth::AccountState, String> {
+    auth::sign_in().await
+}
+
+#[tauri::command]
+async fn account_sign_out(app: tauri::AppHandle) -> Result<(), String> {
+    // Withdraw this device's tabs first: after the token is gone there is no
+    // way to delete them, and they would sit on the phone as a device that
+    // never updates again.
+    let _ = handover::withdraw(app).await;
+    auth::sign_out().await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn handover_push(
+    app: tauri::AppHandle,
+    label: String,
+    tabs: Vec<handover::OpenTab>,
+) -> Result<handover::PushResult, String> {
+    handover::push(app, label, tabs).await
 }

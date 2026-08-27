@@ -1,0 +1,16 @@
+[package]
+name = "handover-selftest"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone on purpose — NOT a workspace member. Membership would pull the
+# Tauri app crate into the build graph, which is the whole thing this harness
+# exists to get away from.
+[workspace]
+
+[dependencies]
+# The same crates the sliced code uses, at the same versions the app pins, so
+# the harness exercises identical behaviour rather than similar behaviour.
+sha2 = "0.10"
+getrandom = "0.2"

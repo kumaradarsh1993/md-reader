@@ -123,6 +123,13 @@ export function installDevMock(): boolean {
   if ((window as any).__TAURI_INTERNALS__) return true;
 
   const store = new Map<string, unknown>();
+  let mockAccount = {
+    signed_in: false as boolean,
+    email: null as string | null,
+    name: null as string | null,
+    user_id: null as string | null,
+    error: null as string | null,
+  };
 
   const handlers: Record<string, (a: any) => unknown> = {
     render_markdown: ({ source }) => renderMock(source ?? ""),
@@ -133,6 +140,22 @@ export function installDevMock(): boolean {
     write_text_file_if_absent: ({ path, content }) => { if (!files.has(path)) files.set(path, content); },
     remove_file_if_present: ({ path }) => { files.delete(path); },
     user_display_name: () => "Adarsh",
+    // Handover. `signedIn` flips when account_sign_in is called, so the panel's
+    // two states can both be driven without a real Google round trip.
+    account_state: () => mockAccount,
+    account_sign_in: () => {
+      mockAccount = {
+        signed_in: true, email: "adarsh@example.com", name: "Kumar Adarsh",
+        user_id: "00000000-0000-4000-8000-000000000000", error: null,
+      };
+      return mockAccount;
+    },
+    account_sign_out: () => {
+      mockAccount = { signed_in: false, email: null, name: null, user_id: null, error: null };
+    },
+    handover_push: ({ tabs: t }: any) => ({
+      pushed: (t ?? []).length, removed: 0, oversize: 0, device_id: "devmock-device",
+    }),
     list_dir: () => [{ name: "Sample brief.md", path: MOCK_PATH, is_dir: false, is_md: true, modified: Date.now() }],
     parent_of: () => "D:\\devmock",
     take_initial_files: () => [MOCK_PATH],

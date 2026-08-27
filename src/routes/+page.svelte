@@ -13,6 +13,7 @@
   } from "$lib/settings-store.svelte";
   import { tabs } from "$lib/tabs-store.svelte";
   import { annotations } from "$lib/annotations/store.svelte";
+  import { account } from "$lib/account.svelte";
   import Viewer from "$lib/Viewer.svelte";
   import WidthControl from "$lib/WidthControl.svelte";
   import Editor from "$lib/Editor.svelte";
@@ -65,6 +66,23 @@
   // Convenience derived state from active tab
   let active = $derived(tabs.active);
   let path = $derived(active?.path ?? null);
+
+  // Handover: learn who is signed in once, then publish whenever the open set
+  // or any document's text changes. Reading `tabs.tabs` and each `source`
+  // inside the effect is what subscribes it to both.
+  $effect(() => {
+    void account.refresh();
+  });
+
+  $effect(() => {
+    const open = tabs.tabs;
+    // Touch each source so an edit — or an agent rewriting the file — schedules
+    // a push, not just opening and closing tabs.
+    for (const t of open) void t.source;
+    void tabs.activeId;
+    void settings.s.handoverEnabled;
+    account.schedulePush();
+  });
 
   /** Point the annotation store at whatever document is on screen. It flushes
    *  the outgoing document's pending write before loading the incoming one, so
