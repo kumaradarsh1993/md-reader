@@ -153,7 +153,10 @@ jobs:
             - macOS: `.dmg` (universal — Apple Silicon + Intel)
             - Linux: `.AppImage` (portable) or `.deb` (Debian/Ubuntu)
 
-            Unsigned builds — on first launch Windows SmartScreen / macOS Gatekeeper may warn. Right-click → Open (macOS) or "More info" → "Run anyway" (Windows) the first time.
+            Not notarized — first launch shows a warning on both platforms.
+
+            - **macOS:** double-click, click **Done** on "Apple could not verify...", then **System Settings → Privacy & Security → Open Anyway**. (Right-click → Open no longer works on macOS 15+.) Terminal equivalent: `xattr -dr com.apple.quarantine "/Applications/Fox MD.app"`
+            - **Windows:** "More info" → "Run anyway" on the SmartScreen prompt.
           # Nightlies publish immediately as pre-releases; stable tags land as
           # drafts so the notes can be written before anyone sees them.
           #
@@ -165,3 +168,24 @@ jobs:
           releaseDraft: ${{ !contains(env.RELEASE_TAG, '-nightly') }}
           prerelease: ${{ contains(env.RELEASE_TAG, '-nightly') }}
           args: ${{ matrix.args }}
+
+      # Guard: tauri-bundler only signs the .app when bundle.macOS.signingIdentity
+      # is set. Without it Contents/_CodeSignature is absent, and macOS rejects the
+      # app on launch ("Apple could not verify..." at best, "damaged" at worst).
+      # Fail here rather than shipping a .dmg nobody can open.
+      - name: Verify macOS bundle signature
+        if: matrix.platform == 'macos-latest'
+        run: |
+          set -euo pipefail
+          APP=$(find src-tauri/target/universal-apple-darwin/release/bundle/macos \
+                  -maxdepth 1 -name '*.app' | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app bundle produced by the build"; exit 1
+          fi
+          echo "Verifying $APP"
+          if [ ! -f "$APP/Contents/_CodeSignature/CodeResources" ]; then
+            echo "::error::Missing Contents/_CodeSignature/CodeResources - macOS will refuse to open this app"
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          echo "Bundle signature verified."

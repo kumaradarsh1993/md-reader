@@ -43,7 +43,15 @@ pre-release *nightly* builds. Direct links to the current stable build:
 | **Linux** | [Fox.MD_0.9.0_amd64.AppImage](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_amd64.AppImage) | [.deb](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD_0.9.0_amd64.deb) · [.rpm](https://github.com/kumaradarsh1993/md-reader/releases/download/v0.9.0/Fox.MD-0.9.0-1.x86_64.rpm) |
 
 Installers upgrade an existing Fox MD in place — settings, tabs and reading positions carry over.
-Windows SmartScreen will warn on first run (the build is unsigned): **More info → Run anyway**.
+Builds are code-signed ad-hoc but **not notarized** (notarization requires Apple's $99/yr Developer
+Program), so each OS warns once on first run:
+
+- **Windows** — SmartScreen: **More info → Run anyway**.
+- **macOS** — *"Apple could not verify Fox MD is free of malware"*: click **Done**, then open
+  **System Settings → Privacy & Security** and click **Open Anyway** next to Fox MD.
+  Terminal equivalent: `xattr -dr com.apple.quarantine "/Applications/Fox MD.app"`
+
+  > Right-click → Open stopped bypassing Gatekeeper in macOS 15 (Sequoia). Use **Open Anyway**.
 
 **Nightlies** are on the same [releases page](https://github.com/kumaradarsh1993/md-reader/releases),
 marked *Pre-release*. They are built by CI from a tagged commit and carry whatever is being worked on

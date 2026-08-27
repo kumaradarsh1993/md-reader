@@ -48,6 +48,10 @@
         "role": "Viewer"
       }
     ],
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    },
     "windows": {
       "wix": {
         "upgradeCode": "0c8e8201-1ef4-56d2-9b1d-a0a5203f2c69"
