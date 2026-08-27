@@ -9,6 +9,57 @@
 > highlight/comment now properly separated (see the first entry in
 > `docs/DECISIONS.md`).
 
+## 2026-08-28 — Handover is built, both halves
+
+Sign in with Google on the desktop (Settings → Handover) and on the phone, and
+each machine publishes its open documents for the others to pick up. The
+Supabase schema was applied by the owner on 2026-08-27 and **verified from here**
+against the live project: `md_open_tabs` and `md_refresh_requests` exist and
+correctly refuse anonymous reads, `devices.fox_md_label` exists, Google is an
+enabled provider, and both redirect URLs (`http://localhost:47821/callback`,
+`foxmd://auth-callback`) are already allow-listed — so there is no dashboard
+step outstanding.
+
+**Where the code is.** Desktop: `src-tauri/src/{supabase,auth,handover}.rs`
+plus `src/lib/account.svelte.ts` and `AccountPanel.svelte`. Phone:
+`app/src/main/java/com/foxmd/android/sync/` in `md-reader-android`.
+
+### The three rules that matter
+
+1. **Auth never touches the webview.** Fox MD renders arbitrary markdown with
+   raw HTML enabled; the strict CSP with no external `connect-src` is what
+   stops a document reaching the network. A Supabase session in the page would
+   mean widening that CSP to the API origin, and then any document you opened
+   could call it *with your session attached*. The page asks "am I signed in?"
+   and gets a name and an email. **Do not move auth into the frontend.**
+2. **Only an explicit rejection is a logout.** A 500, a timeout or a captive
+   portal leaves the stored refresh token alone to retry. Clearing on any
+   failure is how an app loses a session to a café network.
+3. **Refresh is serialised.** Supabase rotates the refresh token on every use
+   and revokes the old one, so two concurrent refreshes leave one holding a
+   revoked token — the mechanism behind most mystery logouts. Desktop uses a
+   `tokio::sync::Mutex` (**not** `std::sync`: its guard is held across an
+   `.await`, and a `std` guard is `!Send`, which Tauri rejects with "future
+   cannot be sent between threads safely" from inside a macro expansion that
+   names none of this). Android uses `kotlinx.coroutines.sync.Mutex`.
+
+### Testing
+
+`cargo test` still cannot run in the app crate. `tools/handover-selftest`
+slices the real `supabase.rs`/`auth.rs`/`handover.rs` the way
+`updates-selftest` already does — 13/13, and it immediately caught a wrong
+leap-day expectation. Android is 37/37; its new parsing tests caught that an
+out-of-range timestamp parsed to a plausible instant instead of zero, which
+would have let a dead machine render as live.
+
+### Two R8 traps, if the Android release build ever fails again
+
+`security-crypto` pulls in Tink. Its Error Prone annotations are compile-time
+only and R8 treats them as **errors**, not warnings; and a blanket
+`-keep class com.google.crypto.tink.**` pins `KeysDownloader` alive, which then
+drags in google-api-client and joda-time. Both are handled in
+`app/proguard-rules.pro`; read the comments there before touching it.
+
 ## 2026-08-27 — one update module, shared across all four Fox desktop apps
 
 `docs/UPDATES.md` is the contract; **the same `src-tauri/src/updates.rs` and the
