@@ -80,6 +80,34 @@ jobs:
       - name: Install JS deps
         run: npm ci
 
+      # Stamp the build's version from the tag, the way FoxCull and Fox Mark
+      # already do.
+      #
+      # Without this, a nightly reports its BASE version: the binary built from
+      # tag v0.10.0-nightly.3 has CARGO_PKG_VERSION = "0.10.0", because that is
+      # what the committed files say. The in-app updater compares against that,
+      # and semver puts a plain 0.10.0 ABOVE 0.10.0-nightly.4 - so a user on
+      # nightly.3 is told "you're on this or newer" and never sees nightly.4.
+      # Silent, and indistinguishable from there being no update.
+      #
+      # The committed files keep the base version; this only rewrites them in CI.
+      - name: Stamp version from tag
+        shell: bash
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          VER="${TAG#v}"
+          # `+ "\n"` is deliberately written as String.fromCharCode(10): this
+          # step is a shell string inside YAML, and a literal backslash-n does
+          # not survive the two layers reliably.
+          stamp_json() {
+            node -e "const fs=require('fs');const p=process.argv[1];const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=process.argv[2];fs.writeFileSync(p,JSON.stringify(c,null,2)+String.fromCharCode(10));console.log(p,'=>',c.version);" "$1" "$VER"
+          }
+          stamp_json src-tauri/tauri.conf.json
+          stamp_json package.json
+          perl -0pi -e "s/^version = \"[^\"]+\"/version = \"${VER}\"/m" src-tauri/Cargo.toml
+          grep '^version' src-tauri/Cargo.toml
+
       # tauri-action builds the app and, when given a tagName, creates a draft
       # GitHub Release for that tag and uploads the platform artifacts to it.
       # The first job to run creates the draft; subsequent jobs upload into it.
