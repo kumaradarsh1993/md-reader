@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.11.0-nightly.1 - 2026-08-28
+
+### Added - Handover
+
+Sign in with Google (Settings -> Handover) and Fox MD publishes the documents
+you have open. Sign in on your phone with the same account and they are waiting
+there - tap one and carry on at the line you stopped at.
+
+- **One account across your machines and your phone**, and shared with
+  wispr-fox, so it is the same Google sign-in you already use.
+- **Your data is yours.** Every row is scoped to your account by the database
+  itself; two people signing in see entirely separate sets of devices.
+- **Publishing is automatic** - 2.5 seconds after anything changes - and
+  closing a tab removes it, so the phone shows what is open *now*.
+- **You can stay signed in without publishing.** The toggle is separate,
+  because signing in on one machine should not silently start broadcasting from
+  every machine.
+- **Name each machine** ("Home Alienware") so the phone's list reads like your
+  desk rather than like a list of hostnames.
+- Documents over 256 KB are listed but not carried over the network.
+
+**It is built not to sign you out.** Tokens refresh before they expire rather
+than after; concurrent refreshes are serialised, because the token rotation
+that protects your session is also the classic cause of mystery logouts; and a
+timeout or a hotel wifi portal leaves your session alone to retry instead of
+treating it as a logout.
+
+Your sign-in never touches the page that renders your documents. Fox MD opens
+arbitrary markdown with raw HTML enabled, so a session reachable from the page
+would be a session reachable from a document someone sent you.
+
 ## 0.10.0-nightly.3 - 2026-08-26
 
 ### Fixed - highlighting and commenting were the same thing, and should not have been
