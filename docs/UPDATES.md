@@ -92,6 +92,12 @@ It exits non-zero with a diff on the first mismatch. `updates.rs` may differ
 only in the three documented constants; the two frontend files must match byte
 for byte.
 
+## Before you change any of this
+
+[`UPDATES-INVARIANTS.md`](UPDATES-INVARIANTS.md) lists the four things that fail
+*quietly* when this module is edited — including why CI deliberately stamps two
+different version strings, and why the panel has no hard-coded repo URL.
+
 ## Files
 
 | File | What |
