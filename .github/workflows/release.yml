@@ -17,7 +17,44 @@ permissions:
   contents: write
 
 jobs:
+  # Fox MD was the only one of the four Fox desktop apps whose release workflow
+  # went straight to bundling — wispr-fox, FoxCull and Fox Mark all gate on
+  # checks first. A tag could therefore publish installers built from code that
+  # does not type-check, and nothing would say so until someone ran the app.
+  #
+  # Deliberately NOT running `cargo test` yet: the other three run
+  # `cargo test --lib` here, but this crate's tests have never been executed on
+  # a Linux runner and a release is the wrong place to find out. Add it once
+  # someone has watched it pass.
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+      - run: npm ci
+      - name: Check frontend
+        run: npm run check
+      - name: Check Rust
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
   build:
+    needs: verify
     strategy:
       fail-fast: false
       matrix:

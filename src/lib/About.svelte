@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getVersion } from "@tauri-apps/api/app";
+  import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -10,7 +11,16 @@
   let tauriVersion = $state<string>("");
 
   onMount(async () => {
-    try { version = await getVersion(); } catch { version = "unknown"; }
+    // `app_version` (Cargo's version) rather than `getVersion()`
+    // (tauri.conf.json's): in a nightly those two DIFFER, because the MSI
+    // bundler refuses a non-numeric pre-release and CI stamps it `0.11.0-1`
+    // while the binary is `0.11.0-nightly.1`. The tag-shaped one is what the
+    // updater compares and what a bug report should quote.
+    try {
+      version = await invoke<string>("app_version");
+    } catch {
+      try { version = await getVersion(); } catch { version = "unknown"; }
+    }
     try {
       const { getTauriVersion } = await import("@tauri-apps/api/app");
       tauriVersion = await getTauriVersion();

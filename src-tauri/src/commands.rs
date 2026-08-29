@@ -523,3 +523,21 @@ pub fn set_titlebar_theme(
 ) -> Result<(), String> {
     Ok(())
 }
+
+/// The version this binary actually is.
+///
+/// NOT the same as `@tauri-apps/api/app`'s `getVersion()`, which reads
+/// `tauri.conf.json`. Fox MD is the only one of the four Fox apps that bundles
+/// an `.msi`, and MSI refuses a non-numeric pre-release identifier, so CI
+/// stamps two different strings into a nightly: `0.11.0-nightly.1` into
+/// `Cargo.toml` (this) and a WiX-legal `0.11.0-1` into `tauri.conf.json`
+/// (that). The About box was showing the second while the update panel showed
+/// the first — one build reporting two version numbers, and the one people
+/// quote back when reporting a bug was the one that does not match any tag.
+///
+/// `CARGO_PKG_VERSION` is also what the updater compares against, so this is
+/// the string that decides whether you are offered an update. Show that one.
+#[tauri::command]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
