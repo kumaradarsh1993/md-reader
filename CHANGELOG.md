@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.0-nightly.2 - 2026-09-02
+## 0.11.0-nightly.3 - 2026-09-02
 
 ### Fixed - tabs can be reordered again
 

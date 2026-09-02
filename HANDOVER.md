@@ -11,7 +11,7 @@
 
 ## 2026-09-02 — tab reordering, the macOS Finder bug, and a change-review proposal
 
-Three fixes shipped in **v0.11.0-nightly.2**, plus one design document that is
+Three fixes shipped in **v0.11.0-nightly.3**, plus one design document that is
 waiting on a decision and must not be built until he answers.
 
 ### Two traps worth carrying forward

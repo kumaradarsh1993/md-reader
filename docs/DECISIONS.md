@@ -13,7 +13,7 @@ part worth keeping: the wrong turn.
 
 ---
 
-## v0.11.0-nightly.2 — 2026-09-02 — a feature that was configured away
+## v0.11.0-nightly.3 — 2026-09-02 — a feature that was configured away
 
 ### The complaint
 
