@@ -284,6 +284,50 @@
 
     <UpdatePanel title="Fox MD" />
 
+    <h3 class="group-head">Changes</h3>
+
+    <!-- Deliberately its own group, above Advanced, and on by default.
+         The theatre below is a spectacle you switch on to watch an agent work.
+         This is a record that is only useful if it was already being kept
+         before you thought to want it, so hiding it behind an opt-in would
+         guarantee it is empty the first time anyone goes looking. -->
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={settings.s.trackChanges}
+        onchange={(e) => settings.set("trackChanges", (e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>
+        Track what changed while you were away
+        <small>
+          Notices when anything you have read is edited by something other than Fox MD —
+          an agent, another editor, a sync — and keeps a record of what changed and when.
+          Marks the passages in the margin, counts them on the toolbar clock, and lists
+          them under Changes. Checked whenever this window comes back into focus.
+          The record lives in <code>.foxmd/</code> beside your files, so it survives
+          restarts and travels with the folder.
+        </small>
+      </span>
+    </label>
+
+    {#if settings.s.trackChanges}
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={settings.s.keepReviewedMarks}
+          onchange={(e) => settings.set("keepReviewedMarks", (e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span>
+          Keep a faint mark after you have read a change
+          <small>
+            Leaves a pale line in the margin once you have looked, so "something changed
+            here at some point" stays answerable. Turn off to have the margin clear
+            completely as you work through them.
+          </small>
+        </span>
+      </label>
+    {/if}
+
     <h3 class="group-head">Advanced</h3>
 
     <details class="experimental">
@@ -300,6 +344,9 @@
         <span>
           🎬 Live Edit Theatre
           <small>
+            <strong>Separate from Changes above, and does a different job:</strong> this one
+            animates an edit as it happens while you watch, and remembers nothing afterwards.
+            Changes is the record you consult later. Either can be on without the other.<br />
             When an AI (Claude, ChatGPT, Cursor, …) is writing to the file you have open,
             Fox MD switches to a focused view: subtle "receded" surface, bottom-left status bar,
             green highlight on the block currently being edited (with a soft pulse) that fades to

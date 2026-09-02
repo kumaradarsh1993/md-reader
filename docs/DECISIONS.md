@@ -13,6 +13,135 @@ part worth keeping: the wrong turn.
 
 ---
 
+## v0.12.0-nightly.1 — 2026-09-02 — Changes, and the correction that shaped it
+
+Full design in `docs/proposals/change-review.md`. This records what the building
+of it taught.
+
+### The correction
+
+The proposal argued for retiring Live Edit Theatre, on the grounds that it
+answers a different question from the one being asked. Half right; wrong
+conclusion. The owner:
+
+> *"The live edit thing was more of a gimmick. When I am sitting on a file, AI is
+> editing, it just zooms out, shows what pieces are being edited real time. Can
+> be turned on and off independently. The live feature is more of a utility."*
+
+Two features, not one. The theatre is a spectacle you opt into while watching;
+Changes is a record kept on your behalf for when you were not. They share no
+state, and the defaults follow from the difference: the theatre off, Changes on.
+
+**The general form is worth keeping:** "this answers a different question" is an
+argument for a second feature at least as often as it is an argument for
+deletion. The draft reached for deletion because one design had been asked to do
+both jobs and was doing neither well — but that is an argument against the
+merge, not against either half.
+
+### Scanning, not watching
+
+The proposal's largest worry was a recursive folder watcher, and specifically
+that `ReadDirectoryChangesW` is documented-unreliable on OneDrive — which is
+where these files live. The resolution was to not build one.
+
+`scan_markdown_tree` walks a folder and reports mtime and size; anything that
+moved gets read and diffed. It **cannot miss an event it never received**, which
+is the exact way a watcher fails on a synced filesystem, and it gives the same
+answer after the app has been shut for a week as after a minute. It costs one
+`stat` per file and only reads files that actually changed.
+
+This is the same conclusion `refresh.svelte.ts` reached in v0.8.0 for the same
+reason, arrived at independently. **On a synced filesystem, prefer a scan on a
+signal you already have over a subscription you have to trust.**
+
+### Timestamps are the file's, not the scan's
+
+The requirement:
+
+> *"The difference in the diffs can be a few minutes only — minutes should be
+> shown; versus days apart; versus what happened on a particular date. I know all
+> the way from 8–10pm, 20th March 2026, Sunday."*
+
+The trap is that changes are *found* by scanning, so an agent working for two
+hours in the background is discovered in a single instant. Stamping discovery
+time would collapse two hours into one point and make the question unanswerable.
+The **mtime** is the real answer, and using it is what lets a run of revisions be
+read back as "Sunday, 8–10 pm".
+
+Second trap, pinned by a test: "days apart" is **calendar** days, not elapsed
+milliseconds. 11pm and 1am are two days apart to a reader and two hours apart to
+arithmetic, and the reader is right.
+
+### Regions, not snapshots
+
+Storing whole before/after documents per revision would have made the sidecar
+the largest thing in the folder and rewritten megabytes on every scan. Storing
+only the *changed regions* with their own text is a few hundred bytes per
+revision, which is what makes 40 revisions per file across a whole folder
+affordable — and it is exactly what the overlay renders anyway.
+
+Regions are snapped out to whole paragraphs before being merged (not after —
+merging on unsnapped edges leaves regions that still start mid-sentence), and
+fenced code blocks are excluded from blank-line snapping, or a blank line inside
+a fence cuts the block in half and shows the reader a fragment.
+
+### The margin, not the prose
+
+The previous attempt washed whole block elements in colour, and the complaint
+was that it *"looks pretty ugly"*. The cause is not the colour. A document has
+two planes: the text is the content, the margin is where the software is allowed
+to speak. Recolouring prose puts the software's commentary inside the thing you
+are trying to read, which is why it looks wrong in every colour. Every serious
+tool ends up in the margin — VS Code's gutter, Word's changed-line bar, Google
+Docs' change marks.
+
+Stacked before/after rather than side-by-side, for a reason worth stating because
+side-by-side looks like the obvious choice: two narrow columns wrap prose
+differently, so the same sentence breaks at different words on each side and the
+eye re-finds its place on every line. Stacked keeps the measure identical and the
+changed phrase sits in the same position in both.
+
+### An edge case worth the guard
+
+Regions are line ranges in the file **on disk**. A tab with unsaved edits is
+deliberately never reloaded from disk (a refresh must not discard what you
+typed), so its on-screen line numbers drift from the ones the bars describe, and
+every bar would point at the wrong paragraph. Bars are suppressed while a tab is
+dirty and return on save.
+
+### Verification: a `/selftest` route
+
+There is no JS test runner here and `cargo test` cannot launch a harness in the
+app crate, so the assertions for the pure logic live in
+`changes/selftest.ts`, rendered at **`/selftest`** in dev — 43 checks covering
+the time ladder, session grouping, and region snapping. Fox Mark landed on the
+same arrangement independently; treat it as the house answer for frontend logic.
+
+The end-to-end path was driven through `?devmock=1`, which grew a
+`window.__foxmdMockEdit(path, content, at)` hook. That hook exists because the
+premise of the feature — *something else wrote to this file while Fox MD was not
+looking* — cannot be produced through the UI, since every path through the app
+is by definition the app doing it. `at` places an edit in the past, which is how
+"Sunday, 8–10 pm" gets exercised without waiting a week.
+
+Confirmed on the real path: baseline on open → external edit → scan → one region
+snapped to the whole paragraph → margin bar measured to the paragraph's box →
+word-level diff in the overlay → opening it marks it read → **and the reviewed
+flag survives re-reading the sidecar from disk**, which is the difference between
+this and the in-memory feature it sits beside.
+
+### One measurement trap, again
+
+Mid-verification the bars appeared to be 950px tall for a three-line paragraph.
+The bars were right; the *window* was 0×0, because the Browser pane was hidden
+and composites nothing. Every paragraph was wrapping to one word per line. This
+is the fourth distinct symptom of the hidden-pane limitation recorded in this
+repo — after frozen transitions, starved `ResizeObserver`s, and `rAF` never
+resolving. **Check `window.innerWidth` before believing any geometry measured in
+the Browser pane.**
+
+---
+
 ## v0.11.0-nightly.3 — 2026-09-02 — a feature that was configured away
 
 ### The complaint

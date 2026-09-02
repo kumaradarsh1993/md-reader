@@ -16,6 +16,13 @@ export interface DirEntry {
   modified: number | null;
 }
 
+export interface ScannedFile {
+  path: string;
+  /** Last-modified time, ms since the Unix epoch; null when unavailable. */
+  modified: number | null;
+  size: number;
+}
+
 export type SecretProvider = "groq" | "anthropic";
 
 export const api = {
@@ -45,6 +52,10 @@ export const api = {
   watchFile: (path: string) => invoke<void>("watch_file", { path }),
   unwatchFile: () => invoke<void>("unwatch_file"),
   listDir: (path: string) => invoke<DirEntry[]>("list_dir", { path }),
+  /** Every markdown file under `root`, with mtime and size. Drives change
+   *  detection for files that are not open — see `changes/store.svelte.ts`. */
+  scanMarkdownTree: (root: string, maxDepth: number) =>
+    invoke<ScannedFile[]>("scan_markdown_tree", { root, maxDepth }),
   parentOf: (path: string) => invoke<string | null>("parent_of", { path }),
   isTornOutWindow: () => invoke<boolean>("is_torn_out_window"),
   takeInitialFiles: () => invoke<string[]>("take_initial_files"),

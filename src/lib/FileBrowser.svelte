@@ -4,6 +4,7 @@
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { isMac, copyText, revealInFileManager } from "./platform";
   import { refresher } from "./refresh.svelte";
+  import { changes } from "./changes/store.svelte";
   import { settings, type FileSort } from "./settings-store.svelte";
   import { untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
@@ -304,6 +305,11 @@
               {:else}<span class="inert-dot" aria-hidden="true"></span>{/if}
             </span>
             <span class="name">{e.name}</span>
+            <!-- The surface a tab badge cannot cover: a file that changed while
+                 it was closed, or one an agent created since you last looked. -->
+            {#if changes.unreviewedFor(e.path) > 0}
+              <span class="changed-dot" title="Changed since you last read it"></span>
+            {/if}
             {#if settings.s.fileSort === "modified" && e.modified}
               <span class="when">{relativeTime(e.modified)}</span>
             {/if}
@@ -398,6 +404,13 @@
 
   /* The timestamp only appears in the recency view, where it is the thing
      being sorted on. In name order it would be noise in every row. */
+  .changed-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
   .when {
     flex-shrink: 0;
     font-size: 10px;

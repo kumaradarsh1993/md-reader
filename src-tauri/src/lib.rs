@@ -90,6 +90,7 @@ pub fn run() {
             commands::unwatch_file,
             commands::current_watch,
             commands::list_dir,
+            commands::scan_markdown_tree,
             commands::parent_of,
             commands::spawn_window,
             commands::is_torn_out_window,

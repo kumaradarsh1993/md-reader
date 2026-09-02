@@ -1,8 +1,22 @@
 # Proposal: Changes — knowing what an agent did to your files
 
-**Status:** proposal, awaiting a decision. Nothing here is built.
-**Supersedes:** `live-edit-theatre.md` (shipped v0.4.0, off by default, to be retired).
+**Status:** **BUILT** in v0.12.0-nightly.1 (2026-09-02). Kept as the design
+record — the reasoning is why the code looks like this.
+**Relationship to `live-edit-theatre.md`:** *not* a replacement. See §7.
 **Written:** 2026-09-02.
+
+> **One thing changed after the owner read this.** The proposal argued for
+> retiring Live Edit Theatre. He disagreed, and was right:
+>
+> *"The live edit thing was more of a gimmick… when I am sitting on a file, AI
+> is editing, it just zooms out, shows what pieces are being edited real time.
+> Can be turned on and off independently. The live feature is more of a
+> utility."*
+>
+> So the two now coexist as independently switchable features doing different
+> jobs — the theatre is a spectacle you opt into while watching, Changes is the
+> record kept on your behalf. §7 below is rewritten accordingly; everything
+> else stands as designed.
 
 ---
 
@@ -247,15 +261,67 @@ the change history **syncs between his machines for free**.
 
 ---
 
-## 7. Naming
+## 7. Two features, not one — and why the theatre stays
 
-Retire "Live Edit Theatre". It names a performance, which is the wrong mental
-model and sets the wrong expectation. Call the feature **Changes**, and the panel
-**Changes**. The setting becomes on-by-default, because a feature that answers
-"what happened while I was away" is worthless if you had to predict you would
-need it.
+The first draft of this proposal argued for retiring Live Edit Theatre on the
+grounds that it answers the wrong question. That was half right and led to the
+wrong conclusion.
+
+It *does* answer a different question. But "different" is not "wrong", and the
+owner's correction is the clearer framing:
+
+| | Live Edit Theatre | Changes |
+|---|---|---|
+| Answers | "what is being written **right now**" | "what was written **while I was away**" |
+| You are | watching | returning |
+| Lifetime | the moment; forgets on tab close | a record, on disk, across restarts |
+| Default | off — you opt in to watch | **on** |
+| Storage | in-memory | `.foxmd/changes.json` |
+
+They share no state and neither reads the other's settings. Both can be on, both
+off, either alone.
+
+The defaults follow from the difference. The theatre is off because watching an
+agent type is something you choose to do. Changes is **on** because a record is
+only useful if it was already being kept before you thought to want it — an
+opt-in history is guaranteed to be empty the first time anyone goes looking, and
+that first time is exactly when they needed it.
+
+**Naming:** the utility is called **Changes** everywhere it appears — the
+toolbar clock, the panel, the settings group. "Live Edit Theatre" keeps its name,
+which is accurate for what it actually is.
 
 ---
+
+## 7a. What "smart" timestamps had to mean
+
+Added after the owner's second note, and it is the requirement that shaped
+`changes/time.ts`:
+
+> *"The difference in the diffs can be a few minutes only — minutes should be
+> shown; versus days apart; versus what happened on a particular date. I know
+> all the way from 8–10pm, 20th March 2026, Sunday."*
+
+Resolution is not fixed; it follows the **spread** of what is being described.
+
+- Edits within 45 minutes of each other are one **session**. Inside it the
+  informative number is the offset from the previous edit — `+2 min` — because
+  every entry in a burst shares the same absolute minute.
+- A session gets a heading naming the day and the hours it spanned.
+- How the day is named is a ladder: `Today` → `Yesterday` → the weekday →
+  the date → the date with a year. A weekday name is the most useful label
+  inside a week and useless beyond it, where "Sunday" names a Sunday without
+  saying which one.
+
+Producing, respectively: `Today, 8:04–10:12 pm` · `Sunday, 8–10 pm` ·
+`Sun 8 Mar, 8–10 pm` · `Sun 9 Mar 2025, 8–10 pm`.
+
+Two decisions inside that are easy to get wrong and are pinned by tests:
+timestamps come from the file's **mtime**, not from when the scan noticed
+(otherwise two hours of agent work collapses into the single instant you
+alt-tabbed back); and "days apart" is counted by **calendar date**, not elapsed
+milliseconds, because 11pm and 1am are two days apart to a reader and two hours
+apart to arithmetic.
 
 ## 8. Suggested order of work
 
@@ -274,13 +340,29 @@ at any point without leaving a half-feature.
 
 ---
 
-## 9. Open questions for the owner
+## 9. What was decided, and what is still open
 
-1. **One bar with a count, or one bar per revision?** §4.2 recommends the count;
-   his original ask was per-revision.
-2. **Should reviewed changes fade or disappear?** Fading keeps "this changed at
-   some point" answerable forever at the cost of some permanent margin ink.
-3. **How far back should history go?** 50 revisions is a guess.
-4. **Folder watching: whole folder, or only folders with an open tab?** The
-   narrower version is much cheaper and still covers the five-files-in-one-project
-   case that prompted this.
+Resolved while building:
+
+1. **One bar with a count**, not one per revision — §4.2. The overlay's stepper
+   carries the iteration history instead. Reversible: the model records
+   per-revision either way.
+2. **Reviewed changes fade rather than vanish**, controlled by
+   `keepReviewedMarks` (Settings → Changes), default on.
+3. **40 revisions per file**, then the oldest drops. Regions rather than
+   whole-file snapshots is what makes that affordable.
+4. **Scanning, not watching, and only folders you have opened a file from.**
+   The proposal worried about the cost of a recursive watcher on OneDrive; the
+   answer was to not build one. A scan on focus cannot miss an event it never
+   received, which is the specific way `ReadDirectoryChangesW` fails on
+   OneDrive. Depth is capped at 4 and the file count at 4000.
+
+Still open, and worth revisiting once it has been used in anger:
+
+- **Files never opened are not tracked.** They have no baseline, so there is no
+  "before" — a file an agent *creates* is only noticed once you open it. Fox MD
+  could baseline every markdown file in a scanned folder instead, at the cost of
+  copying files you have never read into `.foxmd/`. Deliberately not done yet.
+- **The 45-minute session gap** is a judgement, not a measurement.
+- **Should a region clear itself** after sitting centred in the viewport for a
+  few seconds? Recommended against as a default; still recommended against.

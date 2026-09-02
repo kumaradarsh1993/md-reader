@@ -9,6 +9,49 @@
 > highlight/comment now properly separated (see the first entry in
 > `docs/DECISIONS.md`).
 
+## 2026-09-02 (later) — Changes shipped
+
+**v0.12.0-nightly.1.** The proposal below was approved and built. Design and
+reasoning: `docs/proposals/change-review.md`; what building it taught:
+`docs/DECISIONS.md`.
+
+**Two features that must not be merged again.** Live Edit Theatre
+(`src/lib/theatre/`) animates an edit while you watch and forgets on tab close —
+off by default. Changes (`src/lib/changes/`) is a durable record of what was
+touched while you were away — **on** by default. They share no state, and the
+owner was explicit that both should exist independently.
+
+**Where things are.** `changes/store.svelte.ts` is the entry point; detection is
+a **scan** (`scan_markdown_tree` in `commands.rs`) triggered on window focus,
+manual refresh, and opening a file — deliberately not a watcher, because
+`ReadDirectoryChangesW` is unreliable on OneDrive and a scan cannot miss an
+event it never received. State lives in `.foxmd/changes.json` plus
+`.foxmd/<name>.baseline.md` beside the documents.
+
+**Four things that will look like bugs and are not:**
+1. **A file you have never opened is not tracked.** There is no baseline, so
+   there is no "before". It becomes tracked on first open.
+2. **Bars disappear while a tab has unsaved edits.** Regions are line ranges on
+   disk; a dirty tab is never reloaded from disk, so the numbers have drifted.
+   They return on save.
+3. **Revision timestamps are the file's mtime**, not when the scan noticed.
+   Changing that would collapse two hours of background agent work into the one
+   instant you alt-tabbed back.
+4. **Nothing decays on a timer.** That is the whole difference from the previous
+   attempt; do not add a TTL.
+
+**Verifying it.** `/selftest` in dev renders 43 assertions from
+`changes/selftest.ts` (time ladder, session grouping, region snapping). For the
+end-to-end path, `?devmock=1` exposes
+`window.__foxmdMockEdit(path, content, atMs)` — the only way to simulate
+"something else wrote to this file", since every path through the UI is the app
+doing it. `atMs` places an edit in the past to exercise the date grouping.
+
+⚠️ **Check `window.innerWidth` before believing any geometry measured in the
+Browser pane.** A hidden pane is 0×0 and every paragraph wraps to one word per
+line; this cost time here and is the fourth distinct symptom of that limitation
+recorded in this repo.
+
 ## 2026-09-02 — tab reordering, the macOS Finder bug, and a change-review proposal
 
 Three fixes shipped in **v0.11.0-nightly.3**, plus one design document that is

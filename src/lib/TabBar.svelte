@@ -4,6 +4,7 @@
   import Icon from "./Icon.svelte";
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { isMac, sk, copyText, revealInFileManager } from "./platform";
+  import { changes } from "./changes/store.svelte";
   import {
     type TabRect,
     gapOf,
@@ -447,6 +448,13 @@
         onpointerenter={(e) => showHint(e, t)}
         onpointerleave={hideHint}
       >
+        <!-- A file changed while you were in another tab is the case the whole
+             Changes feature exists for, and the tab strip is where you are
+             already looking. A dot, not a count: the strip has no room for a
+             number and "there is something here" is the whole message. -->
+        {#if changes.unreviewedFor(t.path) > 0}
+          <span class="changed-dot" title="Changed since you last read it"></span>
+        {/if}
         <span class="name">{tabName(t.path)}</span>
         <!-- One slot, two states. An unsaved tab shows a dot that becomes the
              close button on hover — so the affordance costs no extra width and
@@ -637,6 +645,15 @@
     opacity: .55;
     box-shadow: var(--shadow-md);
     border-color: var(--accent);
+  }
+
+  .changed-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+    margin-left: -2px;
   }
 
   .name {

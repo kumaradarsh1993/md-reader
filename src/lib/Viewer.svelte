@@ -21,6 +21,8 @@
   import { postRender } from "./post-render";
   import { viewNav } from "./view-nav.svelte";
   import ResumeMarker from "./ResumeMarker.svelte";
+  import ChangeBars from "./changes/ChangeBars.svelte";
+  import type { Revision } from "./changes/types";
 
   type Mode = "view" | "edit" | "split";
 
@@ -61,6 +63,14 @@
      *  mutual exclusion (an element matching both renders as fresh/green).
      *  v0.5.0+. */
     theatreFreshRanges?: Array<{ from: number; to: number }>;
+    /** Recorded changes for this document, newest first — drives the margin
+     *  bars. Separate from the theatre ranges above and independently
+     *  switchable: one is a live performance, this is a standing record. */
+    changeRevisions?: Revision[];
+    /** Reviewed changes keep a faint mark rather than vanishing. */
+    keepReviewedMarks?: boolean;
+    /** A margin bar was clicked — show what changed there. */
+    onOpenChange?: (revisionId: number) => void;
     /** A relative markdown link was clicked — open that file as a tab. */
     onOpenRelative?: (path: string) => void;
     /** Context menu asked to search for the current selection. */
@@ -79,6 +89,9 @@
     baselineSource = "",
     theatreHighlightRanges = [],
     theatreFreshRanges = [],
+    changeRevisions = [],
+    keepReviewedMarks = true,
+    onOpenChange,
     tabId = "",
     getScrollMark,
     resumeMark = null,
@@ -89,8 +102,13 @@
     onDismissResume,
   }: Props = $props();
 
-  let container: HTMLDivElement;
+  let container = $state<HTMLDivElement | null>(null);
   let html = $state("");
+  /** Bumped once the rendered HTML is in the DOM *and* postRender has finished
+   *  moving things around. The margin bars measure off this rather than off
+   *  `html`, because measuring the instant the markup lands reads heights that
+   *  math, diagrams and images are about to change. */
+  let renderTick = $state(0);
   let lastScroll = 0;
   let prevSource = "";
   let prevDiskTick = 0;
@@ -376,7 +394,7 @@
       if (line >= b.from && line <= b.to) covering = b.el;
       if (b.from > line) break;
     }
-    return covering ?? findElementByLine(container, line);
+    return covering ?? (container ? findElementByLine(container, line) : null);
   }
 
   function beginProgrammaticScroll() {
@@ -532,7 +550,7 @@
 
     // Normalise the three deltaModes to pixels so a "line" or "page" wheel
     // (some Windows mice, and Firefox) travels the same distance as a pixel one.
-    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? container.clientHeight : 1;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? (container?.clientHeight ?? 800) : 1;
     wheelAccum += e.deltaY * unit;
 
     while (Math.abs(wheelAccum) >= WHEEL_STEP) {
@@ -997,6 +1015,10 @@
         // last ~1.5s), green for fresh (currently being edited). Independent
         // of diff-mode. Mutual exclusion: fresh wins when both match.
         applyTheatreHighlight(container, theatreHighlightRanges, theatreFreshRanges);
+
+        // Last, so the bars measure the layout everything else has finished
+        // producing.
+        renderTick++;
       }
       prevSource = src;
       prevDiskTick = diskTick;
@@ -1392,6 +1414,16 @@
     onclick={onProseClick}
     oncontextmenu={onProseContextMenu}
   >{@html html}</article>
+
+  {#if changeRevisions.length > 0 && mode === "view"}
+    <ChangeBars
+      container={container ?? null}
+      revisions={changeRevisions}
+      {renderTick}
+      keepReviewed={keepReviewedMarks}
+      onOpen={(revisionId) => onOpenChange?.(revisionId)}
+    />
+  {/if}
 
   {#if laneOn}
     <CommentLane

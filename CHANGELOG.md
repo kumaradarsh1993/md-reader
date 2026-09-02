@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.12.0-nightly.1 - 2026-09-02
+
+### Added - Changes: what was touched since you last read it
+
+You are working across five documents with an agent. It edits two of them and
+creates a sixth. Nothing anywhere tells you which. That is what this fixes.
+
+Fox MD now keeps a record of every file you have read that is later edited by
+something other than Fox MD - an agent, another editor, a sync - and tells you
+what changed and when.
+
+- **A count on the toolbar clock.** The number of changes you have not looked
+  at yet, visible without opening anything.
+- **The Changes panel** lists them newest first, grouped by when the work
+  happened. This is the "I stepped away, what did it do?" view, and it covers
+  files you do not have open.
+- **A dot on the tab** and **a dot in the file browser** for anything with
+  something unread in it.
+- **A line in the margin** beside each changed passage, spanning exactly the
+  paragraphs that moved. The text itself is never recoloured.
+- **Click the line** and a panel rises showing the passage before above and
+  now below, with the changed words marked. Where a passage was edited more
+  than once, step back through the iterations with the arrows.
+- **On the start page**, so a file that changed while you were away is the
+  first thing you see when you open the app.
+
+**Times are told at the resolution that suits them.** Edits minutes apart are
+one session, and within it you see the gaps - `+2 min`. A session gets a
+heading naming the day and the hours: `Today, 8:04-10:12 pm`, `Sunday, 8-10 pm`,
+`Sun 8 Mar, 8-10 pm`. The timestamps are the file's own, so two hours of work
+discovered in one moment still reads as two hours of work.
+
+**It only forgets when you tell it to.** Nothing decays on a timer. A change
+stays marked until you open it, or mark the file read - and scrolling past is
+not reading. The record lives in `.foxmd/` beside your documents, so it
+survives restarts, closing the tab, and travels with the folder.
+
+Fox MD can only compare against a version it has seen, so a file becomes
+tracked the first time you open it.
+
+### Changed - Live Edit Theatre and Changes are separate features
+
+The theatre animates an edit while you watch it and remembers nothing
+afterwards; Changes is the record you consult later. They share no settings and
+either can be on without the other. The theatre stays off by default; Changes is
+on, because a history is no use if you had to predict you would want it.
+
 ## 0.11.0-nightly.3 - 2026-09-02
 
 ### Fixed - tabs can be reordered again

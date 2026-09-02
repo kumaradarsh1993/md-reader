@@ -38,6 +38,11 @@
   import DiffSidebar from "$lib/theatre/DiffSidebar.svelte";
   import SidebarConnectors from "$lib/theatre/SidebarConnectors.svelte";
   import { toggleSidebar, viewSnapshots } from "$lib/theatre/store.svelte";
+  import { changes } from "$lib/changes/store.svelte";
+  import ChangesPanel from "$lib/changes/ChangesPanel.svelte";
+  import ChangeOverlay from "$lib/changes/ChangeOverlay.svelte";
+  import { splitPath } from "$lib/changes/sidecar";
+  import { relativeTime } from "$lib/changes/time";
   import { changedSections } from "$lib/theatre/diff-engine";
 
   // "edit" picks the user's preferred sub-mode (settings.editorMode);
@@ -124,6 +129,43 @@
   let theatreEngaged = $derived(
     !!active && (active.theatrePhase === "engaging" || active.theatrePhase === "engaged" || active.theatrePhase === "done"),
   );
+
+  // ─── Changes: the record of what was touched while you were elsewhere ────
+  //
+  // Entirely separate from the theatre block above, and that separation is the
+  // point: the theatre is a show you switch on to watch an agent work, this is
+  // a record that has to have been kept *before* you thought to ask.
+
+  /** Whether the Changes panel is showing. */
+  let changesOpen = $state(false);
+  /** The change being examined in the overlay, if any. */
+  let openedChange = $state<{ path: string; revisionId: number } | null>(null);
+
+  let activeRevisions = $derived.by(() => {
+    void changes.tick;
+    if (!active || !settings.s.trackChanges) return [];
+    // Not while the tab holds unsaved edits. Regions are line ranges in the
+    // file *on disk*, and a dirty tab is deliberately never reloaded from disk
+    // (a refresh must not throw away what you typed) — so the document on
+    // screen and the lines the bars describe have drifted apart, and every bar
+    // would be pointing at the wrong paragraph. They come back on save.
+    if (active.dirty) return [];
+    return changes.revisionsFor(active.path);
+  });
+
+  let unreadChanges = $derived.by(() => {
+    void changes.tick;
+    return settings.s.trackChanges ? changes.totalUnreviewed : 0;
+  });
+
+  function openChange(path: string, revisionId: number) {
+    openedChange = { path, revisionId };
+  }
+
+  let openedChangeRevisions = $derived.by(() => {
+    void changes.tick;
+    return openedChange ? changes.revisionsFor(openedChange.path) : [];
+  });
 
   // Sidebar section list — derived once here so the connector overlay paints
   // leader lines anchored to the same cards the DiffSidebar renders. The
@@ -246,10 +288,26 @@
 
   async function openInTab(p: string) {
     try {
-      await tabs.openOrFocus(p);
+      const tab = await tabs.openOrFocus(p);
+      // Opening a file is what makes it trackable: it establishes both the
+      // baseline to diff against and the "I have read this" moment the whole
+      // feature is defined relative to. Deliberately not awaited into the open
+      // path — a slow sidecar write must never delay showing the document.
+      void adoptForChanges(tab.path, tab.source);
     } catch (e) {
       console.error(e);
       alert(`Failed to open file: ${e}`);
+    }
+  }
+
+  async function adoptForChanges(p: string, content: string) {
+    if (!settings.s.trackChanges) return;
+    try {
+      await changes.noteOpened(p, content, null);
+      const folder = splitPath(p)?.folder;
+      if (folder) await changes.track(folder);
+    } catch (e) {
+      console.error("[Fox MD] change tracking failed for", p, e);
     }
   }
 
@@ -262,6 +320,10 @@
     if (!active) return;
     await api.saveFile(active.path, active.source);
     tabs.markActiveSaved();
+    // Move the baseline forward without recording anything. You do not need to
+    // be told what you just typed, and leaving the baseline behind would report
+    // your own edit as an external change on the next scan.
+    void changes.noteLocalEdit(active.path, active.source);
   }
 
   async function closeActiveTab() {
@@ -339,6 +401,7 @@
   function refreshAll() {
     fileMenuOpen = false;
     void refresher.run("user");
+    void changes.scan("user");
   }
 
   /** What the refresh button says it just did. Silence would be worse than a
@@ -641,7 +704,13 @@
     // that is where the changes came from. So sweep then, silently. Tabs with
     // unsaved edits are skipped inside `reloadAllFromDisk`, and windows are
     // separate processes, so each one keeps itself honest independently.
-    refreshOnFocus = () => { void refresher.run("focus"); };
+    refreshOnFocus = () => {
+      void refresher.run("focus");
+      // The moment that answers "what happened while I was away" — coming back
+      // to the window is exactly when the answer is wanted, and it is the only
+      // signal that fires for files nobody has open.
+      void changes.scan("focus");
+    };
     window.addEventListener("focus", refreshOnFocus);
 
     // Reading positions are written on a short debounce; make sure the window
@@ -816,6 +885,29 @@
       >
         <Icon name="refresh" size={15} />
       </button>
+      <!-- Beside Refresh, because they answer neighbouring questions: Refresh
+           is "show me what is on disk now", this is "tell me what moved while I
+           was not looking". The count is the whole point of the button — a
+           badge you can see without opening anything is what makes the feature
+           work for someone who did not think to go looking. -->
+      {#if settings.s.trackChanges}
+        <button
+          class="icon-btn changes-btn"
+          class:has-unread={unreadChanges > 0}
+          class:open={changesOpen}
+          onclick={() => (changesOpen = !changesOpen)}
+          title={unreadChanges > 0
+            ? `${unreadChanges} change${unreadChanges === 1 ? "" : "s"} you have not read yet`
+            : "Changes — what was touched since you last read it"}
+          aria-label="Changes"
+          aria-expanded={changesOpen}
+        >
+          <Icon name="clock" size={15} />
+          {#if unreadChanges > 0}
+            <span class="changes-count">{unreadChanges > 99 ? "99+" : unreadChanges}</span>
+          {/if}
+        </button>
+      {/if}
       <div class="seg">
         <button class:active={mode === "view"} onclick={() => setMode("view")}>View</button>
         <button class:active={mode === "edit" || mode === "rawEdit"} onclick={() => setMode("edit")}>Edit</button>
@@ -1015,6 +1107,25 @@
               </button>
             </section>
 
+            <!-- Above Recent, because it is the more urgent of the two: the
+                 reader who opens Fox MD after being away wants to know what
+                 moved before they want a list of what they last had open. Only
+                 shown when there is something, so it never becomes furniture. -->
+            {#if settings.s.trackChanges && changes.changedFiles.length > 0}
+              <section class="start-group">
+                <h2 class="start-label">Changed since you read them</h2>
+                {#each changes.changedFiles.slice(0, 5) as f (f.path)}
+                  <button class="start-recent changed" onclick={() => openInTab(f.path)} title={f.path}>
+                    <span class="start-name">
+                      {#if changes.unreviewedFor(f.path) > 0}<span class="start-dot"></span>{/if}
+                      {splitPath(f.path)?.name ?? f.path}
+                    </span>
+                    <span class="start-where">{relativeTime(f.revisions[0]?.at ?? 0)}</span>
+                  </button>
+                {/each}
+              </section>
+            {/if}
+
             {#if settings.s.recentFiles.length > 0}
               <section class="start-group">
                 <h2 class="start-label">Recent</h2>
@@ -1058,6 +1169,9 @@
           baselineSource={active.baselineSource}
           theatreHighlightRanges={theatreRanges}
           theatreFreshRanges={theatreFreshRanges}
+          changeRevisions={activeRevisions}
+          keepReviewedMarks={settings.s.keepReviewedMarks}
+          onOpenChange={(revisionId) => openChange(active.path, revisionId)}
           tabId={active.id}
           getScrollMark={(id) => tabs.tabs.find((t) => t.id === id)?.scrollMark ?? null}
           resumeMark={active.resumeMark}
@@ -1081,8 +1195,35 @@
         viewKey={String(active.selectedView)}
       />
     {/if}
+
+    <!-- Outside `.body`'s content column so it is a peer of the reading pane
+         rather than a thing floating over it: the panel is somewhere you work
+         from, not a popover you dismiss to get back to the document. -->
+    {#if changesOpen && settings.s.trackChanges}
+      <ChangesPanel
+        onClose={() => (changesOpen = false)}
+        onOpenChange={(p, revisionId) => {
+          // Open the file too. Being told file five changed and then having to
+          // go and find file five is most of the problem this is meant to fix.
+          void openInTab(p);
+          openChange(p, revisionId);
+        }}
+      />
+    {/if}
   </div>
 </div>
+
+{#if openedChange && openedChangeRevisions.length > 0}
+  <ChangeOverlay
+    name={splitPath(openedChange.path)?.name ?? openedChange.path}
+    revisions={openedChangeRevisions}
+    startId={openedChange.revisionId}
+    onClose={() => (openedChange = null)}
+    onReviewed={(id) => {
+      if (openedChange) void changes.markRevisionReviewed(openedChange.path, id);
+    }}
+  />
+{/if}
 
 <!-- Theatre overlays — sit on top of everything else. Each is internally
      gated on the active tab's state so they no-op when nothing's happening. -->
@@ -1955,6 +2096,28 @@
     margin-left: 1rem;
   }
 
+  /* The Changes button carries a count rather than a bare dot: "something
+     changed" and "eleven things changed" call for different reactions, and the
+     number is free to render. */
+  .changes-btn { position: relative; }
+  .changes-btn.open { background: var(--chrome-hover); color: var(--fg-strong); }
+  .changes-btn.has-unread { color: var(--accent); }
+  .changes-count {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    min-width: 14px;
+    padding: 0 3px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
+    pointer-events: none;
+  }
+
   /* ─── Start page (no file open) ────────────────────────────────────── */
   .start {
     flex: 1 1 auto;
@@ -2043,6 +2206,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+  }
+  .start-recent.changed .start-name { font-weight: 600; color: var(--fg-strong); }
+  .start-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
   }
   .start-where {
     flex: 1 1 auto;

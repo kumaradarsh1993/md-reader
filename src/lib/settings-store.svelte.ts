@@ -65,6 +65,15 @@ export interface AppSettings {
   // Off by default. In v0.3.0 nothing happens when enabled (a teaser hint
   // appears in Settings). v0.4.0 activates the full feature behind this flag.
   advancedLiveEditTheatre: boolean;
+  // v0.12.0+: the Changes utility — "which files were touched since I last read
+  // them, and when". Deliberately SEPARATE from the theatre flag above and on
+  // by default. The theatre is a spectacle you switch on to watch an agent
+  // work; this is a record you need to have been keeping *before* you thought
+  // to ask, which is worthless if you had to predict you would want it.
+  trackChanges: boolean;
+  // Whether reviewed changes keep a faint margin mark. On: "something changed
+  // here at some point" stays answerable forever. Off: the margin clears.
+  keepReviewedMarks: boolean;
   // Legacy from v0.2.x — left here read-only so existing settings.json files
   // still load cleanly. None of these are written by any current UI path.
   // TODO(0.5): drop entirely.
@@ -192,6 +201,8 @@ const DEFAULTS: AppSettings = {
   fullWidth: false,
   centerHeadings: false,
   advancedLiveEditTheatre: false,
+  trackChanges: true,
+  keepReviewedMarks: true,
   liveTrack: false,
   diffMode: false,
   editorMode: "smart",

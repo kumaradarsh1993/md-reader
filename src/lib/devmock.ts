@@ -141,6 +141,16 @@ const MOCK_LIBRARY: Array<[string, string]> = [
 
 const files = new Map<string, string>(MOCK_LIBRARY);
 
+/**
+ * Per-file mtimes, so change tracking can be exercised.
+ *
+ * A real edit moves the mtime; a mock that always answered `Date.now()` would
+ * make every file look changed on every scan, which is the one behaviour the
+ * feature must not have. `mockEdit` below is what a test calls to simulate an
+ * agent writing to a file while the app was in the background.
+ */
+const mockMtimes = new Map<string, number>(MOCK_LIBRARY.map(([p]) => [p, Date.now() - 86_400_000]));
+
 export function installDevMock(): boolean {
   if (typeof window === "undefined") return false;
   if (!new URLSearchParams(window.location.search).has("devmock")) return false;
@@ -160,7 +170,7 @@ export function installDevMock(): boolean {
   const handlers: Record<string, (a: any) => unknown> = {
     render_markdown: ({ source }) => renderMock(source ?? ""),
     open_file: ({ path }) => ({ path, content: files.get(path) ?? SAMPLE }),
-    save_file: ({ path, content }) => { files.set(path, content); },
+    save_file: ({ path, content }) => { files.set(path, content); mockMtimes.set(path, Date.now()); },
     read_text_file_opt: ({ path }) => (files.has(path) ? files.get(path) : null),
     write_text_file_mkdir: ({ path, content }) => { files.set(path, content); },
     write_text_file_if_absent: ({ path, content }) => { if (!files.has(path)) files.set(path, content); },
@@ -182,6 +192,16 @@ export function installDevMock(): boolean {
     handover_push: ({ tabs: t }: any) => ({
       pushed: (t ?? []).length, removed: 0, oversize: 0, device_id: "devmock-device",
     }),
+    // Change tracking scans for markdown by mtime. The mock reports whatever
+    // `files` currently holds, so a test can edit a document through
+    // `save_file` and the next scan sees it exactly as a real edit by an agent
+    // would look — same code path, no special case.
+    scan_markdown_tree: () =>
+      MOCK_LIBRARY.map(([path]) => ({
+        path,
+        modified: mockMtimes.get(path) ?? Date.now(),
+        size: (files.get(path) ?? "").length,
+      })),
     list_dir: () =>
       MOCK_LIBRARY.map(([path], i) => ({
         name: path.split("\\").pop()!,
@@ -249,6 +269,24 @@ export function installDevMock(): boolean {
     // `getCurrentWindow()` reads this synchronously at import time.
     metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
   };
+  /**
+   * Simulate an agent editing a file behind the app's back.
+   *
+   * Change tracking's whole premise is that something else wrote to a file
+   * while Fox MD was not looking, which is impossible to produce through the
+   * UI — every path through the app is, by definition, the app doing it. This
+   * writes straight into the mock filesystem and moves the mtime, exactly as an
+   * external editor would, so the next scan takes the real code path.
+   *
+   * `at` lets a test place the edit in the past, which is how the time
+   * grouping ("Sunday, 8–10 pm") gets exercised without waiting a week.
+   */
+  (window as any).__foxmdMockEdit = (path: string, content: string, at?: number) => {
+    files.set(path, content);
+    mockMtimes.set(path, at ?? Date.now());
+    return { path, size: content.length, modified: mockMtimes.get(path) };
+  };
+
   document.documentElement.dataset.devmock = "1";
   console.info("[devmock] Tauri backend mocked — UI only, no real files.");
   return true;

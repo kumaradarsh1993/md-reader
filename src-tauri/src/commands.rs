@@ -276,6 +276,107 @@ pub fn current_watch(state: State<'_, WatcherState>) -> Option<String> {
     state.current().map(|p| p.to_string_lossy().to_string())
 }
 
+/// One markdown file found by `scan_markdown_tree`.
+#[derive(Serialize)]
+pub struct ScannedFile {
+    pub path: String,
+    /// Last-modified time, ms since the Unix epoch; null when unavailable.
+    pub modified: Option<u64>,
+    pub size: u64,
+}
+
+/// Directory names never worth walking into. `.foxmd` is ours and would make
+/// the scanner find its own baselines; the rest are large and never authored.
+const SKIP_DIRS: &[&str] = &[
+    ".foxmd",
+    ".git",
+    "node_modules",
+    "target",
+    ".svelte-kit",
+    "__pycache__",
+    ".venv",
+];
+
+/// Ceiling on files returned. A reader who points Fox MD at their home
+/// directory should get a slow-but-finite answer rather than a hung window.
+const SCAN_FILE_CAP: usize = 4000;
+
+/// Walk a folder for markdown files and report each one's mtime and size.
+///
+/// This is how "which files changed while I was away?" is answered, and it is
+/// deliberately a **scan rather than a watch**. The existing watcher follows one
+/// file — the active tab — and could in principle be pointed at a directory
+/// instead, but `ReadDirectoryChangesW` is documented-unreliable on OneDrive,
+/// which is exactly where this owner's files live. A scan cannot miss an event
+/// it never received, costs one `stat` per file, and gives the same answer after
+/// the app has been closed for a week as it does after a minute.
+///
+/// Only metadata is returned. Deciding which files are worth *reading* is the
+/// frontend's job, and it reads only the ones whose mtime or size moved.
+#[tauri::command]
+pub fn scan_markdown_tree(root: String, max_depth: usize) -> Result<Vec<ScannedFile>, String> {
+    let start = Path::new(&root);
+    if !start.is_dir() {
+        return Err(format!("not a folder: {root}"));
+    }
+    let mut out: Vec<ScannedFile> = Vec::new();
+    // Explicit stack rather than recursion: a symlink loop or a pathological
+    // tree should hit the file cap, not the call stack.
+    let mut stack: Vec<(PathBuf, usize)> = vec![(start.to_path_buf(), 0)];
+
+    while let Some((dir, depth)) = stack.pop() {
+        if out.len() >= SCAN_FILE_CAP {
+            break;
+        }
+        // A folder that cannot be read is skipped, not fatal: one permission
+        // error deep in a tree must not cost the answer for everything else.
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in read.filter_map(|e| e.ok()) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let path = entry.path();
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                if depth + 1 > max_depth {
+                    continue;
+                }
+                if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                stack.push((path, depth + 1));
+                continue;
+            }
+            if name.starts_with('.') {
+                continue;
+            }
+            let is_md = matches!(
+                path.extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_ascii_lowercase())
+                    .as_deref(),
+                Some("md") | Some("markdown") | Some("mdown") | Some("mkd") | Some("mkdn")
+            );
+            if !is_md {
+                continue;
+            }
+            if out.len() >= SCAN_FILE_CAP {
+                break;
+            }
+            out.push(ScannedFile {
+                path: path.to_string_lossy().to_string(),
+                modified: meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64),
+                size: meta.len(),
+            });
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
     let p = Path::new(&path);
