@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.11.0-nightly.2 - 2026-09-02
+
+### Fixed - tabs can be reordered again
+
+Drag a tab left or right and the strip makes room for it, the way a browser
+does. Neighbours slide out of the way as you cross them, the tab lands where you
+put it, and Escape mid-drag puts it back.
+
+This had been broken rather than missing. Fox MD asks Windows and macOS to
+deliver files dropped onto its window - that is how dropping a `.md` on it opens
+the file - and while that is switched on, the webview stops delivering
+drag-and-drop events to the page. Tearing a tab out into its own window kept
+working, because that detects a drop landing *nowhere*; reordering needed the
+events that were being intercepted, so it silently did nothing.
+
+- **Drag a tab out of the strip** - up or down, past about a finger's width -
+  and it opens in its own window. A prompt tells you before you let go.
+- **`Ctrl`+`Shift`+`PgUp` / `PgDn`** moves the current tab, for when you would
+  rather not drag. Also in the tab's right-click menu.
+- The strip scrolls when you hold a tab against either edge, so you can move a
+  tab somewhere that is currently off-screen.
+
+### Fixed - opening a file from Finder on macOS did nothing
+
+Double-clicking a markdown file in Finder brought up a Fox MD window and then
+left it empty, however many times you tried. Quitting and relaunching could not
+help, because nothing was ever being asked to open the file.
+
+Every other platform passes the file to the app as a command-line argument;
+macOS does not, and sends a message instead. Fox MD was only listening for the
+argument. It now listens for both.
+
+This also explains the folder-permission prompt that only appeared later, once
+you had opened the app first and browsed to the file: macOS asks for access to
+OneDrive at the moment an app first *reads* something there, and Fox MD was
+never getting as far as reading.
+
+### Changed - a start page instead of a blank window
+
+The screen with no file open was a large Command symbol above the words "No file
+open" - a Mac keyboard glyph, shown on every platform, restating what was
+already obvious, in the middle of the biggest empty space in the app.
+
+It is now somewhere to start from: what to open, and the files you had open
+recently, with the folder each one lives in.
+
 ## 0.11.0-nightly.1 - 2026-08-28
 
 ### Added - Handover

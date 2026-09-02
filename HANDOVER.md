@@ -9,6 +9,71 @@
 > highlight/comment now properly separated (see the first entry in
 > `docs/DECISIONS.md`).
 
+## 2026-09-02 — tab reordering, the macOS Finder bug, and a change-review proposal
+
+Three fixes shipped in **v0.11.0-nightly.2**, plus one design document that is
+waiting on a decision and must not be built until he answers.
+
+### Two traps worth carrying forward
+
+1. **`dragDropEnabled: true` in `tauri.conf.json` kills HTML5 drag-and-drop in
+   the page.** It installs an OS drop target (which Fox MD needs — dropping a
+   `.md` on the window opens it), and the webview then never delivers
+   `dragover`/`drop`. `dragstart` still fires, so the failure is asymmetric and
+   confusing: tab tear-out worked (it keys off `dropEffect === "none"`) while
+   reordering silently did nothing. **If any drag feature here is half-dead,
+   check this flag before reading the handler.** Tab dragging is now pointer-based
+   (`src/lib/tab-drag.ts`) and independent of it.
+
+2. **`getBoundingClientRect()` includes transforms; `offsetLeft`/`offsetTop` do
+   not.** Measuring the tab strip with rects put a dragged tab three slots wrong
+   whenever a previous drag's 150 ms landing animation was still running. This is
+   the second time this rule has been learned in this repo (the Viewer's outline
+   probe was the first). For anything reasoning about *structure* rather than
+   about what is on screen, use layout coordinates.
+
+### macOS Finder opens — fixed, but NOT verified on hardware
+
+Double-clicking a `.md` in Finder opened an empty window. macOS does not pass the
+file in `argv`; it sends an open-documents Apple Event, surfaced as
+`RunEvent::Opened`, which needs `build()` + `run(callback)` instead of plain
+`run()`. `lib.rs` now handles it and parks paths in the existing `InitialFiles`
+queue when the webview has not mounted yet.
+
+The missing OneDrive permission prompt he also reported is the *same* bug: macOS
+prompts when an app first reads a protected location, and this one never got as
+far as reading.
+
+⚠️ **This machine is Windows and `cargo check` does not compile the macOS branch
+at all.** CI's macOS job is the first genuine check; Finder is the second, and
+only he can run it.
+
+### Verifying UI here
+
+`?devmock=1` now serves a **library** of documents rather than one, with
+deliberately uneven filename lengths — reorder arithmetic over equal-width tabs
+will pass a broken implementation. `plugin:dialog|open` is mocked, so the "+"
+button fills the strip.
+
+Two Browser-pane limits cost time and will again: the **CDP synthetic drag does
+not produce the pointer events these handlers read** (dispatch `PointerEvent`s
+from `javascript_tool` instead), and a **hidden pane composites no frames**, so
+`requestAnimationFrame` never resolves (a `rAF` await hangs until timeout) and
+`getComputedStyle` returns pre-transition values. Read `el.style.transform` for
+the intended value, and use `setTimeout` to wait.
+
+### Awaiting a decision — do not build yet
+
+`docs/proposals/change-review.md` replaces `live-edit-theatre.md`. He asked for
+the change-highlighting to be remodelled and explicitly asked to be consulted
+before implementation. Summary of the argument: the current feature is built for
+*watching* an agent type, and his need is *reviewing* what happened while he was
+away — from which nearly every complaint follows. It proposes margin change bars
+instead of prose highlights, a stacked before/after overlay, a `.foxmd/`
+history sidecar so the record survives restarts and syncs between machines, and
+— the part that actually answers his complaint — cross-file badges plus a
+Changes panel. §9 lists four open questions for him.
+
 ## 2026-08-28 — Handover is built, both halves
 
 Sign in with Google on the desktop (Settings → Handover) and on the phone, and

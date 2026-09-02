@@ -115,7 +115,31 @@ function renderMock(src: string): string {
 }
 
 const MOCK_PATH = "D:\\devmock\\Sample brief.md";
-const files = new Map<string, string>([[MOCK_PATH, SAMPLE]]);
+
+/**
+ * A small library rather than a single document, so the tab strip can actually
+ * be exercised here — one tab cannot demonstrate reordering, tear-out, overflow
+ * scrolling or the active-tab treatment.
+ *
+ * The names are deliberately uneven in length. Tab reordering is arithmetic
+ * over measured widths, and the bugs it is prone to (landing one slot off,
+ * flickering between two orders on the boundary) only show up when neighbours
+ * are different sizes. A set of equal-width tabs would pass a broken
+ * implementation.
+ */
+const MOCK_LIBRARY: Array<[string, string]> = [
+  [MOCK_PATH, SAMPLE],
+  ["D:\\devmock\\todo.md", "# Todo\n\nA deliberately short filename.\n"],
+  [
+    "D:\\devmock\\Q3 strategy — regional rollout.md",
+    "# Q3 strategy\n\nA deliberately long filename, to force truncation.\n",
+  ],
+  ["D:\\devmock\\notes.md", "# Notes\n\nScratch.\n"],
+  ["D:\\devmock\\ARCHITECTURE.md", "# Architecture\n\nHow the pieces fit.\n"],
+  ["D:\\devmock\\meeting-2026-09-02.md", "# Meeting\n\nAttendees, decisions.\n"],
+];
+
+const files = new Map<string, string>(MOCK_LIBRARY);
 
 export function installDevMock(): boolean {
   if (typeof window === "undefined") return false;
@@ -123,6 +147,8 @@ export function installDevMock(): boolean {
   if ((window as any).__TAURI_INTERNALS__) return true;
 
   const store = new Map<string, unknown>();
+  /** Which document the next "open file" returns. */
+  let pickCursor = 1;
   let mockAccount = {
     signed_in: false as boolean,
     email: null as string | null,
@@ -156,7 +182,16 @@ export function installDevMock(): boolean {
     handover_push: ({ tabs: t }: any) => ({
       pushed: (t ?? []).length, removed: 0, oversize: 0, device_id: "devmock-device",
     }),
-    list_dir: () => [{ name: "Sample brief.md", path: MOCK_PATH, is_dir: false, is_md: true, modified: Date.now() }],
+    list_dir: () =>
+      MOCK_LIBRARY.map(([path], i) => ({
+        name: path.split("\\").pop()!,
+        path,
+        is_dir: false,
+        is_md: true,
+        // Spread the timestamps a day apart so sort-by-modified is visibly
+        // different from sort-by-name.
+        modified: Date.now() - i * 86_400_000,
+      })),
     parent_of: () => "D:\\devmock",
     take_initial_files: () => [MOCK_PATH],
     is_torn_out_window: () => false,
@@ -179,6 +214,14 @@ export function installDevMock(): boolean {
     // return an array of pairs; returning undefined makes the settings loader
     // throw "is not iterable" and fall back to defaults, which looks like a
     // settings bug rather than a missing mock.
+    // The file picker. Hands back the next document in the library each time,
+    // so clicking "+" repeatedly fills the tab strip instead of re-focusing the
+    // one tab that is already open.
+    "plugin:dialog|open": () => {
+      const p = MOCK_LIBRARY[pickCursor % MOCK_LIBRARY.length][0];
+      pickCursor += 1;
+      return p;
+    },
     "plugin:store|load": () => undefined,
     "plugin:store|get": ({ key }: any) => store.get(key),
     "plugin:store|set": ({ key, value }: any) => { store.set(key, value); },

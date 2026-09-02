@@ -4,6 +4,15 @@
   import Icon from "./Icon.svelte";
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { isMac, sk, copyText, revealInFileManager } from "./platform";
+  import {
+    type TabRect,
+    gapOf,
+    targetIndex,
+    slideFor,
+    restingDx,
+    autoScrollStep,
+    isTearOut,
+  } from "./tab-drag";
 
   interface Props {
     onNewTab: () => void;
@@ -27,6 +36,7 @@
   let hintTimer: ReturnType<typeof setTimeout> | null = null;
 
   function showHint(e: PointerEvent, t: Tab) {
+    if (drag || pending) return;
     const el = e.currentTarget as HTMLElement;
     if (hintTimer) clearTimeout(hintTimer);
     // A short delay, so sweeping the pointer across the strip doesn't strobe.
@@ -47,88 +57,271 @@
     hint = null;
   }
 
-  let dragId = $state<string | null>(null);
-  let dragOverId = $state<string | null>(null);
-  /// Set by per-tab onDrop. If true, the drop was a successful in-bar reorder
-  /// and we must NOT tear out on dragend.
-  let dropHandledInside = false;
+  // ─── Dragging ──────────────────────────────────────────────────────────
+  //
+  // Pointer events, not HTML5 drag-and-drop. `tab-drag.ts` carries the whole
+  // explanation of why — briefly: the window has an OS-level file-drop target
+  // installed so that dropping a `.md` on it opens the file, and while that is
+  // installed the webview never delivers `dragover`/`drop` to the page. The old
+  // implementation therefore had working tear-out and dead reordering.
 
-  function onDragStart(e: DragEvent, t: Tab) {
-    if (!e.dataTransfer) return;
-    dragId = t.id;
-    dropHandledInside = false;
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("application/x-md-reader-tab", t.path);
-    e.dataTransfer.setData("text/plain", t.path);
+  /** Movement, in px, before a press becomes a drag rather than a click. */
+  const DRAG_SLOP = 5;
+  /** How long the released tab takes to settle into its new slot. */
+  const SETTLE_MS = 150;
+
+  let strip = $state<HTMLElement | null>(null);
+
+  /** A press that has not yet travelled far enough to count as a drag. */
+  let pending: { id: string; x: number; y: number; pointerId: number } | null = null;
+
+  interface DragState {
+    id: string;
+    from: number;
+    to: number;
+    dx: number;
+    rects: TabRect[];
+    gap: number;
+    startX: number;
+    startScroll: number;
+    /** Pointer is far enough below/above the strip that release detaches. */
+    tearArmed: boolean;
+    /** True while the released tab animates home; transforms must not change. */
+    settling: boolean;
+  }
+  let drag = $state<DragState | null>(null);
+
+  /** Set when a press turned into a drag, so the trailing `click` is ignored. */
+  let suppressClick = false;
+
+  let pointerX = 0;
+  let pointerY = 0;
+  let scrollRaf: number | null = null;
+  /** Pending commit of a released drag, so a new one can force it through. */
+  let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  let settleCommit: (() => void) | null = null;
+
+  function tabEls(): HTMLElement[] {
+    if (!strip) return [];
+    return Array.from(strip.querySelectorAll<HTMLElement>(".tab"));
   }
 
-  // Per-tab dragover: enables drop-on-tab for reorder + visual highlight.
-  function onTabDragOver(e: DragEvent, t: Tab) {
-    if (!dragId || !e.dataTransfer) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (dragId !== t.id) dragOverId = t.id;
+  function onPointerDown(e: PointerEvent, t: Tab) {
+    // Left button only; the close button and the context menu own their own
+    // gestures and must not be able to start a drag.
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement | null)?.closest(".close")) return;
+    hideHint();
+    flushSettle();
+    // Cleared at the *start* of every press rather than when a click is
+    // consumed: a drag can end without any click following it (Escape, a
+    // tear-out, a released capture), and a `true` left over from one of those
+    // would silently swallow the next ordinary click on some other tab.
+    suppressClick = false;
+    pointerX = e.clientX;
+    pointerY = e.clientY;
+    pending = { id: t.id, x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+    // Capture up front so the drag survives the pointer leaving the tab — which
+    // it does immediately, because the tab slides out from under it.
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
-  // Bar-level dragover: makes the entire tab bar a drop target so drops on
-  // empty space (between tabs, on the "+" button, etc.) DON'T trigger tear-out.
-  function onBarDragOver(e: DragEvent) {
-    if (!dragId || !e.dataTransfer) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+  /** `startX` is the point the press began at, not the point where the slop
+   *  threshold was crossed — passing it in is what stops the tab jumping
+   *  DRAG_SLOP pixels sideways the instant the drag engages. */
+  function beginDrag(id: string, startX: number) {
+    if (!strip) return;
+    const els = tabEls();
+    // `offsetLeft`, deliberately, and NOT `getBoundingClientRect()`.
+    //
+    // A bounding rect is where the browser *paints* the element, so it includes
+    // any transform currently applied — and during the 150ms settle animation
+    // every tab in the strip is carrying one. Measuring with rects meant that
+    // grabbing a second tab before the first had finished landing captured a
+    // layout that does not exist, and the drag then dropped the tab several
+    // slots away from where it was pointing. `offsetLeft` is the layout
+    // position: unaffected by transforms, unaffected by scroll, and free.
+    //
+    // (The same distinction, for the same reason, as the cached `offsetTop` the
+    // Viewer uses for its outline probe.)
+    const rects: TabRect[] = els.map((el, i) => ({
+      id: tabs.tabs[i]?.id ?? "",
+      left: el.offsetLeft,
+      width: el.offsetWidth,
+    }));
+    const from = tabs.tabs.findIndex((t) => t.id === id);
+    if (from < 0) return;
+    drag = {
+      id,
+      from,
+      to: from,
+      dx: 0,
+      rects,
+      gap: gapOf(rects),
+      startX,
+      startScroll: strip.scrollLeft,
+      tearArmed: false,
+      settling: false,
+    };
+    suppressClick = true;
   }
 
-  function onBarDrop(e: DragEvent) {
-    // Drop on empty bar area — no-op, but mark as handled so dragend skips tear-out.
-    e.preventDefault();
-    if (dragId) dropHandledInside = true;
-  }
+  function onPointerMove(e: PointerEvent) {
+    pointerX = e.clientX;
+    pointerY = e.clientY;
 
-  function onDrop(e: DragEvent, t: Tab) {
-    e.preventDefault();
-    if (!dragId) return;
-    dropHandledInside = true;
-    if (dragId === t.id) return;
-    const fromIdx = tabs.tabs.findIndex((x) => x.id === dragId);
-    const toIdx = tabs.tabs.findIndex((x) => x.id === t.id);
-    tabs.reorder(fromIdx, toIdx);
-  }
-
-  async function onDragEnd(e: DragEvent) {
-    const id = dragId;
-    const handled = dropHandledInside;
-    dragId = null;
-    dragOverId = null;
-    dropHandledInside = false;
-    if (!id) return;
-
-    // Skip tear-out if the drop was inside the tab bar (handled by onDrop /
-    // onBarDrop) — this covers reorders and "dropped on empty bar area."
-    if (handled) return;
-
-    // The reliable cross-platform signal for "drop landed outside any
-    // accepting target" is dropEffect === "none". Browsers set this when no
-    // dragover handler called preventDefault on the final position. That
-    // includes drops outside the window entirely, AND drops onto in-window
-    // elements that don't accept (e.g. the rendered Viewer area). Either way,
-    // user intent is "send this elsewhere." (clientX/Y is unreliable in
-    // WebView2 on outside-window drops — often reports 0,0.)
-    if (e.dataTransfer?.dropEffect !== "none") return;
-
-    const draggedTab = tabs.tabs.find((t) => t.id === id);
-    if (!draggedTab) return;
-
-    try {
-      await invoke("spawn_window", { file: draggedTab.path });
-      tabs.close(id);
-    } catch (err) {
-      console.error("spawn_window failed", err);
+    if (pending && !drag) {
+      const dist = Math.hypot(e.clientX - pending.x, e.clientY - pending.y);
+      if (dist < DRAG_SLOP) return;
+      beginDrag(pending.id, pending.x);
     }
+    if (!drag || drag.settling || !strip) return;
+    e.preventDefault();
+
+    update();
+    ensureAutoScroll();
+  }
+
+  /** Recompute displacement, landing slot and tear-out arming. */
+  function update() {
+    if (!drag || !strip) return;
+    const scrolled = strip.scrollLeft - drag.startScroll;
+    drag.dx = pointerX - drag.startX + scrolled;
+    drag.to = targetIndex(drag.rects, drag.from, drag.dx);
+
+    const r = strip.getBoundingClientRect();
+    drag.tearArmed = tabs.tabs.length > 1 && isTearOut(pointerY, r.top, r.bottom);
+  }
+
+  /**
+   * Keep the strip scrolling while a tab is held against either edge, so a tab
+   * can be dragged to a slot that is currently off-screen. Runs on rAF rather
+   * than on pointermove: holding still at the edge has to keep scrolling, and
+   * a stationary pointer produces no move events.
+   */
+  function ensureAutoScroll() {
+    if (scrollRaf !== null) return;
+    const step = () => {
+      scrollRaf = null;
+      if (!drag || drag.settling || !strip) return;
+      const r = strip.getBoundingClientRect();
+      const d = autoScrollStep(
+        pointerX,
+        r.left,
+        r.width,
+        strip.scrollLeft,
+        strip.scrollWidth,
+      );
+      if (d !== 0) {
+        strip.scrollLeft += d;
+        update();
+        scrollRaf = requestAnimationFrame(step);
+      }
+    };
+    scrollRaf = requestAnimationFrame(step);
+  }
+
+  function onPointerUp(e: PointerEvent) {
+    const wasPending = pending;
+    pending = null;
+    if (!drag) {
+      // A plain click: `onclick` handles activation.
+      if (wasPending) suppressClick = false;
+      return;
+    }
+    if (drag.settling) return;
+    e.preventDefault();
+
+    if (drag.tearArmed) {
+      const id = drag.id;
+      const t = tabs.tabs.find((x) => x.id === id);
+      drag = null;
+      if (t) void tearOut(t);
+      return;
+    }
+    settle();
+  }
+
+  /** Animate the tab into its slot, then commit the reorder. */
+  function settle() {
+    if (!drag) return;
+    const { from, to, rects, gap } = drag;
+    if (from === to) {
+      // Nudged and put back where it started. Let the click through, so that a
+      // press that wobbles a few pixels still selects the tab — otherwise the
+      // strip feels unresponsive to anyone with an unsteady hand or a trackpad.
+      drag = null;
+      suppressClick = false;
+      return;
+    }
+    // Carry the tab to where it will live *before* touching the array, so the
+    // DOM reorder is invisible instead of a one-frame jump back to the origin.
+    drag.dx = restingDx(rects, from, to, gap);
+    drag.settling = true;
+    settleCommit = () => {
+      settleTimer = null;
+      settleCommit = null;
+      // Clearing `drag` and reordering in the same tick keeps the transforms
+      // and the array in step — Svelte applies both to one frame.
+      drag = null;
+      tabs.reorder(from, to);
+    };
+    settleTimer = setTimeout(() => settleCommit?.(), SETTLE_MS);
+  }
+
+  /**
+   * Commit a released drag right now instead of waiting out its animation.
+   *
+   * Called before starting a new drag. Without it, grabbing a second tab
+   * during the 150ms landing would measure a strip whose array order is about
+   * to change under it, and the queued `reorder` would then fire in the middle
+   * of the new gesture and shuffle the tabs a second time.
+   */
+  function flushSettle() {
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    settleTimer = null;
+    settleCommit?.();
+  }
+
+  function cancelDrag() {
+    if (!drag) return;
+    drag = null;
+    pending = null;
+  }
+
+  function onPointerCancel() {
+    cancelDrag();
+    pending = null;
+  }
+
+  function onWindowKey(e: KeyboardEvent) {
+    // Only while the tab is still in hand. Once it has been released and is
+    // animating home the move is already the user's decision, and Escape at
+    // that point should not quietly undo it.
+    if (e.key === "Escape" && drag && !drag.settling) {
+      e.preventDefault();
+      cancelDrag();
+    }
+  }
+
+  /** Per-tab transform while a drag is in flight. */
+  function shiftFor(i: number): string {
+    if (!drag) return "";
+    if (i === drag.from) return `translateX(${drag.dx}px)`;
+    return `translateX(${slideFor(drag.rects, drag.from, drag.to, i, drag.gap)}px)`;
   }
 
   function close(e: MouseEvent, id: string) {
     e.stopPropagation();
     tabs.close(id);
+  }
+
+  function onTabClick(id: string) {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    tabs.switchTo(id);
   }
 
   /** Middle-click closes, the way every tabbed app has worked for 20 years. */
@@ -161,6 +354,7 @@
     const idx = tabs.tabs.findIndex((x) => x.id === t.id);
     const hasOthers = tabs.tabs.length > 1;
     const hasRight = idx >= 0 && idx < tabs.tabs.length - 1;
+    const hasLeft = idx > 0;
     return [
       {
         label: "Close tab",
@@ -170,6 +364,22 @@
       },
       { label: "Close other tabs", disabled: !hasOthers, danger: hasOthers, action: () => closeOthers(t.id) },
       { label: "Close tabs to the right", disabled: !hasRight, danger: hasRight, action: () => closeToRight(t.id) },
+      { separator: true },
+      // Discoverability for the drag gesture: someone who has never thought to
+      // try dragging a tab still finds the capability, and the shortcut here is
+      // where they learn the keyboard route.
+      {
+        label: "Move tab left",
+        disabled: !hasLeft,
+        shortcut: sk("Mod", "Shift", "PgUp"),
+        action: () => tabs.reorder(idx, idx - 1),
+      },
+      {
+        label: "Move tab right",
+        disabled: !hasRight,
+        shortcut: sk("Mod", "Shift", "PgDn"),
+        action: () => tabs.reorder(idx, idx + 1),
+      },
       { separator: true },
       {
         label: "Open in new window",
@@ -202,16 +412,18 @@
   }
 </script>
 
+<svelte:window onkeydown={onWindowKey} />
+
 {#if tabs.tabs.length > 0}
   <div
     class="tab-bar"
+    class:dragging={!!drag}
+    bind:this={strip}
     role="tablist"
     tabindex="-1"
-    ondragover={onBarDragOver}
-    ondrop={onBarDrop}
     oncontextmenu={(e) => contextMenu.open(e, barMenu())}
   >
-    {#each tabs.tabs as t (t.id)}
+    {#each tabs.tabs as t, i (t.id)}
       <div
         role="tab"
         tabindex="0"
@@ -219,19 +431,21 @@
         class="tab"
         class:active={tabs.activeId === t.id}
         class:dirty={t.dirty}
-        class:drag-over={dragOverId === t.id}
-        draggable="true"
-        ondragstart={(e) => onDragStart(e, t)}
-        ondragover={(e) => onTabDragOver(e, t)}
-        ondrop={(e) => onDrop(e, t)}
-        ondragend={onDragEnd}
-        onclick={() => tabs.switchTo(t.id)}
+        class:held={drag?.id === t.id}
+        class:settling={drag?.id === t.id && drag.settling}
+        class:sliding={!!drag && drag.id !== t.id}
+        class:tearing={drag?.id === t.id && drag.tearArmed}
+        style:transform={shiftFor(i)}
+        onpointerdown={(e) => onPointerDown(e, t)}
+        onpointermove={onPointerMove}
+        onpointerup={onPointerUp}
+        onpointercancel={onPointerCancel}
+        onclick={() => onTabClick(t.id)}
         onauxclick={(e) => onAuxClick(e, t)}
         oncontextmenu={(e) => contextMenu.open(e, tabMenu(t))}
         onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tabs.switchTo(t.id); } }}
         onpointerenter={(e) => showHint(e, t)}
         onpointerleave={hideHint}
-        onpointerdown={hideHint}
       >
         <span class="name">{tabName(t.path)}</span>
         <!-- One slot, two states. An unsaved tab shows a dot that becomes the
@@ -249,6 +463,13 @@
       <Icon name="plus" size={14} />
     </button>
   </div>
+
+  <!-- Only while the gesture has actually crossed into detach range, so it
+       reads as an answer to "what happens if I let go here?" rather than as a
+       tooltip that follows every drag around. -->
+  {#if drag?.tearArmed}
+    <div class="tear-hint" role="status">Release to open in a new window</div>
+  {/if}
 
   {#if hint}
     <div class="tab-hint" style="left: {hint.x}px; top: {hint.y}px" role="tooltip">
@@ -287,6 +508,11 @@
     z-index: 2;
   }
   .tab-bar::-webkit-scrollbar { height: 0; }
+  /* Suppress the text I-beam and any accidental selection for the duration of
+     a drag — without this, dragging a tab across its neighbours selects their
+     filenames and the strip fills with blue. */
+  .tab-bar.dragging { cursor: grabbing; }
+  .tab-bar.dragging .tab { user-select: none; }
 
   /* App-drawn replacement for the OS tooltip. Same surface tokens as the
      context menu, so every floating thing in the app is made of one material. */
@@ -323,8 +549,26 @@
        than truncating: a path you can't read the end of answers nothing. */
     word-break: break-all;
   }
+
+  .tear-hint {
+    position: fixed;
+    left: 50%;
+    top: 46px;
+    transform: translateX(-50%);
+    z-index: 30;
+    padding: .3rem .6rem;
+    font-size: 11.5px;
+    color: var(--fg-strong);
+    background: var(--bg-elevated);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    animation: hint-in 100ms ease both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .tab-hint { animation: none; }
+    .tab-hint, .tear-hint { animation: none; }
   }
 
   .tab {
@@ -344,6 +588,10 @@
     flex: 0 1 auto;
     position: relative;
     user-select: none;
+    /* `touch-action: none` is what lets a pen or touch drag reorder tabs at
+       all — without it the gesture is stolen by the strip's own scrolling
+       before the handlers ever see a second move event. */
+    touch-action: none;
     transition: background-color 90ms ease, color 90ms ease;
   }
   .tab:hover { background: var(--chrome-hover); color: var(--fg); }
@@ -361,10 +609,36 @@
     font-weight: 550;
     box-shadow: var(--shadow-sm);
   }
-  .tab.drag-over {
-    background: var(--accent-soft);
+
+  /* ─── Drag ────────────────────────────────────────────────────────────
+     The tab being carried gets no transition on `transform` — it must track
+     the pointer exactly, and a transition would make it lag behind the cursor
+     like a balloon on a string. Its neighbours get the opposite treatment:
+     they only ever move a whole tab-width at a time, so animating them is what
+     turns a jump-cut into the strip visibly making room. */
+  .tab.held {
+    z-index: 3;
+    background: var(--bg);
+    border-color: var(--chrome-border);
+    box-shadow: var(--shadow-md);
+    cursor: grabbing;
+    transition: box-shadow 120ms ease;
+  }
+  .tab.sliding {
+    transition: transform 160ms cubic-bezier(.2, .7, .3, 1),
+                background-color 90ms ease, color 90ms ease;
+  }
+  .tab.settling {
+    transition: transform 150ms cubic-bezier(.2, .7, .3, 1);
+  }
+  /* Armed for tear-out: the tab lifts further and dims the strip's claim on
+     it, so "let go and this leaves" is legible before you commit. */
+  .tab.tearing {
+    opacity: .55;
+    box-shadow: var(--shadow-md);
     border-color: var(--accent);
   }
+
   .name {
     flex: 1 1 auto;
     overflow: hidden;
@@ -415,6 +689,9 @@
     background: var(--chrome-hover);
     color: var(--fg-strong);
   }
+  /* A drag must not be able to end on the close button and shut the tab, and
+     the × sliding under the cursor mid-drag is pure noise. */
+  .tab-bar.dragging .close { opacity: 0; pointer-events: none; }
 
   .new-tab {
     background: transparent;
@@ -437,6 +714,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .tab, .close { transition: none; }
+    .tab, .close, .tab.sliding, .tab.settling { transition: none; }
   }
 </style>

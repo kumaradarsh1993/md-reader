@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::UNIX_EPOCH;
 
 use parking_lot::Mutex;
@@ -13,7 +14,48 @@ use crate::watcher::WatcherState;
 /// synchronously on mount via `take_initial_files`, eliminating the race we
 /// previously had with the post-mount `setTimeout`-based emit (which fired
 /// _after_ tab-restore had a chance to clobber activeId).
-pub struct InitialFiles(pub Mutex<Vec<String>>);
+///
+/// On macOS this queue carries more than CLI arguments. Double-clicking a file
+/// in Finder does *not* pass it in `argv` — the OS delivers an open-documents
+/// Apple Event instead, which Tauri surfaces as `RunEvent::Opened`. That event
+/// can arrive before the webview exists, so `lib.rs` parks the paths here and
+/// the frontend picks them up on mount exactly as it does CLI arguments.
+pub struct InitialFiles {
+    pending: Mutex<Vec<String>>,
+    /// Flipped the first time the frontend drains the queue. Before that, a
+    /// file arriving from the OS has nothing listening and must be parked;
+    /// after it, parking would be a silent no-op, so it is emitted instead.
+    drained: AtomicBool,
+}
+
+impl InitialFiles {
+    pub fn new(paths: Vec<String>) -> Self {
+        Self {
+            pending: Mutex::new(paths),
+            drained: AtomicBool::new(false),
+        }
+    }
+
+    /// Park paths if the frontend has not mounted yet; report back whether it
+    /// did. `false` means the caller must emit them instead.
+    ///
+    /// The check and the write happen under one lock deliberately. Split into
+    /// "ask if ready, then park", a file opened at the moment the webview
+    /// mounts can be parked into a queue that was drained microseconds earlier
+    /// and is never read again — the file simply never opens, occasionally,
+    /// which is precisely the bug this whole path exists to fix.
+    // Only the macOS `Opened` handler calls this, so on every other target it
+    // is legitimately unreachable rather than forgotten.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
+    pub fn park_unless_ready(&self, paths: Vec<String>) -> bool {
+        let mut guard = self.pending.lock();
+        if self.drained.load(AtomicOrdering::SeqCst) {
+            return false;
+        }
+        guard.extend(paths);
+        true
+    }
+}
 
 #[derive(Serialize)]
 pub struct DirEntry {
@@ -422,9 +464,13 @@ pub fn is_torn_out_window() -> bool {
 /// plugin's emit, not this command.
 #[tauri::command]
 pub fn take_initial_files(state: State<'_, InitialFiles>) -> Vec<String> {
-    let mut guard = state.0.lock();
+    let mut guard = state.pending.lock();
     let out = guard.clone();
     guard.clear();
+    // Set while still holding the lock, so a macOS `Opened` event landing at
+    // this instant either makes it into `out` or is emitted — never parked in
+    // a queue that has just been drained and will not be read again.
+    state.drained.store(true, AtomicOrdering::SeqCst);
     out
 }
 

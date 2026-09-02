@@ -7,7 +7,6 @@ mod supabase;
 mod updates;
 mod watcher;
 
-use parking_lot::Mutex;
 use tauri::{Emitter, Manager};
 
 use crate::commands::InitialFiles;
@@ -60,7 +59,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(WatcherState::new())
-        .manage(InitialFiles(Mutex::new(initial_files)))
+        .manage(InitialFiles::new(initial_files))
         .setup(move |app| {
             // Tab tear-out z-order fix (child side): if this process was
             // launched as a torn-out window, force focus on the main webview
@@ -106,10 +105,63 @@ pub fn run() {
             handover_push,
             updates::download_and_install,
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(e) = result {
-        eprintln!("error while running tauri application: {e}");
+    match result {
+        // `build` + `run(callback)` rather than plain `run`, because the
+        // callback is the only place macOS delivers files opened from Finder.
+        // See `on_run_event`.
+        Ok(app) => app.run(on_run_event),
+        Err(e) => eprintln!("error while running tauri application: {e}"),
+    }
+}
+
+/// Runtime events we care about.
+///
+/// ## Opening a file from Finder on macOS
+///
+/// Every other platform hands the app its file as a command-line argument, and
+/// `run()` above reads `std::env::args()` on that basis. macOS does not.
+/// Double-clicking a document sends the app an `kAEOpenDocuments` Apple Event —
+/// `argv` stays empty — and Tauri surfaces that as `RunEvent::Opened`.
+///
+/// Without this handler the app looked broken in an especially confusing way:
+/// the window appeared (so the file association plainly *was* working) and then
+/// sat empty, no matter how many times you tried, because nothing was ever
+/// asked to open. Quitting and relaunching could not help — the path was not
+/// missing, it was never being read.
+///
+/// It also explains the folder-permission prompt that only showed up later.
+/// macOS asks for access to a protected location (OneDrive, Desktop,
+/// Documents) at the moment an app first *reads* one. Since the app never read
+/// the dropped path, the prompt had no reason to appear; it finally surfaced
+/// when the in-app file browser listed the folder directly. So the missing
+/// prompt was a symptom of this same bug, not a second one.
+fn on_run_event(_app: &tauri::AppHandle, _event: tauri::RunEvent) {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let tauri::RunEvent::Opened { urls } = &_event {
+        let paths: Vec<String> = urls
+            .iter()
+            // Finder sends `file://` URLs; anything else (a custom scheme, a
+            // web link handed to us by another app) is not ours to open.
+            .filter_map(|u| u.to_file_path().ok())
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        if paths.is_empty() {
+            return;
+        }
+        let state = _app.state::<InitialFiles>();
+        if !state.park_unless_ready(paths.clone()) {
+            // The window is already up — this is the "app is running, user
+            // double-clicks a second file" case. Same event the
+            // single-instance plugin uses on Windows and Linux, so the
+            // frontend needs no macOS-specific branch.
+            let _ = _app.emit("open-file-from-cli", paths);
+            if let Some(window) = _app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
     }
 }
 

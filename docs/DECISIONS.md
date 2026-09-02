@@ -13,6 +13,139 @@ part worth keeping: the wrong turn.
 
 ---
 
+## v0.11.0-nightly.2 — 2026-09-02 — a feature that was configured away
+
+### The complaint
+
+*"The tabs should be adjustable. Right now in Chrome I can move tabs around…
+snap it out and snap it back in — I think that functionality is [there] — but
+actually just moving tabs, left, right, reordering them, I don't think that works
+right now."*
+
+### It was written, and it could never have run
+
+`reorder()` existed in the store. `onDrop` existed in `TabBar`. Both were
+correct. The feature was disabled by a line in `tauri.conf.json`:
+
+```json
+"dragDropEnabled": true
+```
+
+That installs an OS-level drop target on the window so the app can receive real
+file drops — which Fox MD uses, and wants: dropping a `.md` on the window opens
+it. While it is installed, **the webview does not deliver HTML5 `dragover` or
+`drop` to the page at all.**
+
+The half-alive failure is what makes this worth recording. `dragstart` is a
+source-side event and still fires, so a drag *looked* like it was working. And
+tear-out kept working, because it keys off `dropEffect === "none"` — the value
+you get precisely when nothing accepted the drop. So the exact symptom was: *you
+can pull a tab out, but you cannot move it left or right.* That is not a partial
+implementation, it is the signature of this configuration, and it is worth
+recognising on sight.
+
+**Generalises past this bug:** when one half of a feature works and the
+neighbouring half is inert, suspect a capability that was switched off underneath
+both rather than a mistake in the half that is dead. The dead half is where you
+will look; the switch is where the answer is.
+
+### Why not just turn it off
+
+Because `dragDropEnabled: false` trades reordering for the ability to open a file
+by dropping it on the window, and that is a worse app. Pointer events cost
+nothing extra, and give live reflow while dragging — which HTML5 drag-and-drop
+cannot do at all. The rewrite lives in `src/lib/tab-drag.ts` (pure geometry) plus
+handlers in `TabBar.svelte`.
+
+### The bug the rewrite introduced, and the rule it restores
+
+The first version measured tabs with `getBoundingClientRect()`. Verifying it in
+the browser, a tab dragged one slot landed three slots away.
+
+A bounding rect is where the browser **paints** an element, so it includes any
+transform currently applied — and during the 150 ms landing animation every tab
+in the strip is carrying one. Starting a second drag inside that window captured
+a layout that did not exist. Users do exactly this: drag, release, immediately
+grab the next tab.
+
+The fix is `offsetLeft` / `offsetWidth`, which are layout coordinates —
+transform-independent, scroll-independent, and free. **This is the same rule the
+Viewer's outline probe learned in v0.10.0**, where cached `offsetTop` replaced a
+per-frame `getBoundingClientRect()`. Twice now, in unrelated code:
+
+> Rects are for hit-testing what is on screen. For anything that reasons about
+> *structure*, use layout coordinates — they do not lie about where a thing
+> belongs just because it is mid-animation.
+
+A settle in flight is now also flushed before a new drag begins, so the queued
+reorder cannot fire into the middle of the next gesture.
+
+### Verification
+
+Neither the drag nor the strip can be exercised by `cargo test`, and the CDP
+synthetic-drag tool does not produce the pointer events the handlers read. So it
+was driven through `?devmock=1` with dispatched `PointerEvent`s, and each result
+was **predicted from the measured geometry first, then compared**:
+
+| Gesture | Predicted | Observed |
+|---|---|---|
+| index 0, +200px | lands at 2 | 2 |
+| index 4, −200px | lands at 2 | 2 |
+| index 0, +45px (short of the midpoint) | no move | no move |
+| index 0, +55px (just past it) | lands at 1 | 1 |
+| mid-drag neighbour offset | −95px (92 wide + 3 gap) | −95px |
+
+Predicting first is the point. "It moved, looks right" would have passed the
+`getBoundingClientRect` version too.
+
+`devmock` now serves a small library of documents with **deliberately uneven
+filename lengths**, because reorder arithmetic over equal-width tabs will pass a
+broken implementation.
+
+### macOS: Finder opens were never being read
+
+*"I had gone to OneDrive and I was double clicking on a markdown file, it would
+show up the Fox MD window but it would not open the file."*
+
+Every platform but macOS passes the file in `argv`, and `run()` read
+`std::env::args()` on that basis. macOS sends an open-documents Apple Event
+instead; `argv` stays empty. Tauri surfaces it as `RunEvent::Opened`, which
+requires `build()` + `run(callback)` rather than plain `run()`. Nothing was
+listening, so the window appeared and sat empty — and no amount of relaunching
+could help, because the path was not missing, it was never being read.
+
+The second half of his report is the same bug wearing a different face: the
+OneDrive permission prompt only appeared once he had opened the app and browsed
+to the folder. macOS asks for access to a protected location when an app first
+*reads* one — and Fox MD never got that far. **A missing permission prompt can be
+evidence that the code never ran, not that permission was denied.**
+
+Events can arrive before the webview exists, so paths are parked in the existing
+`InitialFiles` queue and picked up on mount exactly like CLI arguments; the
+check-and-park happens under one lock, or a file opened at the instant the
+webview mounts could be parked into a queue that was drained microseconds earlier
+and never read again.
+
+**Not verified on hardware.** This machine is Windows; `cargo check` here does
+not compile the macOS branch at all. CI's macOS job is the first real check, and
+Finder itself is the second — which only he can run.
+
+### The start page
+
+*"That placeholder space… looks super ugly. That space can be put to better
+use."* It was a 48px `⌘` — a Mac glyph, drawn on every platform — over the words
+"No file open", centred in the largest empty area in the app, restating what was
+already visible.
+
+Replaced with a start page: what to open, and recent files with the folder each
+lives in. Left-aligned in a reading column, seated above the optical centre
+rather than the arithmetic one. "Browse your folders" *reveals* the file browser
+rather than toggling the panel — the panel is open as often as not, and a button
+labelled "Browse your folders" that closes the folders is a bug with a friendly
+label on it.
+
+---
+
 ## v0.10.0 (revised) — 2026-08-26 — unbraiding highlight from comment
 
 ### The complaint

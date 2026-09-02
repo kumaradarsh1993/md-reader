@@ -366,6 +366,16 @@
 
   /** Collapse / restore the whole left pane, ChatGPT-style. Which sections are
    *  enabled is left untouched, so expanding gives back exactly what you had. */
+  /** Start-page action: bring the file browser to the front.
+   *
+   *  Deliberately not `togglePane` — the side panel is open as often as not,
+   *  and a button labelled "Browse your folders" that closes the folders is a
+   *  bug with a friendly label on it. */
+  function revealFileBrowser() {
+    settings.set("panelCollapsed", false);
+    settings.set("showFiles", true);
+  }
+
   function togglePane() {
     const next = !settings.s.panelCollapsed;
     settings.set("panelCollapsed", next);
@@ -500,6 +510,10 @@
     else if (mod && e.key.toLowerCase() === "w") { e.preventDefault(); closeActiveTab(); }
     else if (mod && e.key === "Tab" && !e.shiftKey) { e.preventDefault(); tabs.next(); }
     else if (mod && e.key === "Tab" && e.shiftKey) { e.preventDefault(); tabs.prev(); }
+    // Move the active tab within the strip — the same binding Chrome, Edge and
+    // Firefox all use, and the keyboard equivalent of dragging it.
+    else if (mod && e.shiftKey && e.key === "PageUp") { e.preventDefault(); tabs.moveActive(-1); }
+    else if (mod && e.shiftKey && e.key === "PageDown") { e.preventDefault(); tabs.moveActive(1); }
     // Ctrl+B is the near-universal "toggle the sidebar" binding (VS Code,
     // ChatGPT, Obsidian). In v0.5.x it toggled the Files section specifically,
     // which was a less useful thing to give the most memorable shortcut to.
@@ -965,21 +979,63 @@
       bind:this={viewerEl}
     >
       {#if !active}
-        <div class="empty-state">
-          <div class="empty-glyph">⌘</div>
-          <h2>No file open</h2>
-          <p>Press <kbd>{MOD}</kbd>+<kbd>T</kbd> to open one, or drop a <code>.md</code> file onto the window.</p>
-          {#if settings.s.recentFiles.length > 0}
-            <div class="empty-recent">
-              <div class="empty-label">Recent</div>
-              {#each settings.s.recentFiles.slice(0, 5) as r}
-                <button class="empty-recent-item" onclick={() => openInTab(r)} title={r}>
-                  <span>{r.split(/[\\/]/).pop()}</span>
-                  <span class="dim">{r.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).slice(-2).join("/")}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
+        <!-- Start page, not an error message.
+
+             What was here before was a 48px ⌘ glyph — the macOS Command
+             symbol, shown on every platform — over the words "No file open",
+             centred in the middle of an otherwise empty window. It told the
+             reader something they could already see, spent the largest surface
+             in the app saying it, and on a 27" display floated a postage stamp
+             of content in an ocean of paper.
+
+             This is the shape every editor's start page has converged on
+             (VS Code, Zed, Obsidian) and for the same reason: the blank state
+             is the one moment you know exactly what the reader wants, which is
+             to get into a document. So it is a left-aligned column of things to
+             click, ranged at a comfortable reading measure and sitting slightly
+             above centre, where the eye lands naturally. -->
+        <div class="start">
+          <div class="start-col">
+            <header class="start-head">
+              <h1>Fox MD</h1>
+              <p class="start-sub">Markdown, read properly.</p>
+            </header>
+
+            <section class="start-group">
+              <h2 class="start-label">Start</h2>
+              <button class="start-action" onclick={pickAndOpen}>
+                <Icon name="file-text" size={15} />
+                <span class="start-action-text">Open a file…</span>
+                <span class="start-keys">{sk("Mod", "O")}</span>
+              </button>
+              <button class="start-action" onclick={revealFileBrowser}>
+                <Icon name="folder-open" size={15} />
+                <span class="start-action-text">Browse your folders</span>
+                <span class="start-keys">{sk("Mod", "B")}</span>
+              </button>
+            </section>
+
+            {#if settings.s.recentFiles.length > 0}
+              <section class="start-group">
+                <h2 class="start-label">Recent</h2>
+                {#each settings.s.recentFiles.slice(0, 7) as r}
+                  <button class="start-recent" onclick={() => openInTab(r)} title={r}>
+                    <span class="start-name">{r.split(/[\\/]/).pop()}</span>
+                    <!-- The last two folders, not the whole path: enough to
+                         tell two files of the same name apart, short enough to
+                         stay on one line at any window width. -->
+                    <span class="start-where">
+                      {r.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).slice(-2).join(" / ")}
+                    </span>
+                  </button>
+                {/each}
+              </section>
+            {/if}
+
+            <p class="start-foot">
+              Drop a <code>.md</code> file onto this window to open it.
+            </p>
+          </div>
         </div>
       {:else if previewOpen}
         <WordPreview
@@ -1899,84 +1955,119 @@
     margin-left: 1rem;
   }
 
-  /* Empty state — shown when no tabs are open */
-  .empty-state {
+  /* ─── Start page (no file open) ────────────────────────────────────── */
+  .start {
     flex: 1 1 auto;
     display: flex;
-    flex-direction: column;
-    align-items: center;
     justify-content: center;
-    text-align: center;
-    color: var(--muted);
-    gap: .5rem;
-    padding: 2rem;
+    overflow-y: auto;
     background: var(--bg);
+    padding: 2rem;
   }
-  .empty-glyph {
-    font-size: 48px;
-    color: var(--border-strong, var(--border));
-    margin-bottom: .5rem;
-    opacity: .6;
-  }
-  .empty-state h2 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 500;
-    color: var(--fg);
-  }
-  .empty-state p {
-    margin: 0;
-    font-size: 13px;
-  }
-  .empty-state kbd {
-    background: var(--muted-bg);
-    border: 1px solid var(--border);
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    padding: 0 .35em;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: .85em;
-  }
-  .empty-state code {
-    background: var(--code-inline-bg);
-    padding: .12em .35em;
-    border-radius: 4px;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: .9em;
-  }
-  .empty-recent {
-    margin-top: 1.75rem;
+  .start-col {
+    width: 100%;
+    max-width: 420px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    width: min(420px, 80%);
+    /* Above the optical centre. A block of text centred by arithmetic reads as
+       though it has sunk; the eye expects it a little high. `10vh` keeps it
+       there on a laptop and stops it stranding in the middle of a 27" panel. */
+    margin-top: max(10vh, 3rem);
+    margin-bottom: auto;
   }
-  .empty-label {
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    color: var(--muted);
+  .start-head { margin-bottom: 2.25rem; }
+  .start-head h1 {
+    margin: 0;
+    font-size: 25px;
     font-weight: 600;
-    text-align: left;
-    padding: 0 .5rem .25rem;
+    letter-spacing: -0.02em;
+    color: var(--fg-strong);
   }
-  .empty-recent-item {
+  .start-sub {
+    margin: .2rem 0 0;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .start-group { margin-bottom: 1.9rem; }
+  .start-label {
+    margin: 0 0 .45rem;
+    padding: 0 .55rem;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    color: var(--muted);
+  }
+  .start-action,
+  .start-recent {
     display: flex;
-    flex-direction: column;
-    gap: 1px;
-    align-items: flex-start;
-    padding: .45rem .65rem;
+    align-items: center;
+    width: 100%;
+    padding: .5rem .55rem;
     background: transparent;
     border: 0;
     border-radius: var(--radius-sm);
     color: var(--fg);
     text-align: left;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 13.5px;
+    font-family: inherit;
   }
-  .empty-recent-item:hover { background: var(--accent); color: white; }
-  .empty-recent-item:hover .dim { color: rgba(255,255,255,0.85); }
-  .empty-recent-item .dim { font-size: 11px; color: var(--muted); }
+  /* A soft wash, not a saturated accent fill. The old row went solid accent
+     with white text on hover, which at seven rows made the list flash like a
+     slot machine as the pointer crossed it. */
+  .start-action:hover,
+  .start-recent:hover { background: var(--chrome-hover); }
+  .start-action:focus-visible,
+  .start-recent:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .start-action { gap: .6rem; color: var(--fg-strong); }
+  .start-action :global(svg) { color: var(--muted); flex-shrink: 0; }
+  .start-action:hover :global(svg) { color: var(--accent); }
+  .start-action-text { flex: 1 1 auto; }
+  .start-keys {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    white-space: nowrap;
+  }
+
+  /* Name and location on one line, with the location taking the leftover
+     space and truncating from the front — the end of a path is the part that
+     identifies it, so that is the part that must survive. */
+  .start-recent { gap: .75rem; }
+  .start-name {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .start-where {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .start-foot {
+    margin: .35rem 0 0;
+    padding: 0 .55rem;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .start-foot code {
+    background: var(--code-inline-bg);
+    padding: .12em .35em;
+    border-radius: 4px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .9em;
+  }
 
   /* (Smart-diff inline banner CSS removed in v0.3.0. v0.4.0 reintroduces
      LLM-summarised diffs via the per-section sidebar — see proposal.) */

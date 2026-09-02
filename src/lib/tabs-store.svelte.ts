@@ -180,6 +180,19 @@ class TabsStore {
     this.persist();
   }
 
+  /** Shift the active tab one slot left (-1) or right (+1). The keyboard
+   *  route to reordering, and the only one available without a pointer.
+   *  Deliberately does not wrap: a tab silently teleporting from one end of
+   *  the strip to the other reads as a bug, not as a convenience. */
+  moveActive(delta: number) {
+    if (!this.activeId) return;
+    const from = this.tabs.findIndex((t) => t.id === this.activeId);
+    if (from < 0) return;
+    const to = from + delta;
+    if (to < 0 || to >= this.tabs.length) return;
+    this.reorder(from, to);
+  }
+
   reorder(fromIndex: number, toIndex: number) {
     if (fromIndex === toIndex) return;
     if (fromIndex < 0 || toIndex < 0) return;
