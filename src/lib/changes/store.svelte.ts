@@ -86,6 +86,30 @@ class ChangesStore {
     return unreviewedCount(this.files[path]);
   }
 
+  /** Has this file changed since the reader last had it on screen? Drives the
+   *  amber dot on an inactive tab; `noteRead` is what clears it. */
+  changedSinceReadFor(path: string): boolean {
+    void this.tick;
+    return changedSinceRead(this.files[path]);
+  }
+
+  /**
+   * The reader brought this file on screen — a tab switch, not a fresh open.
+   *
+   * Only `lastReadAt` moves. The revisions stay unreviewed: the dot on the tab
+   * is "something happened while you were away", which looking at the file
+   * answers; the bars in the margin are "here is what", which only opening a
+   * change or asking for the file to be marked reviewed answers.
+   */
+  async noteRead(path: string): Promise<void> {
+    if (!this.enabled) return;
+    const f = this.files[path];
+    if (!f || !changedSinceRead(f)) return;
+    f.lastReadAt = Date.now();
+    this.tick++;
+    await this.persistFor(path);
+  }
+
   /** Everything unreviewed, across every folder scanned this session. */
   get inbox(): ChangeEntry[] {
     const out: ChangeEntry[] = [];

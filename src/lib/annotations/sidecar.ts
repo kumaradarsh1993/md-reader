@@ -94,6 +94,7 @@ export async function saveNotes(docPath: string, annotations: Annotation[]): Pro
     // every folder anyone has ever opened a document in.
     await api.removeFileIfPresent(p.json);
     await api.removeFileIfPresent(p.markdown);
+    await refreshFolderIndex(p);
     return;
   }
 
@@ -107,6 +108,90 @@ export async function saveNotes(docPath: string, annotations: Annotation[]): Pro
   await api.writeTextFileMkdir(p.json, JSON.stringify(payload, null, 2));
   await api.writeTextFileMkdir(p.markdown, renderDigest(p.document, annotations));
   await api.writeTextFileIfAbsent(p.readme, FOLDER_README);
+  await refreshFolderIndex(p);
+}
+
+/**
+ * The one visible file.
+ *
+ * `.foxmd/` is a dot-folder, and a dot-folder is invisible to exactly the
+ * reader these notes are for: an AI agent in a fresh session lists the folder,
+ * sees the documents, and has no reason to look inside a hidden directory it
+ * has never heard of. The owner hit this — comments were on disk and the agent
+ * said there were none.
+ *
+ * So one file per folder sits beside the documents, in plain sight, named so
+ * that anything listing the folder reads it: `READER-COMMENTS.md`. It is a
+ * short index — which documents carry notes, how many, and where the full text
+ * is — regenerated whenever any document's notes change, and removed when the
+ * last note in the folder goes. It never contains the comments themselves,
+ * only the pointer, so the folder gains one small file rather than a copy of
+ * everything under `.foxmd/`.
+ */
+export const FOLDER_INDEX = "READER-COMMENTS.md";
+
+async function refreshFolderIndex(p: SidecarPaths): Promise<void> {
+  const folder = p.dir.slice(0, p.dir.length - NOTES_DIR.length - 1);
+  const indexPath = `${folder}${p.sep}${FOLDER_INDEX}`;
+
+  let entries: Array<{ document: string; comments: number; highlights: number }> = [];
+  try {
+    const listing = await api.listDir(p.dir);
+    for (const e of listing) {
+      if (e.is_dir || !e.name.endsWith(".notes.json")) continue;
+      const raw = await api.readTextFileOpt(e.path);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw) as NotesFile;
+        const anns = Array.isArray(parsed.annotations) ? parsed.annotations : [];
+        const comments = anns.filter((a) => a.thread && a.thread.length > 0).length;
+        entries.push({
+          document: e.name.slice(0, -".notes.json".length),
+          comments,
+          highlights: anns.length - comments,
+        });
+      } catch {
+        // A corrupt sidecar is left out of the index rather than breaking it.
+      }
+    }
+  } catch {
+    // `.foxmd/` gone (last notes removed) — fall through to removing the index.
+    entries = [];
+  }
+
+  if (entries.length === 0) {
+    await api.removeFileIfPresent(indexPath);
+    return;
+  }
+
+  entries.sort((a, b) => a.document.localeCompare(b.document));
+  const lines: string[] = [
+    "# Reader comments in this folder",
+    "",
+    "*Written by Fox MD. Do not edit — regenerated whenever a note changes. " +
+      "Delete freely; it comes back while any notes exist.*",
+    "",
+    "**If you are an AI assistant working on a document here:** the reader has left",
+    "comments on it in Fox MD. Read the note file listed below before editing the",
+    "document — each entry quotes the exact passage and what the reader said about it.",
+    "A comment is feedback addressed to whoever works on the document next.",
+    "",
+    "| Document | Comments | Highlights | Read this |",
+    "|---|---|---|---|",
+  ];
+  for (const e of entries) {
+    lines.push(
+      `| \`${e.document}\` | ${e.comments} | ${e.highlights} | \`${NOTES_DIR}/${e.document}.notes.md\` |`,
+    );
+  }
+  lines.push(
+    "",
+    `The \`.notes.md\` files are readable digests generated from \`${NOTES_DIR}/<document>.notes.json\`,`,
+    "which is authoritative (exact anchors, ids, timestamps, threads). To change a",
+    "note, change the `.json`; the digest is regenerated from it.",
+    "",
+  );
+  await api.writeTextFileMkdir(indexPath, lines.join("\n"));
 }
 
 const FOLDER_README = `# .foxmd

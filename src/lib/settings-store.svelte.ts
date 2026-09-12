@@ -74,6 +74,16 @@ export interface AppSettings {
   // Whether reviewed changes keep a faint margin mark. On: "something changed
   // here at some point" stays answerable forever. Off: the margin clears.
   keepReviewedMarks: boolean;
+  // v0.13.0+: the toolbar toggle. `trackChanges` is whether the record is KEPT;
+  // this is whether the marks are DRAWN — badges in the margin, the dotted
+  // underline, the amber tab dots. Off hides the layer, never the data, exactly
+  // as `showHighlights` does for annotations. Sits beside them on the toolbar.
+  showChanges: boolean;
+  // v0.13.0 one-shot: Live Edit Theatre was being switched on by a nudge banner
+  // and then left on, which is where the yellow prose highlights and the two
+  // separate "Hide changes" controls came from. Reset it to off once, so every
+  // machine starts from the intended default; the switch itself still works.
+  theatreResetV13: boolean;
   // Legacy from v0.2.x — left here read-only so existing settings.json files
   // still load cleanly. None of these are written by any current UI path.
   // TODO(0.5): drop entirely.
@@ -107,6 +117,12 @@ export interface AppSettings {
   /** Hovering the window's left edge while collapsed slides the pane out as
    *  a temporary overlay, which retracts when the pointer leaves. */
   panelHoverPeek: boolean;
+  // ─── Tab strip (v0.13.0+) ─────────────────────────────────────────
+  /** How many lines a tab's file name may wrap onto: 1 (the classic single
+   *  ellipsised row), 2 or 3. Set by dragging the strip's bottom edge. Long
+   *  agent-written file names ("B - Capability - Conversational and agentic
+   *  journeys - draft 3") are the reason this exists. */
+  tabRows: 1 | 2 | 3;
   // ─── Reading position memory (v0.6.0+) ───────────────────────────
   /** Remember scroll position per tab and across sessions. */
   rememberScroll: boolean;
@@ -203,6 +219,8 @@ const DEFAULTS: AppSettings = {
   advancedLiveEditTheatre: false,
   trackChanges: true,
   keepReviewedMarks: true,
+  showChanges: true,
+  theatreResetV13: false,
   liveTrack: false,
   diffMode: false,
   editorMode: "smart",
@@ -223,6 +241,7 @@ const DEFAULTS: AppSettings = {
   panelCollapsed: false,
   panelSplit: 0.45,
   panelHoverPeek: true,
+  tabRows: 1,
   rememberScroll: true,
   resumeRibbon: true,
   scrollMemory: {},
@@ -278,6 +297,22 @@ class SettingsStore {
     // migration pair. Both are gone in v0.3.0 — the whole feature is being
     // rebuilt as Live Edit Theatre in v0.4.0 behind `advancedLiveEditTheatre`.
     // Users with the legacy flags persisted simply have them ignored.)
+
+    // v0.13.0: put Live Edit Theatre back to its intended default, once. It
+    // had a "Did you know?" banner that switched it on with one click and
+    // nothing that ever switched it off, so on machines that had seen an agent
+    // edit it was quietly running — and its prose highlights were being taken
+    // for the Changes feature. The setting still exists under Advanced.
+    if (!this.s.theatreResetV13) {
+      this.s.advancedLiveEditTheatre = false;
+      this.s.theatreResetV13 = true;
+      try {
+        await this.store?.set("advancedLiveEditTheatre", false);
+        await this.store?.set("theatreResetV13", true);
+      } catch (e) {
+        console.warn("[Fox MD] could not persist the theatre reset", e);
+      }
+    }
 
     this.ready = true;
   }

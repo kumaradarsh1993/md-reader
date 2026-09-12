@@ -9,6 +9,65 @@
 > highlight/comment now properly separated (see the first entry in
 > `docs/DECISIONS.md`).
 
+## 2026-09-12 — tab strip, Changes marks rebuilt, comments made findable
+
+Branch **`changes-revamp`**, from the owner's Mac (first session on real
+macOS hardware). Not yet released; he tries the local build first.
+
+**What he asked for, in one line each, and what happened:**
+
+1. *Tab names too big / cut too soon.* Labels 12.5→11px, padding tightened,
+   inactive tabs get a faint tonal card so long names stop merging into one
+   run of words. **New:** the strip's bottom edge is a drag handle
+   (`.tab-rows-handle`); pull it down and names wrap onto 2 or 3 lines
+   (`settings.tabRows`). Arrow keys work on it too.
+2. *Files/Outline divider too dim.* One shade up (`--border-strong`).
+3. *"Ugly yellow highlighting and two Hide-changes buttons".* That was **Live
+   Edit Theatre**, not Changes — its "Did you know?" banner switched it on with
+   one click and nothing switched it off. The banner is no longer mounted
+   (component kept), and a one-shot migration (`theatreResetV13`) forces the
+   flag off on every machine. It is now Settings → Advanced → beta, nowhere
+   else. Deliberately not reworked: he wants it improved later, off by default.
+4. *Change marks.* Margin **bars** replaced by a small **badge** at the top of
+   each changed passage plus a faint dotted underline on the passage
+   (`ChangeBars.svelte`, name kept). One badge per passage; a count when
+   several revisions hit the same one. Toggle moved to the **right toolbar
+   group beside Highlights/Comments** (`settings.showChanges`); right-click it
+   for the cross-file list and mark-reviewed. Amber dot on an inactive tab
+   means "changed while you were away" and **clears when the tab is opened**
+   (`changes.noteRead`); the badges stay until the change is opened.
+5. *The brown bar cutting through the text on an external monitor.* Real bug:
+   the bar's `left` was derived from the width *setting*, not from where the
+   `.prose` column actually sits, so full-width mode / the comment lane put it
+   inside the text. Badges now measure `prose.offsetLeft`.
+6. *Overlay.* Now a centred card, ~70% tall, **before left / after right**
+   (he asked; the stacked argument in `change-review.md` §4.3 lost to "I read
+   the two paragraphs, I don't hunt the shifted word"). Three dimmed lines of
+   surrounding document above and below, newest revision only (older
+   revisions describe line numbers that have since moved).
+7. *Comments unreadable by a fresh agent.* They were on disk all along
+   (`.foxmd/<name>.notes.md`) — the agent never looked in a dot-folder. Fox MD
+   now writes one visible **`READER-COMMENTS.md`** per folder (index + pointer,
+   regenerated on every note save, removed when the last note goes). Plus
+   right-click on the Comments toolbar button → "Copy instructions for an AI
+   agent" puts the exact path and rules on the clipboard.
+
+**A bug found on the way:** `snapToBlocks` grew a region whose raw range ended
+on a blank line straight over the boundary into the next block, so an added
+paragraph also marked the untouched heading after it. Blank edges are now
+trimmed before growing. 43/43 selftests still pass.
+
+**Flagged, not built:** "only show the last two variants". When an agent edits
+a passage twice before he looks, the model records two revisions (badge shows
+`2`, overlay steps through them). Collapsing them into one before/after from
+the last state he *read* is a model change (regions of different revisions do
+not share line numbers); he asked to be told before anything is over-solved.
+
+**Verified:** `npm run check` clean; devmock run drove open → external edit →
+refresh → dot → switch → badges → overlay → toggle off → full-width, all as
+designed. Rust side untouched; `npx tauri build` on the Mac is the first
+native check.
+
 ## 2026-09-02 (later) — Changes shipped
 
 **v0.12.0-nightly.1.** The proposal below was approved and built. Design and

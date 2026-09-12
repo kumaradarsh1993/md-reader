@@ -13,6 +13,7 @@
   } from "$lib/settings-store.svelte";
   import { tabs } from "$lib/tabs-store.svelte";
   import { annotations } from "$lib/annotations/store.svelte";
+  import { sidecarPaths } from "$lib/annotations/sidecar";
   import { account } from "$lib/account.svelte";
   import Viewer from "$lib/Viewer.svelte";
   import WidthControl from "$lib/WidthControl.svelte";
@@ -34,7 +35,8 @@
   import { isMac, sk, MOD, copyText, revealInFileManager } from "$lib/platform";
   import StatusBar from "$lib/theatre/StatusBar.svelte";
   import ResumeChip from "$lib/theatre/ResumeChip.svelte";
-  import TipBanner from "$lib/theatre/TipBanner.svelte";
+  // TipBanner ($lib/theatre/TipBanner.svelte) is intentionally not imported:
+  // see the note where the theatre overlays are mounted, near the bottom.
   import DiffSidebar from "$lib/theatre/DiffSidebar.svelte";
   import SidebarConnectors from "$lib/theatre/SidebarConnectors.svelte";
   import { toggleSidebar, viewSnapshots } from "$lib/theatre/store.svelte";
@@ -143,7 +145,7 @@
 
   let activeRevisions = $derived.by(() => {
     void changes.tick;
-    if (!active || !settings.s.trackChanges) return [];
+    if (!active || !settings.s.trackChanges || !settings.s.showChanges) return [];
     // Not while the tab holds unsaved edits. Regions are line ranges in the
     // file *on disk*, and a dirty tab is deliberately never reloaded from disk
     // (a refresh must not throw away what you typed) — so the document on
@@ -157,6 +159,79 @@
     void changes.tick;
     return settings.s.trackChanges ? changes.totalUnreviewed : 0;
   });
+
+  /**
+   * Right-click menu on the toolbar's Comments toggle.
+   *
+   * The copy action exists because the owner's loop is: read in Fox MD, leave
+   * comments, then tell an agent "I left comments, apply them" — and a fresh
+   * agent session has no idea where Fox MD keeps them. This puts the exact
+   * path and the rules of engagement on the clipboard, ready to paste.
+   */
+  function commentsMenu(): MenuEntry[] {
+    const p = active ? sidecarPaths(active.path) : null;
+    const n = annotations.commentCount;
+    return [
+      {
+        label: settings.s.showComments ? "Hide comments" : "Show comments",
+        icon: "message-square",
+        action: () => settings.set("showComments", !settings.s.showComments),
+      },
+      { separator: true },
+      {
+        label: n > 0 ? `Copy instructions for an AI agent (${n})` : "Copy instructions for an AI agent",
+        icon: "copy",
+        disabled: !p || n === 0,
+        action: () => {
+          if (!p || !active) return;
+          copyText(
+            `I left ${n} comment${n === 1 ? "" : "s"} on this document in Fox MD:\n` +
+            `  ${active.path}\n\n` +
+            `Read the notes file first — each entry quotes the exact passage and what I said about it:\n` +
+            `  ${p.markdown}\n\n` +
+            `Then apply the comments to the document. Do not edit anything under ${p.dir}; ` +
+            `Fox MD owns those files. If a comment is unclear, ask before changing that passage.`,
+          );
+        },
+      },
+      {
+        label: "Reveal notes folder",
+        icon: "folder-open",
+        disabled: !p,
+        action: () => { if (p) revealInFileManager(p.json); },
+      },
+    ];
+  }
+
+  /** Right-click menu on the toolbar's Changes toggle. */
+  function changesMenu(): MenuEntry[] {
+    const fileUnread = active ? changes.unreviewedFor(active.path) : 0;
+    return [
+      {
+        label: settings.s.showChanges ? "Hide change marks" : "Show change marks",
+        icon: "clock",
+        action: () => settings.set("showChanges", !settings.s.showChanges),
+      },
+      {
+        label: "All changes…",
+        icon: "list-tree",
+        action: () => (changesOpen = true),
+      },
+      { separator: true },
+      {
+        label: fileUnread > 0
+          ? `Mark this file reviewed (${fileUnread})`
+          : "Mark this file reviewed",
+        disabled: !active || fileUnread === 0,
+        action: () => { if (active) void changes.markFileReviewed(active.path); },
+      },
+      {
+        label: unreadChanges > 0 ? `Mark all reviewed (${unreadChanges})` : "Mark all reviewed",
+        disabled: unreadChanges === 0,
+        action: () => void changes.markAllReviewed(),
+      },
+    ];
+  }
 
   function openChange(path: string, revisionId: number) {
     openedChange = { path, revisionId };
@@ -278,6 +353,17 @@
   $effect(() => {
     const _ = active?.id;
     externalEditObserved = false;
+  });
+
+  // Bringing a tab to the front is reading it, as far as the tab-strip dot is
+  // concerned. `noteRead` moves only the "last seen" stamp; the margin bars
+  // inside the document are governed separately by the reviewed flag.
+  $effect(() => {
+    // Re-run after every scan too: a change landing on the file that is on
+    // screen right now has, by definition, been seen.
+    void changes.tick;
+    const p = active?.path;
+    if (p) void changes.noteRead(p);
   });
 
   // Keep document title in sync with active tab
@@ -890,24 +976,11 @@
            was not looking". The count is the whole point of the button — a
            badge you can see without opening anything is what makes the feature
            work for someone who did not think to go looking. -->
-      {#if settings.s.trackChanges}
-        <button
-          class="icon-btn changes-btn"
-          class:has-unread={unreadChanges > 0}
-          class:open={changesOpen}
-          onclick={() => (changesOpen = !changesOpen)}
-          title={unreadChanges > 0
-            ? `${unreadChanges} change${unreadChanges === 1 ? "" : "s"} you have not read yet`
-            : "Changes — what was touched since you last read it"}
-          aria-label="Changes"
-          aria-expanded={changesOpen}
-        >
-          <Icon name="clock" size={15} />
-          {#if unreadChanges > 0}
-            <span class="changes-count">{unreadChanges > 99 ? "99+" : unreadChanges}</span>
-          {/if}
-        </button>
-      {/if}
+      <!-- The Changes toggle used to sit here as a clock. It moved to the right
+           group, beside Highlights and Comments: it is a third overlay on the
+           document, switched the same way, and grouping it with Refresh made
+           it read as a file operation rather than as a layer you show or
+           hide. -->
       <div class="seg">
         <button class:active={mode === "view"} onclick={() => setMode("view")}>View</button>
         <button class:active={mode === "edit" || mode === "rawEdit"} onclick={() => setMode("edit")}>Edit</button>
@@ -1009,6 +1082,7 @@
         class:on={settings.s.showComments}
         disabled={!active}
         onclick={() => settings.set("showComments", !settings.s.showComments)}
+        oncontextmenu={(e) => contextMenu.open(e, commentsMenu())}
         title={annotations.commentCount === 0
           ? "Comments — select text and choose Comment"
           : `${settings.s.showComments ? "Hide" : "Show"} ${annotations.commentCount} comment thread${annotations.commentCount === 1 ? "" : "s"} (${sk("Mod", "Shift", "M")})`}
@@ -1018,6 +1092,26 @@
         <Icon name="message-square" size={18} />
         {#if annotations.commentCount > 0}<span class="badge">{annotations.commentCount}</span>{/if}
       </button>
+      <!-- The third layer: what changed while you were away. Click shows or
+           hides the marks (badges in the margin, dotted underline, tab dots).
+           Right-click for the cross-file list and the mark-reviewed actions,
+           which are the less frequent operations and do not earn a button. -->
+      {#if settings.s.trackChanges}
+        <button
+          class="icon-btn lg"
+          class:on={settings.s.showChanges}
+          onclick={() => settings.set("showChanges", !settings.s.showChanges)}
+          oncontextmenu={(e) => contextMenu.open(e, changesMenu())}
+          title={unreadChanges === 0
+            ? `Changes — marks what was edited outside Fox MD since you read it (right-click for options)`
+            : `${settings.s.showChanges ? "Hide" : "Show"} ${unreadChanges} unread change${unreadChanges === 1 ? "" : "s"} (right-click for options)`}
+          aria-label="Toggle change marks"
+          aria-pressed={settings.s.showChanges}
+        >
+          <Icon name="clock" size={18} />
+          {#if unreadChanges > 0}<span class="badge changed">{unreadChanges > 99 ? "99+" : unreadChanges}</span>{/if}
+        </button>
+      {/if}
       <div class="tool-divider" aria-hidden="true"></div>
       <button
         class="icon-btn lg"
@@ -1218,6 +1312,7 @@
     name={splitPath(openedChange.path)?.name ?? openedChange.path}
     revisions={openedChangeRevisions}
     startId={openedChange.revisionId}
+    source={active && active.path === openedChange.path ? active.source : null}
     onClose={() => (openedChange = null)}
     onReviewed={(id) => {
       if (openedChange) void changes.markRevisionReviewed(openedChange.path, id);
@@ -1231,9 +1326,12 @@
   <StatusBar tab={active} />
   <ResumeChip tab={active} />
 {/if}
-{#if active}
-  <TipBanner tab={active} {externalEditObserved} />
-{/if}
+<!-- TipBanner (theatre/TipBanner.svelte) is deliberately NOT mounted. It was
+     the one-click route that switched Live Edit Theatre on and left it on,
+     which produced the yellow prose highlights and the two separate
+     "Hide changes" controls. The theatre is a beta you opt into from
+     Settings → Advanced, nowhere else. The component stays for when the
+     theatre is reworked. -->
 
 <!-- One-shot reassurance on entering focus mode. A distraction-free mode that
      doesn't tell you how to leave is just a stuck window — this is the whole
@@ -1351,6 +1449,10 @@
     --border-strong: #d5d2cb;
     --accent: #007aff;
     --accent-soft: rgba(0, 122, 255, 0.12);
+    /* "Changed while you were away": the tab dot, the margin badge, the toolbar
+       count. Amber, distinct from the accent (unsaved) and the annotation
+       yellows. */
+    --changed: #d99a1e;
     /* Fill for the "you are here" row in the outline. A touch stronger than
        --accent-soft, and defined per-theme rather than derived with
        color-mix() so it renders on older WebKitGTK too. */
@@ -1410,6 +1512,7 @@
     --border-strong: #464643;
     --accent: #0a84ff;
     --accent-soft: rgba(10, 132, 255, 0.18);
+    --changed: #e8b04a;
     --accent-active: rgba(10, 132, 255, 0.26);
     --link: #64b5f6;
     --code-bg: #262625;
@@ -1455,6 +1558,7 @@
     --border-strong: #c5b994;
     --accent: #b97f47;
     --accent-soft: rgba(185, 127, 71, 0.16);
+    --changed: #c98a12;
     --accent-active: rgba(185, 127, 71, 0.22);
     --link: #875d2f;
     --code-bg: #ede3c8;
@@ -2096,27 +2200,9 @@
     margin-left: 1rem;
   }
 
-  /* The Changes button carries a count rather than a bare dot: "something
-     changed" and "eleven things changed" call for different reactions, and the
-     number is free to render. */
-  .changes-btn { position: relative; }
-  .changes-btn.open { background: var(--chrome-hover); color: var(--fg-strong); }
-  .changes-btn.has-unread { color: var(--accent); }
-  .changes-count {
-    position: absolute;
-    top: 1px;
-    right: 0;
-    min-width: 14px;
-    padding: 0 3px;
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 14px;
-    text-align: center;
-    border-radius: 999px;
-    background: var(--accent);
-    color: white;
-    pointer-events: none;
-  }
+  /* The Changes toggle's count is amber — the same ink as the dot on a tab and
+     the badge in the margin, so one colour means "changed" everywhere. */
+  .icon-btn .badge.changed { background: var(--changed, #d99a1e); }
 
   /* ─── Start page (no file open) ────────────────────────────────────── */
   .start {

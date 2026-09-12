@@ -302,8 +302,9 @@
         <small>
           Notices when anything you have read is edited by something other than Fox MD —
           an agent, another editor, a sync — and keeps a record of what changed and when.
-          Marks the passages in the margin, counts them on the toolbar clock, and lists
-          them under Changes. Checked whenever this window comes back into focus.
+          Puts an amber dot on the tab, a small badge in the left margin beside each
+          changed passage, and a faint dotted underline beneath it; click the badge for
+          before and after. The clock on the toolbar shows or hides these marks.
           The record lives in <code>.foxmd/</code> beside your files, so it survives
           restarts and travels with the folder.
         </small>
@@ -342,11 +343,12 @@
           onchange={(e) => settings.set("advancedLiveEditTheatre", (e.currentTarget as HTMLInputElement).checked)}
         />
         <span>
-          🎬 Live Edit Theatre
+          🎬 Live Edit Theatre <em class="beta">beta</em>
           <small>
             <strong>Separate from Changes above, and does a different job:</strong> this one
             animates an edit as it happens while you watch, and remembers nothing afterwards.
-            Changes is the record you consult later. Either can be on without the other.<br />
+            Changes is the record you consult later. Off by default and only switched on
+            here — it no longer offers itself when an edit is noticed.<br />
             When an AI (Claude, ChatGPT, Cursor, …) is writing to the file you have open,
             Fox MD switches to a focused view: subtle "receded" surface, bottom-left status bar,
             green highlight on the block currently being edited (with a soft pulse) that fades to
@@ -553,6 +555,20 @@
      weight; five headings turn it into something you can scan. Small caps,
      a rule, and generous space above — the divider is the heading, so no
      extra <hr> is needed. */
+  .beta {
+    display: inline-block;
+    margin-left: .35em;
+    padding: 0 .4em;
+    font-size: 9.5px;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    vertical-align: middle;
+  }
   .group-head {
     margin: 1.6rem 0 .2rem;
     padding-bottom: .35rem;

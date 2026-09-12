@@ -5,6 +5,7 @@
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
   import { isMac, sk, copyText, revealInFileManager } from "./platform";
   import { changes } from "./changes/store.svelte";
+  import { settings } from "./settings-store.svelte";
   import {
     type TabRect,
     gapOf,
@@ -19,6 +20,41 @@
     onNewTab: () => void;
   }
   let { onNewTab }: Props = $props();
+
+  // ─── Strip height ──────────────────────────────────────────────────────
+  //
+  // The strip's bottom edge is a drag handle. Pulling it down lets file names
+  // wrap onto a second or third line instead of being cut to "B - Capability -
+  // Conv…" — the names agents write are long and the first thirty characters
+  // are usually the part every sibling shares. Rows, not pixels: a name
+  // either fits another line or it does not, so the setting snaps.
+  const ROW_PX = 15; // one wrapped line of 11px text at line-height 1.35
+  const MAX_ROWS = 3;
+  let rowsDrag: { startY: number; startRows: number; pointerId: number } | null = null;
+  let rowsDragging = $state(false);
+
+  function onRowsPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    rowsDrag = { startY: e.clientY, startRows: settings.s.tabRows, pointerId: e.pointerId };
+    rowsDragging = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onRowsPointerMove(e: PointerEvent) {
+    if (!rowsDrag) return;
+    const dy = e.clientY - rowsDrag.startY;
+    const next = Math.max(1, Math.min(MAX_ROWS, rowsDrag.startRows + Math.round(dy / ROW_PX)));
+    if (next !== settings.s.tabRows) void settings.set("tabRows", next as 1 | 2 | 3);
+  }
+  function onRowsPointerUp() {
+    rowsDrag = null;
+    rowsDragging = false;
+  }
+  function onRowsKey(e: KeyboardEvent) {
+    const cur = settings.s.tabRows;
+    if (e.key === "ArrowDown" && cur < MAX_ROWS) { e.preventDefault(); void settings.set("tabRows", (cur + 1) as 1 | 2 | 3); }
+    if (e.key === "ArrowUp" && cur > 1) { e.preventDefault(); void settings.set("tabRows", (cur - 1) as 1 | 2 | 3); }
+  }
 
   /**
    * Hover tooltip for the tab's full path.
@@ -419,6 +455,8 @@
   <div
     class="tab-bar"
     class:dragging={!!drag}
+    class:rows-2={settings.s.tabRows === 2}
+    class:rows-3={settings.s.tabRows === 3}
     bind:this={strip}
     role="tablist"
     tabindex="-1"
@@ -448,12 +486,14 @@
         onpointerenter={(e) => showHint(e, t)}
         onpointerleave={hideHint}
       >
-        <!-- A file changed while you were in another tab is the case the whole
-             Changes feature exists for, and the tab strip is where you are
-             already looking. A dot, not a count: the strip has no room for a
-             number and "there is something here" is the whole message. -->
-        {#if changes.unreviewedFor(t.path) > 0}
-          <span class="changed-dot" title="Changed since you last read it"></span>
+        <!-- "This file changed while you were in another tab." The dot is an
+             attention signal, not a to-do: it clears the moment the tab is
+             opened, because at that point you are looking at the file and the
+             margin bars take over the job of saying *where*. It does not wait
+             for the change to be reviewed — a dot that never went away would
+             be nagging, and the strip is not the place for a backlog. -->
+        {#if settings.s.trackChanges && tabs.activeId !== t.id && changes.changedSinceReadFor(t.path)}
+          <span class="changed-dot" title="Changed while you were away"></span>
         {/if}
         <span class="name">{tabName(t.path)}</span>
         <!-- One slot, two states. An unsaved tab shows a dot that becomes the
@@ -470,6 +510,33 @@
     <button class="new-tab" onclick={onNewTab} title={`New tab (${sk("Mod", "T")})`} aria-label="New tab">
       <Icon name="plus" size={14} />
     </button>
+  </div>
+
+  <!-- The strip's bottom edge. Drag down for taller tabs whose names wrap;
+       drag up to go back to one line. Same quiet-until-hovered idiom as the
+       side panel's dividers. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="tab-rows-handle"
+    class:dragging={rowsDragging}
+    role="separator"
+    tabindex="0"
+    aria-orientation="horizontal"
+    aria-label="Tab height — drag to let file names wrap"
+    aria-valuenow={settings.s.tabRows}
+    aria-valuemin={1}
+    aria-valuemax={MAX_ROWS}
+    title={settings.s.tabRows === 1
+      ? "Drag down to show longer tab names on two or three lines"
+      : "Drag to change how many lines tab names use"}
+    onpointerdown={onRowsPointerDown}
+    onpointermove={onRowsPointerMove}
+    onpointerup={onRowsPointerUp}
+    onpointercancel={onRowsPointerUp}
+    onkeydown={onRowsKey}
+  >
+    <span class="grip" aria-hidden="true"></span>
   </div>
 
   <!-- Only while the gesture has actually crossed into detach range, so it
@@ -506,7 +573,9 @@
     align-items: center;
     gap: 3px;
     padding: 0 .45rem;
-    height: 38px;
+    /* Height follows the row setting: one wrapped line is ROW_PX (15px) in
+       the script above; keep the two in step. */
+    height: 36px;
     background: var(--chrome-bg);
     overflow-x: auto;
     overflow-y: hidden;
@@ -515,6 +584,8 @@
     position: relative;
     z-index: 2;
   }
+  .tab-bar.rows-2 { height: 51px; }
+  .tab-bar.rows-3 { height: 66px; }
   .tab-bar::-webkit-scrollbar { height: 0; }
   /* Suppress the text I-beam and any accidental selection for the duration of
      a drag — without this, dragging a tab across its neighbours selects their
@@ -582,14 +653,24 @@
   .tab {
     display: inline-flex;
     align-items: center;
-    gap: .3rem;
-    height: 28px;
-    padding: 0 .3rem 0 .65rem;
-    background: transparent;
-    border: 1px solid transparent;
+    gap: .25rem;
+    height: 27px;
+    padding: 0 .2rem 0 .5rem;
+    /* Inactive tabs carry a faint tint and a faint edge — the Material-3
+       "tonal card" idiom rather than a hard outline. Before this they were
+       transparent, and with long names the strip read as one run of words
+       where only the active pill had a shape at all. Kept well below the
+       active tab's contrast so "which one am I reading?" is still answered
+       by the paper-coloured pill. */
+    background: color-mix(in srgb, var(--chrome-hover) 45%, transparent);
+    border: 1px solid color-mix(in srgb, var(--chrome-border) 60%, transparent);
     border-radius: 7px;
     color: var(--chrome-fg);
-    font-size: 12.5px;
+    /* 11px, down from 12.5px. The strip is a list of labels, not reading
+       matter; two points buys roughly a fifth more name per tab. */
+    font-size: 11px;
+    line-height: 1.35;
+    letter-spacing: .005em;
     cursor: default;
     max-width: 210px;
     min-width: 92px;
@@ -602,6 +683,29 @@
     touch-action: none;
     transition: background-color 90ms ease, color 90ms ease;
   }
+  /* Wrapped names: the tab grows, the label clamps at N lines. `align-items:
+     flex-start` so the dot and the × sit on the first line instead of
+     floating at the vertical middle of a three-line label. */
+  .tab-bar.rows-2 .tab { height: 42px; align-items: flex-start; padding-top: 5px; }
+  .tab-bar.rows-3 .tab { height: 57px; align-items: flex-start; padding-top: 5px; }
+  .tab-bar.rows-2 .name,
+  .tab-bar.rows-3 .name {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    /* Wrapped labels want a wider tab than a single truncated line does, or
+       every name breaks after two words. */
+  }
+  .tab-bar.rows-2 .name { -webkit-line-clamp: 2; line-clamp: 2; }
+  .tab-bar.rows-3 .name { -webkit-line-clamp: 3; line-clamp: 3; }
+  .tab-bar.rows-2 .tab,
+  .tab-bar.rows-3 .tab { max-width: 240px; min-width: 120px; }
+  .tab-bar.rows-2 .changed-dot,
+  .tab-bar.rows-3 .changed-dot,
+  .tab-bar.rows-2 .trailing,
+  .tab-bar.rows-3 .trailing { margin-top: 1px; }
   .tab:hover { background: var(--chrome-hover); color: var(--fg); }
   .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
   /* Filled with PAPER, not with a generic raised chrome tone. That is the
@@ -647,14 +751,48 @@
     border-color: var(--accent);
   }
 
+  /* Amber, not the accent: the accent already means "unsaved" on the other
+     side of the same tab, and one colour meaning two things a centimetre
+     apart is how a dot stops being read. A soft ring lifts it off both the
+     chrome and the paper-coloured active pill. */
   .changed-dot {
-    width: 5px;
-    height: 5px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--changed, #d99a1e);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--changed, #d99a1e) 22%, transparent);
     flex-shrink: 0;
-    margin-left: -2px;
+    margin-left: -1px;
   }
+
+  /* ─── Strip height handle ─────────────────────────────────────────── */
+  .tab-rows-handle {
+    position: relative;
+    height: 6px;
+    margin-top: -3px;
+    flex-shrink: 0;
+    cursor: row-resize;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    background: var(--chrome-bg);
+    user-select: none;
+    touch-action: none;
+  }
+  .tab-rows-handle .grip {
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: transparent;
+    transition: background-color 110ms ease, height 110ms ease;
+  }
+  .tab-rows-handle:hover .grip,
+  .tab-rows-handle:focus-visible .grip,
+  .tab-rows-handle.dragging .grip {
+    height: 2px;
+    background: var(--accent);
+  }
+  .tab-rows-handle:focus-visible { outline: none; }
 
   .name {
     flex: 1 1 auto;

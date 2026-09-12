@@ -497,11 +497,16 @@
     user-select: none;
     touch-action: none;
   }
+  /* At rest the line is drawn in `--border-strong`, not `--border`: with two
+     sections of near-identical chrome stacked on one another, the plain
+     border tone all but vanished and the two lists read as one. The owner
+     asked for "a little more prominent, not much" — one shade up, still a
+     hairline, and the accent still reserved for hover/drag. */
   .split-divider .grip {
     display: block;
     width: 100%;
     height: 1px;
-    background: var(--border);
+    background: var(--border-strong);
     transition: background-color 110ms ease, height 110ms ease;
   }
   .split-divider:hover .grip,

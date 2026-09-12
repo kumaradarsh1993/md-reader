@@ -1,18 +1,25 @@
 <script lang="ts">
   /**
-   * Before above, after below.
+   * Before on the left, after on the right.
    *
-   * Stacked rather than side by side, and the reason is worth stating because
-   * side-by-side looks like the obvious choice: two narrow columns wrap prose
-   * differently, so the same sentence breaks at different words on each side
-   * and the eye has to re-find its place on every line. Stacked keeps the
-   * measure identical, so a changed phrase sits at the same position in both
-   * and the difference pops without being hunted for. This is why GitHub's
-   * unified view beats split for prose while split wins for code.
+   * The previous version stacked them (before above, after below) and argued
+   * for it well: identical measure, identical wrapping, a changed word sits at
+   * the same spot in both. The owner read it in use and asked for side by side
+   * — for prose he compares by *reading* the two paragraphs, not by scanning
+   * for the shifted word, and reading is easier when both are on screen at
+   * once without scrolling between them. So: two columns, the same font as the
+   * document, with the word-level marks doing the pointing.
    *
-   * Within a pair the diff is word-level. Line-level marks a whole line when a
-   * single word moved, which is a large part of why the previous attempt read
-   * as noise.
+   * Two things carried over. The diff inside a pair is word-level — line-level
+   * marks a whole line when one word moved, which is a large part of why the
+   * older attempt read as noise. And opening this *is* reviewing: nothing else
+   * needs clicking to make the mark in the margin go quiet.
+   *
+   * New: a few lines of the surrounding document, dimmed, above and below each
+   * pair. A changed paragraph is judged against its neighbours ("does this
+   * still follow from the previous point?"), and a diff cut exactly at the
+   * paragraph's edges gives nothing to judge it against. Context is unchanged
+   * text by definition, so the same lines serve both columns.
    */
   import { untrack } from "svelte";
   import Icon from "../Icon.svelte";
@@ -25,10 +32,16 @@
     revisions: Revision[];
     /** Which revision to show first. */
     startId: number;
+    /** The document as it is now, for the context lines. Null when the file
+     *  shown in the overlay is not the one on screen. */
+    source?: string | null;
     onClose: () => void;
     onReviewed: (revisionId: number) => void;
   }
-  let { name, revisions, startId, onClose, onReviewed }: Props = $props();
+  let { name, revisions, startId, source = null, onClose, onReviewed }: Props = $props();
+
+  /** Lines of surrounding document shown above and below a changed passage. */
+  const CONTEXT_LINES = 3;
 
   // Tracked by revision id, not by array index. A scan can land a new revision
   // while the overlay is open, which pushes every index along by one — an
@@ -45,6 +58,29 @@
   /** The revision immediately older than this one, for the "+2 min" offset —
    *  the number that actually matters when a burst of edits share a minute. */
   let previous = $derived(revisions[index + 1] ?? null);
+
+  let lines = $derived(source ? source.split("\n") : null);
+
+  /**
+   * Unchanged lines around a region, from the current document. Only exact
+   * for the newest revision — older ones describe line numbers in a document
+   * that has since moved on — so context is offered for the newest and
+   * omitted otherwise, rather than shown wrong.
+   */
+  function contextFor(from: number, to: number, side: "above" | "below"): string {
+    if (!lines || index !== 0) return "";
+    const pick =
+      side === "above"
+        ? lines.slice(Math.max(0, from - 1 - CONTEXT_LINES), Math.max(0, from - 1))
+        : lines.slice(to, Math.min(lines.length, to + CONTEXT_LINES));
+    // Trim leading/trailing blank lines but keep internal ones — paragraph
+    // breaks inside the context are part of what it shows.
+    let a = 0;
+    let b = pick.length;
+    while (a < b && pick[a].trim() === "") a++;
+    while (b > a && pick[b - 1].trim() === "") b--;
+    return pick.slice(a, b).join("\n");
+  }
 
   // Opening a change *is* the act of reviewing it, so nothing else has to be
   // clicked. Deliberately not on hover, and never on a timer.
@@ -132,29 +168,37 @@
     {:else}
       {#each current.regions as region, i (i)}
         {@const ops = inlineOps(region.before, region.after)}
+        {@const above = contextFor(region.from, region.to, "above")}
+        {@const below = contextFor(region.from, region.to, "below")}
         <article class="pair">
           <div class="pair-head">
             <span class="kind {region.kind}">{region.kind}</span>
             <span class="lines">lines {region.from}–{region.to}</span>
           </div>
 
-          {#if region.before}
-            <div class="pane before">
+          <div class="columns" class:single={!region.before || !region.after}>
+            <div class="pane before" class:blank={!region.before}>
               <span class="pane-label">Before</span>
-              <p class="text">{#each ops as op}{#if op.kind === "equal"}{op.text}{:else if op.kind === "delete"}<del>{op.text}</del>{/if}{/each}</p>
+              {#if above}<p class="ctx">{above}</p>{/if}
+              {#if region.before}
+                <p class="text">{#each ops as op}{#if op.kind === "equal"}{op.text}{:else if op.kind === "delete"}<del>{op.text}</del>{/if}{/each}</p>
+              {:else}
+                <p class="none">Nothing here before — this passage is new.</p>
+              {/if}
+              {#if below}<p class="ctx">{below}</p>{/if}
             </div>
-          {/if}
 
-          {#if region.after}
-            <div class="pane after">
-              <span class="pane-label">{region.before ? "Now" : "Added"}</span>
-              <p class="text">{#each ops as op}{#if op.kind === "equal"}{op.text}{:else if op.kind === "insert"}<ins>{op.text}</ins>{/if}{/each}</p>
+            <div class="pane after" class:blank={!region.after}>
+              <span class="pane-label">Now</span>
+              {#if above}<p class="ctx">{above}</p>{/if}
+              {#if region.after}
+                <p class="text">{#each ops as op}{#if op.kind === "equal"}{op.text}{:else if op.kind === "insert"}<ins>{op.text}</ins>{/if}{/each}</p>
+              {:else}
+                <p class="none">Removed.</p>
+              {/if}
+              {#if below}<p class="ctx">{below}</p>{/if}
             </div>
-          {/if}
-
-          {#if !region.after}
-            <div class="pane removed-note"><span class="pane-label">Removed</span></div>
-          {/if}
+          </div>
         </article>
       {/each}
     {/if}
@@ -166,35 +210,34 @@
     position: fixed;
     inset: 0;
     z-index: 40;
-    background: color-mix(in srgb, var(--bg) 55%, transparent);
-    backdrop-filter: blur(1.5px);
+    background: color-mix(in srgb, var(--fg) 28%, transparent);
+    backdrop-filter: blur(2px);
     animation: fade 140ms ease both;
   }
   .sheet {
     position: fixed;
     z-index: 41;
     left: 50%;
-    bottom: 0;
-    transform: translateX(-50%);
-    width: min(980px, 94vw);
-    /* Tall but not full-height: leaving the top of the document visible keeps
-       the overlay anchored to the page it is describing, rather than replacing
-       it. Rising from the bottom is also the direction the eye is already
-       travelling after clicking a bar in the margin. */
-    max-height: min(78vh, 900px);
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(1180px, 92vw);
+    /* Roughly two thirds of the window: enough for two paragraphs of prose
+       side by side with their context, while the page behind stays visible
+       as the thing this is describing. */
+    height: min(70vh, 860px);
     display: flex;
     flex-direction: column;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-bottom: 0;
-    border-radius: 12px 12px 0 0;
-    box-shadow: var(--shadow-md);
+    border-radius: 14px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, .28), var(--shadow-md);
     animation: rise 180ms cubic-bezier(.2, .7, .3, 1) both;
+    overflow: hidden;
   }
   @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
   @keyframes rise {
-    from { opacity: 0; transform: translateX(-50%) translateY(14px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    from { opacity: 0; transform: translate(-50%, -50%) scale(.985); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
   @media (prefers-reduced-motion: reduce) {
     .scrim, .sheet { animation: none; }
@@ -204,7 +247,7 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    padding: .7rem .9rem .6rem;
+    padding: .75rem 1rem .65rem;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
@@ -241,10 +284,10 @@
      direction. */
   .step:first-of-type :global(svg) { transform: rotate(180deg); }
 
-  .body { overflow-y: auto; padding: .9rem; display: flex; flex-direction: column; gap: 1.1rem; }
+  .body { overflow-y: auto; padding: 1rem 1.1rem 1.2rem; display: flex; flex-direction: column; gap: 1.4rem; flex: 1 1 auto; }
   .empty { margin: 2rem auto; color: var(--muted); font-size: 13px; max-width: 46ch; text-align: center; }
 
-  .pair { display: flex; flex-direction: column; gap: .4rem; }
+  .pair { display: flex; flex-direction: column; gap: .5rem; }
   .pair-head { display: flex; align-items: baseline; gap: .5rem; }
   .kind {
     font-size: 9.5px;
@@ -254,27 +297,42 @@
     padding: .1rem .35rem;
     border-radius: 4px;
     color: var(--bg);
-    background: var(--accent);
+    background: var(--changed, #d99a1e);
   }
   .kind.added { background: var(--ok, #3f9a5a); }
   .kind.removed { background: var(--danger, #b4453f); }
   .lines { font-size: 10.5px; color: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; }
 
-  .pane {
-    border-left: 3px solid var(--border);
-    padding: .4rem 0 .4rem .7rem;
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .9rem;
+    align-items: start;
   }
-  .pane.before { border-left-color: var(--danger, #b4453f); }
-  .pane.after { border-left-color: var(--ok, #3f9a5a); }
+  /* Narrow windows: fall back to stacked so neither column becomes a ribbon. */
+  @media (max-width: 760px) {
+    .columns { grid-template-columns: 1fr; }
+  }
+
+  .pane {
+    border-radius: 10px;
+    padding: .6rem .8rem .7rem;
+    background: color-mix(in srgb, var(--bg) 70%, var(--bg-elevated));
+    border: 1px solid var(--border);
+    min-width: 0;
+  }
+  .pane.before { border-top: 3px solid color-mix(in srgb, var(--danger, #b4453f) 70%, transparent); }
+  .pane.after  { border-top: 3px solid color-mix(in srgb, var(--ok, #3f9a5a) 70%, transparent); }
+  .pane.blank { opacity: .75; }
   .pane-label {
     display: block;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: .08em;
     color: var(--muted);
-    margin-bottom: .2rem;
+    margin-bottom: .35rem;
   }
-  .text {
+  .text, .ctx, .none {
     margin: 0;
     font-size: 13.5px;
     line-height: 1.6;
@@ -285,6 +343,13 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .ctx {
+    color: var(--muted);
+    opacity: .75;
+    font-size: 12.5px;
+  }
+  .ctx + .text, .text + .ctx, .ctx + .none, .none + .ctx { margin-top: .55rem; }
+  .none { color: var(--muted); font-style: italic; }
   del {
     background: color-mix(in srgb, var(--danger, #b4453f) 20%, transparent);
     text-decoration: line-through;
@@ -296,5 +361,4 @@
     text-decoration: none;
     border-radius: 2px;
   }
-  .removed-note { border-left-color: var(--danger, #b4453f); }
 </style>

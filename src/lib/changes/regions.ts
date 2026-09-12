@@ -114,6 +114,14 @@ export function snapToBlocks(lines: string[], from: number, to: number): [number
   let a = Math.max(1, Math.min(from, lines.length));
   let b = Math.max(a, Math.min(to, lines.length));
 
+  // A raw range often carries a blank line on one edge — a line diff aligns an
+  // inserted paragraph as "blank + text" or "text + blank" depending on which
+  // side it found the match. Growing from a blank edge would step straight
+  // over the boundary and swallow the neighbouring block (an untouched heading
+  // was being marked as changed). Pull the edges in onto text first.
+  while (a < b && lines[a - 1].trim() === "" && !fences.has(a)) a++;
+  while (b > a && lines[b - 1].trim() === "" && !fences.has(b)) b--;
+
   while (a > 1) {
     const prev = lines[a - 2];
     if (prev.trim() === "" && !fences.has(a - 1)) break;
