@@ -94,7 +94,7 @@ export async function saveNotes(docPath: string, annotations: Annotation[]): Pro
     // every folder anyone has ever opened a document in.
     await api.removeFileIfPresent(p.json);
     await api.removeFileIfPresent(p.markdown);
-    await refreshFolderIndex(p);
+    await refreshFolderIndex(p, annotations);
     return;
   }
 
@@ -108,7 +108,7 @@ export async function saveNotes(docPath: string, annotations: Annotation[]): Pro
   await api.writeTextFileMkdir(p.json, JSON.stringify(payload, null, 2));
   await api.writeTextFileMkdir(p.markdown, renderDigest(p.document, annotations));
   await api.writeTextFileIfAbsent(p.readme, FOLDER_README);
-  await refreshFolderIndex(p);
+  await refreshFolderIndex(p, annotations);
 }
 
 /**
@@ -130,13 +130,27 @@ export async function saveNotes(docPath: string, annotations: Annotation[]): Pro
  */
 export const FOLDER_INDEX = "READER-COMMENTS.md";
 
-async function refreshFolderIndex(p: SidecarPaths): Promise<void> {
-  const folder = p.dir.slice(0, p.dir.length - NOTES_DIR.length - 1);
-  const indexPath = `${folder}${p.sep}${FOLDER_INDEX}`;
+interface IndexRow { comments: number; highlights: number }
 
-  let entries: Array<{ document: string; comments: number; highlights: number }> = [];
+/**
+ * Per-folder cache of what the index says, keyed by `.foxmd` dir. Built from
+ * disk the first time a folder is touched this session; after that a save
+ * updates one row and writes, instead of re-reading and re-parsing every
+ * sidecar in the folder on each 600 ms flush. Another window writing the same
+ * folder is not seen until the next launch, which is acceptable: the file is
+ * an index, and it is rebuilt from scratch at the first save of a session.
+ */
+const indexCache = new Map<string, Map<string, IndexRow>>();
+
+function countRows(anns: Annotation[]): IndexRow {
+  const comments = anns.filter((a) => a.thread && a.thread.length > 0).length;
+  return { comments, highlights: anns.length - comments };
+}
+
+async function loadIndexRows(dir: string): Promise<Map<string, IndexRow>> {
+  const rows = new Map<string, IndexRow>();
   try {
-    const listing = await api.listDir(p.dir);
+    const listing = await api.listDir(dir);
     for (const e of listing) {
       if (e.is_dir || !e.name.endsWith(".notes.json")) continue;
       const raw = await api.readTextFileOpt(e.path);
@@ -144,27 +158,35 @@ async function refreshFolderIndex(p: SidecarPaths): Promise<void> {
       try {
         const parsed = JSON.parse(raw) as NotesFile;
         const anns = Array.isArray(parsed.annotations) ? parsed.annotations : [];
-        const comments = anns.filter((a) => a.thread && a.thread.length > 0).length;
-        entries.push({
-          document: e.name.slice(0, -".notes.json".length),
-          comments,
-          highlights: anns.length - comments,
-        });
+        rows.set(e.name.slice(0, -".notes.json".length), countRows(anns));
       } catch {
         // A corrupt sidecar is left out of the index rather than breaking it.
       }
     }
   } catch {
-    // `.foxmd/` gone (last notes removed) — fall through to removing the index.
-    entries = [];
+    // `.foxmd/` gone (last notes removed): an empty index removes the file.
   }
+  return rows;
+}
 
-  if (entries.length === 0) {
+async function refreshFolderIndex(p: SidecarPaths, current: Annotation[]): Promise<void> {
+  const folder = p.dir.slice(0, p.dir.length - NOTES_DIR.length - 1);
+  const indexPath = `${folder}${p.sep}${FOLDER_INDEX}`;
+
+  let rows = indexCache.get(p.dir);
+  if (!rows) {
+    rows = await loadIndexRows(p.dir);
+    indexCache.set(p.dir, rows);
+  }
+  if (current.length === 0) rows.delete(p.document);
+  else rows.set(p.document, countRows(current));
+
+  if (rows.size === 0) {
     await api.removeFileIfPresent(indexPath);
     return;
   }
 
-  entries.sort((a, b) => a.document.localeCompare(b.document));
+  const entries = [...rows.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const lines: string[] = [
     "# Reader comments in this folder",
     "",
@@ -179,9 +201,9 @@ async function refreshFolderIndex(p: SidecarPaths): Promise<void> {
     "| Document | Comments | Highlights | Read this |",
     "|---|---|---|---|",
   ];
-  for (const e of entries) {
+  for (const [document, r] of entries) {
     lines.push(
-      `| \`${e.document}\` | ${e.comments} | ${e.highlights} | \`${NOTES_DIR}/${e.document}.notes.md\` |`,
+      `| \`${document}\` | ${r.comments} | ${r.highlights} | \`${NOTES_DIR}/${document}.notes.md\` |`,
     );
   }
   lines.push(

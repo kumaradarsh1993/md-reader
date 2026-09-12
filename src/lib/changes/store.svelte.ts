@@ -390,8 +390,24 @@ class ChangesStore {
   }
 
   private async persistFor(path: string): Promise<void> {
-    const s = splitPath(path);
-    if (s) await this.persist(s.folder);
+    // Write to the index of every *tracked* folder that contains this file,
+    // not to the file's immediate parent. A scan records files up to four
+    // levels below the folder it was started from and persists them into that
+    // folder's index; writing a nested file's reviewed flag into its own
+    // sub-folder's index instead would put the history in two places that
+    // never agree.
+    let hit = false;
+    for (const folder of this.folders) {
+      const prefix = folder.endsWith("\\") || folder.endsWith("/") ? folder : folder + pathSep(folder);
+      if (path.startsWith(prefix)) {
+        await this.persist(folder);
+        hit = true;
+      }
+    }
+    if (!hit) {
+      const s = splitPath(path);
+      if (s) await this.persist(s.folder);
+    }
   }
 
   /** Write one folder's slice of the index back to disk. */

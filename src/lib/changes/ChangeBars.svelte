@@ -139,8 +139,13 @@
         if (top === Infinity) continue;
 
         // Removals have nothing to underline; the badge alone marks the seam.
+        // Code blocks and tables get the badge only too: a dotted rule under
+        // every line of code or every cell is noise, not a hint.
         if (r.kind !== "removed") {
-          for (const el of touched) el.classList.add(rev.reviewed ? UNDERLINE_SEEN : UNDERLINE);
+          for (const el of touched) {
+            if (/^(PRE|TABLE)$/.test(el.tagName)) continue;
+            el.classList.add(rev.reviewed ? UNDERLINE_SEEN : UNDERLINE);
+          }
         }
 
         const key = String(Math.round(top));
@@ -183,14 +188,23 @@
 
   // Blocks change height when images load or a mermaid diagram renders, and
   // the column moves when the window or the side panel is resized. Both
-  // happen well after the HTML lands.
+  // happen well after the HTML lands. Coalesced to one measurement per frame:
+  // a burst of image loads on a long document would otherwise re-walk every
+  // block once per image.
   $effect(() => {
     if (!container) return;
-    const ro = new ResizeObserver(() => measure());
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => measure());
+    });
     ro.observe(container);
     const prose = container.querySelector(".prose");
     if (prose) ro.observe(prose);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
   });
 
   // Leave the prose clean if the marks are switched off or the component goes.

@@ -336,8 +336,14 @@ pub fn scan_markdown_tree(root: String, max_depth: usize) -> Result<Vec<ScannedF
         for entry in read.filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy().to_string();
             let path = entry.path();
-            let Ok(meta) = entry.metadata() else { continue };
-            if meta.is_dir() {
+            // `file_type()` comes with the directory entry on every platform
+            // Fox MD ships to, so it costs nothing — where `metadata()` is a
+            // second syscall per entry, and on OneDrive a slow one. It also
+            // does not follow symlinks, so a link cannot pull the walk into a
+            // tree outside the folder. Only a confirmed markdown file is
+            // stat'ed, for the mtime and size the scan is actually after.
+            let Ok(ft) = entry.file_type() else { continue };
+            if ft.is_dir() {
                 if depth + 1 > max_depth {
                     continue;
                 }
@@ -347,7 +353,7 @@ pub fn scan_markdown_tree(root: String, max_depth: usize) -> Result<Vec<ScannedF
                 stack.push((path, depth + 1));
                 continue;
             }
-            if name.starts_with('.') {
+            if !ft.is_file() || name.starts_with('.') {
                 continue;
             }
             let is_md = matches!(
@@ -363,6 +369,7 @@ pub fn scan_markdown_tree(root: String, max_depth: usize) -> Result<Vec<ScannedF
             if out.len() >= SCAN_FILE_CAP {
                 break;
             }
+            let Ok(meta) = entry.metadata() else { continue };
             out.push(ScannedFile {
                 path: path.to_string_lossy().to_string(),
                 modified: meta
@@ -393,7 +400,12 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
                 return None;
             }
             let path_buf = e.path();
-            let is_dir = path_buf.is_dir();
+            // One stat per entry, not two: `is_dir()` on the path was a second
+            // syscall on top of `metadata()`. Folders on OneDrive are where the
+            // difference is felt. Following symlinks here is fine — the file
+            // browser should show what a link points at.
+            let meta = e.metadata().ok();
+            let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
             let is_md = !is_dir
                 && matches!(
                     path_buf
@@ -403,9 +415,8 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
                         .as_deref(),
                     Some("md") | Some("markdown") | Some("mdown") | Some("mkd") | Some("mkdn")
                 );
-            let modified = e
-                .metadata()
-                .ok()
+            let modified = meta
+                .as_ref()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_millis() as u64);

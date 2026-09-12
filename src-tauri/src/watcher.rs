@@ -49,6 +49,12 @@ impl WatcherState {
         // patterns from editors and Claude Code's Edit tool.
         let notify_app = app.clone();
         let notify_emit_path = emit_path.clone();
+        // The directory is watched (below), so events arrive for every sibling
+        // file. Only the watched file's own name counts — matched on file name
+        // rather than full path so an editor's atomic save (`x.md.tmp` renamed
+        // over `x.md`) still registers. Without this, OneDrive syncing an
+        // unrelated file in the same folder re-rendered the active document.
+        let watched_name = path.file_name().map(|n| n.to_os_string());
         let debouncer = new_debouncer(
             Duration::from_millis(150),
             None,
@@ -58,7 +64,10 @@ impl WatcherState {
                         matches!(
                             e.event.kind,
                             EventKind::Modify(_) | EventKind::Create(_)
-                        )
+                        ) && (watched_name.is_none()
+                            || e.event.paths.iter().any(|p| {
+                                p.file_name() == watched_name.as_deref()
+                            }))
                     });
                     if interesting {
                         let _ = notify_app.emit("file-changed", &notify_emit_path);

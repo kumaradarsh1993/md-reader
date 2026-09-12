@@ -85,7 +85,14 @@ class AnnotationStore {
     const path = this.pendingPath;
     if (!path) return;
     this.pendingPath = "";
-    const snapshot = path === this.path ? [...this.annotations] : [...this.annotations];
+    // `open()` flushes before switching documents, so the pending path is the
+    // current one. If that invariant ever breaks, refuse rather than write the
+    // current document's notes into another file's sidecar.
+    if (path !== this.path) {
+      console.error("[Fox MD] notes flush for a document that is no longer open; dropped", path);
+      return;
+    }
+    const snapshot = [...this.annotations];
     this.saving = true;
     try {
       await saveNotes(path, snapshot);

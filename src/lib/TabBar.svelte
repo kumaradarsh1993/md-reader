@@ -80,7 +80,7 @@
     hintTimer = setTimeout(() => {
       const r = el.getBoundingClientRect();
       hint = {
-        dir: t.path.replace(/[\/][^\/]*$/, ""),
+        dir: t.path.replace(/[\\/][^\\/]*$/, ""),
         name: tabName(t.path),
         x: Math.min(r.left, window.innerWidth - 340),
         y: r.bottom + 6,

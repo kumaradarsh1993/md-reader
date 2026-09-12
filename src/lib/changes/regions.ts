@@ -121,6 +121,10 @@ export function snapToBlocks(lines: string[], from: number, to: number): [number
   // was being marked as changed). Pull the edges in onto text first.
   while (a < b && lines[a - 1].trim() === "" && !fences.has(a)) a++;
   while (b > a && lines[b - 1].trim() === "" && !fences.has(b)) b--;
+  // Nothing but blank lines (an inserted paragraph break, a trailing newline):
+  // there is no block to grow onto, and growing from here would swallow the
+  // neighbours. Hand it back as-is; `diffRegions` drops it as invisible.
+  if (a === b && lines[a - 1].trim() === "" && !fences.has(a)) return [a, b];
 
   while (a > 1) {
     const prev = lines[a - 2];
@@ -203,13 +207,11 @@ export function diffRegions(before: string, after: string): ChangedRegion[] {
   const out: ChangedRegion[] = [];
   for (const m of merged.slice(0, MAX_REGIONS)) {
     const kind: RegionKind = m.added && m.removed ? "changed" : m.added ? "added" : "removed";
-    out.push({
-      from: m.from,
-      to: m.to,
-      kind,
-      before: m.removed ? slice(beforeLines, m.aFrom, m.aTo) : "",
-      after: m.added ? slice(afterLines, m.from, m.to) : "",
-    });
+    const before = m.removed ? slice(beforeLines, m.aFrom, m.aTo) : "";
+    const after = m.added ? slice(afterLines, m.from, m.to) : "";
+    // Whitespace on both sides is not a change a reader can see.
+    if (before.trim() === "" && after.trim() === "") continue;
+    out.push({ from: m.from, to: m.to, kind, before, after });
   }
   return out;
 }

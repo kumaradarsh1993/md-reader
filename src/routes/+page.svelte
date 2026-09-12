@@ -336,12 +336,16 @@
     settings.set("theme", t);
   }
 
-  // Re-arm watcher whenever the active tab changes
+  // Re-arm watcher whenever the active tab changes. The generation counter
+  // guards fast tab switches: two overlapping re-arms could otherwise resolve
+  // out of order and leave the watcher on the tab you just left.
+  let watchSeq = 0;
   $effect(() => {
     const p = path;
+    const seq = ++watchSeq;
     (async () => {
       await api.unwatchFile();
-      if (p) await api.watchFile(p);
+      if (p && seq === watchSeq) await api.watchFile(p);
     })();
   });
 
@@ -382,7 +386,10 @@
       void adoptForChanges(tab.path, tab.source);
     } catch (e) {
       console.error(e);
-      alert(`Failed to open file: ${e}`);
+      // The themed toast, not `alert()`: a native modal in the OS's own style
+      // sitting on a cream page is the one thing in the app that looks foreign,
+      // and it blocks everything until dismissed for what is a notice.
+      flashExport("error", `Could not open the file — ${String(e).replace(/^Error:\s*/, "")}`);
     }
   }
 
@@ -709,7 +716,7 @@
       }
     }
     else if (mod && e.key === ",") { e.preventDefault(); settingsOpen = true; }
-    else if (mod && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
+    else if (mod && !e.shiftKey && e.key.toLowerCase() === "e") { e.preventDefault(); toggleEdit(); }
     else if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
       e.preventDefault();
       if (active) previewOpen = !previewOpen;
@@ -758,11 +765,14 @@
       // more than the user was looking at. The context menu is handled in
       // ContextMenu.svelte's own capture-phase listener, so by the time we get
       // here it has already consumed the key.
-      if (findOpen || settingsOpen || fileMenuOpen || aboutOpen) {
+      if (findOpen) {
         findOpen = false;
-        settingsOpen = false;
+      } else if (fileMenuOpen) {
         fileMenuOpen = false;
+      } else if (aboutOpen) {
         aboutOpen = false;
+      } else if (settingsOpen) {
+        settingsOpen = false;
       } else if (active?.sidebarOpen) {
         active.sidebarOpen = false;
       } else if (focus.active) {
