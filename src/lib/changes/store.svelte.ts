@@ -105,7 +105,7 @@ class ChangesStore {
     if (!this.enabled) return;
     const f = this.files[path];
     if (!f || !changedSinceRead(f)) return;
-    f.lastReadAt = Date.now();
+    f.lastReadAt = readStamp(f);
     this.tick++;
     await this.persistFor(path);
   }
@@ -174,7 +174,7 @@ class ChangesStore {
         await this.record(path, baseline, content, mtime, false);
       }
       const f = this.files[path];
-      if (f) f.lastReadAt = Date.now();
+      if (f) f.lastReadAt = readStamp(f);
     }
     await this.persist(s.folder);
   }
@@ -190,7 +190,7 @@ class ChangesStore {
     if (f) {
       f.seenSize = byteLength(content);
       f.seenMtime = Date.now();
-      f.lastReadAt = Date.now();
+      f.lastReadAt = readStamp(f);
     }
     await this.persist(s.folder);
   }
@@ -266,6 +266,15 @@ class ChangesStore {
       const unchanged = known.seenMtime === hit.modified && known.seenSize === hit.size;
       if (unchanged) continue;
 
+      // Too large to diff: say so from the scan hit alone. Reading a 2 MB
+      // generated file plus its 2 MB baseline just to throw both away was the
+      // most expensive thing a scan could do.
+      if (hit.size > MAX_DIFF_BYTES) {
+        this.recordTruncated(hit.path, hit.modified, hit.size);
+        dirty = true;
+        continue;
+      }
+
       const baseline = await loadBaseline(hit.path);
       if (baseline === null) continue;
       let content: string;
@@ -286,6 +295,29 @@ class ChangesStore {
       dirty = true;
     }
     if (dirty) await this.persist(folder);
+  }
+
+  /** A change noticed on a file too big to diff. No reads, no baseline write:
+   *  the reader learns *that* it changed and when, which is the question. The
+   *  baseline on disk is left as it was, so if the file later shrinks back
+   *  under the ceiling the next diff still has something to compare against. */
+  private recordTruncated(path: string, mtime: number | null, size: number): void {
+    const f = this.files[path];
+    const revision: Revision = {
+      id: (f?.revisions[0]?.id ?? 0) + 1,
+      at: mtime ?? Date.now(),
+      origin: "external",
+      regions: [],
+      reviewed: false,
+      truncated: true,
+    };
+    this.files[path] = {
+      path,
+      seenMtime: mtime,
+      seenSize: size,
+      lastReadAt: f?.lastReadAt ?? null,
+      revisions: [revision, ...(f?.revisions ?? [])].slice(0, REVISION_CAP),
+    };
   }
 
   /**
@@ -367,7 +399,7 @@ class ChangesStore {
         touched = true;
       }
     }
-    f.lastReadAt = Date.now();
+    f.lastReadAt = readStamp(f);
     if (touched) await this.persistFor(path);
   }
 
@@ -431,6 +463,18 @@ class ChangesStore {
 
 function pathSep(p: string): string {
   return p.includes("\\") ? "\\" : "/";
+}
+
+/**
+ * "Read now" — but never earlier than the newest revision's mtime.
+ *
+ * Revision times come from the file's mtime, and a file that OneDrive has
+ * just synced from another machine can carry a time a few minutes *ahead* of
+ * this clock. Stamping `Date.now()` would then leave `at > lastReadAt` true
+ * forever, and the amber dot on the tab would never clear.
+ */
+function readStamp(f: FileChanges): number {
+  return Math.max(Date.now(), f.revisions[0]?.at ?? 0);
 }
 
 /** UTF-8 byte length, to match what the filesystem reports as a size. */

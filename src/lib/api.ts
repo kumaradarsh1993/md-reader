@@ -69,7 +69,9 @@ export const api = {
       multiple: false,
       directory: false,
       filters: [
-        { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "mkdn"] },
+        // `.txt` too: drag-and-drop and relative links already accept it, and
+        // the picker refusing what the window accepts is a trap.
+        { name: "Markdown", extensions: ["md", "markdown", "mdown", "mkd", "mkdn", "txt"] },
       ],
     });
     return typeof result === "string" ? result : null;

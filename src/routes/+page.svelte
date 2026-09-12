@@ -844,9 +844,10 @@
     flushOnExit = () => { void settings.flushPendingWrites(); };
     window.addEventListener("beforeunload", flushOnExit);
     window.addEventListener("pagehide", flushOnExit);
-    document.addEventListener("visibilitychange", () => {
+    flushOnHidden = () => {
       if (document.visibilityState === "hidden") flushOnExit?.();
-    });
+    };
+    document.addEventListener("visibilitychange", flushOnHidden);
 
     // ── Backend wiring ───────────────────────────────────────────────────
     await settings.init();
@@ -935,6 +936,7 @@
 
   let dragSwallowers: ((e: DragEvent) => void) | null = null;
   let flushOnExit: (() => void) | null = null;
+  let flushOnHidden: (() => void) | null = null;
   let suppressNativeMenu: ((e: MouseEvent) => void) | null = null;
   let refreshOnFocus: (() => void) | null = null;
 
@@ -955,6 +957,7 @@
       window.removeEventListener("pagehide", flushOnExit);
       flushOnExit();
     }
+    if (flushOnHidden) document.removeEventListener("visibilitychange", flushOnHidden);
     if (dragSwallowers) {
       window.removeEventListener("dragover", dragSwallowers);
       window.removeEventListener("drop", dragSwallowers);

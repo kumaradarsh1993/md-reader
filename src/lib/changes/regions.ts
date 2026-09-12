@@ -142,14 +142,20 @@ export function snapToBlocks(lines: string[], from: number, to: number): [number
 /** 1-based line numbers that fall inside a fenced code block. */
 function fenceLines(lines: string[]): Set<number> {
   const inside = new Set<number>();
-  let open = false;
+  // The marker that opened the current fence, or null outside one. A fence
+  // closes only on its own kind: a ``` block may legitimately contain a ~~~
+  // line (and vice-versa), and treating it as a close would split the block.
+  let open: "```" | "~~~" | null = null;
   for (let i = 0; i < lines.length; i++) {
-    if (/^\s{0,3}(```|~~~)/.test(lines[i])) {
-      open = !open;
+    const m = /^\s{0,3}(```|~~~)/.exec(lines[i]);
+    if (m) {
+      const marker = m[1] as "```" | "~~~";
+      if (open === null) open = marker;
+      else if (open === marker) open = null;
       inside.add(i + 1);
       continue;
     }
-    if (open) inside.add(i + 1);
+    if (open !== null) inside.add(i + 1);
   }
   return inside;
 }
