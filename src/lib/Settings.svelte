@@ -199,6 +199,26 @@
       </div>
     </fieldset>
 
+    <h3 class="group-head">Editing</h3>
+
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={settings.s.autoSave}
+        onchange={(e) => settings.set("autoSave", (e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>
+        Save edits automatically
+        <small>
+          Writes the file 30 seconds after you stop typing in Edit mode. Until then the
+          tab shows an unsaved dot, and <code>{sk("Mod", "S")}</code> saves at once.
+          Highlights and comments are always saved on their own — they never needed this.
+          Files on OneDrive sync the moment they are written; Fox MD does not do any
+          syncing of its own.
+        </small>
+      </span>
+    </label>
+
     <h3 class="group-head">Handover</h3>
 
     <AccountPanel />

@@ -70,7 +70,7 @@
     /** Reviewed changes keep a faint mark rather than vanishing. */
     keepReviewedMarks?: boolean;
     /** A margin bar was clicked — show what changed there. */
-    onOpenChange?: (revisionId: number) => void;
+    onOpenChange?: (revisionId: number, allRevisionIds: number[]) => void;
     /** A relative markdown link was clicked — open that file as a tab. */
     onOpenRelative?: (path: string) => void;
     /** Context menu asked to search for the current selection. */
@@ -1421,7 +1421,7 @@
       revisions={changeRevisions}
       {renderTick}
       keepReviewed={keepReviewedMarks}
-      onOpen={(revisionId) => onOpenChange?.(revisionId)}
+      onOpen={(revisionId, all) => onOpenChange?.(revisionId, all)}
     />
   {/if}
 

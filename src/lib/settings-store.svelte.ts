@@ -123,6 +123,12 @@ export interface AppSettings {
    *  agent-written file names ("B - Capability - Conversational and agentic
    *  journeys - draft 3") are the reason this exists. */
   tabRows: 1 | 2 | 3;
+  // ─── Saving (v0.13.0+) ────────────────────────────────────────────
+  /** Write edits made in Edit mode to disk on their own, a short while after
+   *  typing stops. Highlights and comments were always saved automatically
+   *  (they live in `.foxmd/`); this brings the document itself in line. The
+   *  tab's unsaved dot still shows in the gap, and Cmd/Ctrl+S still works. */
+  autoSave: boolean;
   // ─── Reading position memory (v0.6.0+) ───────────────────────────
   /** Remember scroll position per tab and across sessions. */
   rememberScroll: boolean;
@@ -242,6 +248,7 @@ const DEFAULTS: AppSettings = {
   panelSplit: 0.45,
   panelHoverPeek: true,
   tabRows: 1,
+  autoSave: true,
   rememberScroll: true,
   resumeRibbon: true,
   scrollMemory: {},

@@ -340,12 +340,21 @@ class ChangesStore {
   // ─── Reviewing ──────────────────────────────────────────────────────────
 
   async markRevisionReviewed(path: string, id: number): Promise<void> {
+    await this.markRevisionsReviewed(path, [id]);
+  }
+
+  /** Several at once, one write. */
+  async markRevisionsReviewed(path: string, ids: number[]): Promise<void> {
     const f = this.files[path];
     if (!f) return;
-    const r = f.revisions.find((x) => x.id === id);
-    if (!r || r.reviewed) return;
-    r.reviewed = true;
-    await this.persistFor(path);
+    let touched = false;
+    for (const r of f.revisions) {
+      if (!r.reviewed && ids.includes(r.id)) {
+        r.reviewed = true;
+        touched = true;
+      }
+    }
+    if (touched) await this.persistFor(path);
   }
 
   async markFileReviewed(path: string): Promise<void> {

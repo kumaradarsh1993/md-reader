@@ -412,6 +412,36 @@
     void changes.noteLocalEdit(active.path, active.source);
   }
 
+  // ─── Autosave ────────────────────────────────────────────────────────
+  //
+  // One timer, re-armed on every keystroke, firing 30 s after the last one.
+  // Only the active tab can be dirty (edits happen in the active editor), so
+  // one timer is enough. Deliberately a trailing debounce and not an interval:
+  // an interval writes the file while you are mid-word, and a 30 s gap is long
+  // enough that the file on disk stops changing while an agent might be
+  // reading it. A file that was reloaded from disk (`dirty` false) is left
+  // alone, so this never writes over something that arrived from outside.
+  const AUTOSAVE_MS = 30_000;
+  let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const t = active;
+    const on = settings.s.autoSave;
+    // Track the source so typing re-arms the timer.
+    void t?.source;
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    if (!on || !t || !t.dirty) return;
+    autosaveTimer = setTimeout(() => {
+      autosaveTimer = null;
+      // Re-check: the tab may have been saved by hand, closed, or switched.
+      if (active && active.id === t.id && active.dirty) void save();
+    }, AUTOSAVE_MS);
+    return () => {
+      if (autosaveTimer) clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+    };
+  });
+
   async function closeActiveTab() {
     if (active) tabs.close(active.id);
   }
@@ -1265,7 +1295,12 @@
           theatreFreshRanges={theatreFreshRanges}
           changeRevisions={activeRevisions}
           keepReviewedMarks={settings.s.keepReviewedMarks}
-          onOpenChange={(revisionId) => openChange(active.path, revisionId)}
+          onOpenChange={(revisionId, all) => {
+            openChange(active.path, revisionId);
+            // One click reviews the whole passage — every pass that touched
+            // it — so a "2" badge does not demand two visits to go quiet.
+            void changes.markRevisionsReviewed(active.path, all);
+          }}
           tabId={active.id}
           getScrollMark={(id) => tabs.tabs.find((t) => t.id === id)?.scrollMark ?? null}
           resumeMark={active.resumeMark}

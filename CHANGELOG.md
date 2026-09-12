@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.13.0-nightly.1 - 2026-09-12
+
+### Changed - tabs you can read, change marks you can ignore
+
+- **Smaller, tighter tabs.** Labels are two points smaller with less padding,
+  and each tab has a faint card edge so long agent-written names stop merging
+  into one run of words. **Drag the strip's bottom edge down** and names wrap
+  onto two or three lines instead of being cut short.
+- **Change marks are a badge and a dotted underline, not a bar.** One small
+  badge in the left margin at the top of each changed passage, and a barely
+  visible dotted line under the passage itself. Click the badge for before
+  and after. The tall margin bar is gone - it was also the thing that ended up
+  drawn through the text on some monitors, because its position came from the
+  width setting rather than from where the text column actually sits.
+- **The Changes toggle moved** to the right of the toolbar, beside Highlights
+  and Comments, and works like them: click to show or hide the marks.
+  Right-click it for the full list and "mark reviewed".
+- **An amber dot on a tab means "changed while you were away"**, and it clears
+  the moment you open the tab. The badges in the document stay until you look.
+- **One click reviews a passage** even if it was edited several times. The
+  arrows in the overlay still step through the passes if you want them.
+- **Before and after side by side**, in a centred card, with three lines of the
+  surrounding document above and below so a changed paragraph can be judged
+  against its neighbours.
+- **Files/Outline divider** in the side panel is a shade more visible.
+
+### Fixed
+
+- Live Edit Theatre was being switched on by a "Did you know?" banner and left
+  on, which is where the yellow prose highlights and the two separate
+  "Hide changes" controls came from. The banner is gone; the theatre is reset
+  to off on every machine and lives only under Settings > Advanced, as a beta.
+- An added paragraph also marked the untouched heading after it as changed.
+
+### Added
+
+- **Save edits automatically** (Settings > Editing, on by default): the file is
+  written 30 seconds after you stop typing in Edit mode. The tab's unsaved dot
+  shows in the meantime; Cmd/Ctrl+S still saves at once. Highlights and
+  comments were always saved on their own.
+- **`READER-COMMENTS.md`** - one visible file per folder, written whenever any
+  document there carries highlights or comments, listing which documents and
+  where the full notes are. The notes themselves stay in `.foxmd/`; this file
+  exists because an AI assistant listing the folder never looks inside a
+  hidden directory. Right-click the Comments toolbar button to **copy
+  ready-made instructions for an agent**, with the exact path.
+
 ## 0.12.0-nightly.1 - 2026-09-02
 
 ### Added - Changes: what was touched since you last read it

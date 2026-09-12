@@ -57,11 +57,24 @@ on a blank line straight over the boundary into the next block, so an added
 paragraph also marked the untouched heading after it. Blank edges are now
 trimmed before growing. 43/43 selftests still pass.
 
-**Flagged, not built:** "only show the last two variants". When an agent edits
-a passage twice before he looks, the model records two revisions (badge shows
-`2`, overlay steps through them). Collapsing them into one before/after from
-the last state he *read* is a model change (regions of different revisions do
-not share line numbers); he asked to be told before anything is over-solved.
+**Flagged, then decided (same day):** "only show the last two variants". He
+does not care about passes — "bulk them up for all I care, keep it simple".
+So: **opening a badge reviews every revision touching that passage** in one
+click (`markRevisionsReviewed`, one write). The arrows still step through
+passes for anyone who wants them. **Not built, on purpose:** a background
+poll to capture passes while he is away, and a "since you last read" merged
+view — both are roadmap. His priority is that this stays **lean**: no
+watcher, no timer, scans only on focus/refresh/open, unchanged files skipped
+by mtime+size without being read. Keep it that way.
+
+**Autosave (v0.13):** `settings.autoSave`, default on, one trailing 30 s timer
+in `+page.svelte` re-armed per keystroke; only fires for the active, dirty
+tab; never touches a tab that was reloaded from disk. Highlights/comments were
+already saved on a 600 ms debounce and never needed Cmd+S. Fox MD does no
+syncing of its own — OneDrive picks up written files.
+
+**Cross-platform:** everything in this round is web-layer (Svelte/TS); no Rust
+changed, so Windows and macOS get identical behaviour from the same CI tag.
 
 **Verified:** `npm run check` clean; devmock run drove open → external edit →
 refresh → dot → switch → badges → overlay → toggle off → full-width, all as

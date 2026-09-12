@@ -39,7 +39,12 @@
     kind: string;
     reviewed: boolean;
     count: number;
+    /** Newest revision touching this passage — what the overlay opens on. */
     revisionId: number;
+    /** Every revision touching this passage. Opening the badge reviews them
+     *  all: one click says "I have looked at this paragraph", and making the
+     *  reader step through each pass before the badge goes quiet was a nag. */
+    revisionIds: number[];
     label: string;
   }
 
@@ -50,7 +55,7 @@
     /** Bumped by the parent whenever the document is re-rendered. */
     renderTick: number;
     keepReviewed: boolean;
-    onOpen: (revisionId: number, regionIndex: number) => void;
+    onOpen: (revisionId: number, allRevisionIds: number[]) => void;
   }
   let { container, revisions, renderTick, keepReviewed, onOpen }: Props = $props();
 
@@ -142,6 +147,7 @@
         const existing = byTop.get(key);
         if (existing) {
           existing.count += 1;
+          existing.revisionIds.push(rev.id);
           // Unreviewed if *any* revision touching it is unreviewed — otherwise
           // a passage edited twice, one of which you have seen, would go quiet
           // with something still unread in it. `revisions` arrives newest-first,
@@ -156,6 +162,7 @@
           reviewed: rev.reviewed,
           count: 1,
           revisionId: rev.id,
+          revisionIds: [rev.id],
           label: `${describeRegions([r])} · ${relativeTime(rev.at)}`,
         });
       }
@@ -206,7 +213,7 @@
     onmouseleave={() => (hovered = null)}
     onfocus={() => (hovered = p.key)}
     onblur={() => (hovered = null)}
-    onclick={() => onOpen(p.revisionId, 0)}
+    onclick={() => onOpen(p.revisionId, p.revisionIds)}
   >
     {#if p.count > 1}
       <span class="count">{p.count}</span>
