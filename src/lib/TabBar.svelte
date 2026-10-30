@@ -28,7 +28,7 @@
   // Conv…" — the names agents write are long and the first thirty characters
   // are usually the part every sibling shares. Rows, not pixels: a name
   // either fits another line or it does not, so the setting snaps.
-  const ROW_PX = 15; // one wrapped line of 11px text at line-height 1.35
+  const ROW_PX = 15; // one wrapped line of 12px tab text at a 16px line, rounded
   const MAX_ROWS = 3;
   let rowsDrag: { startY: number; startRows: number; pointerId: number } | null = null;
   let rowsDragging = $state(false);
@@ -502,6 +502,7 @@
         {#if settings.s.trackChanges && tabs.activeId !== t.id && changes.changedSinceReadFor(t.path)}
           <span class="changed-dot" title="Changed while you were away"></span>
         {/if}
+        <span class="favicon" aria-hidden="true"><Icon name="file-text" size={16} /></span>
         <span class="name">{tabName(t.path)}</span>
         <!-- One slot, two states. An unsaved tab shows a dot that becomes the
              close button on hover — so the affordance costs no extra width and
@@ -577,15 +578,19 @@
      Pills fix all three: the chip's own surface says "selected", the gaps
      replace the rules, and the strip stays visibly part of the chrome. */
   .tab-bar {
+    /* Chrome's proportions (macOS, 2023 design): a 42px strip, tabs 34px
+       tall sitting on its bottom edge so the active one joins the toolbar.
+       The strip is a shade darker than the toolbar, as in Chrome; the active
+       tab is toolbar-coloured. Height follows the row setting: one wrapped
+       line is ROW_PX (15px) in the script above. tauri.conf.json's
+       trafficLightPosition centres the lights on the tabs. */
+    --tabstrip-bg: color-mix(in srgb, var(--chrome-bg), #000 7%);
     display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0 .5rem;
-    /* Height follows the row setting: one wrapped line is ROW_PX (15px) in
-       the script above; keep the two in step. 38px is the window's top row,
-       and tauri.conf.json's trafficLightPosition centres the lights on it. */
-    height: 38px;
-    background: var(--chrome-bg);
+    align-items: flex-end;
+    gap: 0;
+    padding: 0 8px;
+    height: 42px;
+    background: var(--tabstrip-bg);
     overflow-x: auto;
     overflow-y: hidden;
     flex-shrink: 0;
@@ -595,10 +600,10 @@
   }
   /* macOS: room for the three traffic lights at the left of the row. In
      native fullscreen macOS hides them, so the room goes too. */
-  .tab-bar.mac { padding-left: 84px; }
-  :global(html[data-fullscreen="true"]) .tab-bar.mac { padding-left: .5rem; }
-  .tab-bar.rows-2 { height: 53px; }
-  .tab-bar.rows-3 { height: 68px; }
+  .tab-bar.mac { padding-left: 78px; }
+  :global(html[data-fullscreen="true"]) .tab-bar.mac { padding-left: 8px; }
+  .tab-bar.rows-2 { height: 57px; }
+  .tab-bar.rows-3 { height: 72px; }
   .tab-bar::-webkit-scrollbar { height: 0; }
   /* Suppress the text I-beam and any accidental selection for the duration of
      a drag — without this, dragging a tab across its neighbours selects their
@@ -663,44 +668,99 @@
     .tab-hint, .tear-hint { animation: none; }
   }
 
+  /* ─── Tabs, Chrome's design ───────────────────────────────────────────
+     Measurements follow Chrome on macOS: 34px tall, up to 240px wide and
+     shrinking evenly as more open, 10px top corners, 12px title, a 16px icon
+     12px in from the left, a 16px close button. The active tab is the
+     toolbar's colour and flows into it through two 8px concave "shoulders";
+     inactive tabs are flat on the strip, split by 1px separators, and show a
+     rounded wash on hover. Fox MD's own colours stay. */
   .tab {
     display: inline-flex;
     align-items: center;
-    gap: .25rem;
-    height: 27px;
-    padding: 0 .2rem 0 .5rem;
-    /* Inactive tabs carry a faint tint and a faint edge — the Material-3
-       "tonal card" idiom rather than a hard outline. Before this they were
-       transparent, and with long names the strip read as one run of words
-       where only the active pill had a shape at all. Kept well below the
-       active tab's contrast so "which one am I reading?" is still answered
-       by the paper-coloured pill. */
-    background: color-mix(in srgb, var(--chrome-hover) 45%, transparent);
-    border: 1px solid color-mix(in srgb, var(--chrome-border) 60%, transparent);
-    border-radius: 7px;
+    gap: 8px;
+    height: 34px;
+    padding: 0 8px 0 12px;
+    margin-bottom: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 10px 10px 0 0;
     color: var(--chrome-fg);
-    /* 11px, down from 12.5px. The strip is a list of labels, not reading
-       matter; two points buys roughly a fifth more name per tab. */
-    font-size: 11px;
-    line-height: 1.35;
-    letter-spacing: .005em;
+    font-size: 12px;
+    line-height: 16px;
     cursor: default;
-    max-width: 210px;
-    min-width: 92px;
-    flex: 0 1 auto;
+    width: 240px;
+    max-width: 240px;
+    min-width: 72px;
+    flex: 0 1 240px;
     position: relative;
-    user-select: none;
-    /* `touch-action: none` is what lets a pen or touch drag reorder tabs at
-       all — without it the gesture is stolen by the strip's own scrolling
-       before the handlers ever see a second move event. */
+    box-sizing: border-box;
     touch-action: none;
-    transition: background-color 90ms ease, color 90ms ease;
+    transition: color 90ms ease;
+    /* The separator: 1px, 20px tall, on the tab's left edge. */
+    background-image: linear-gradient(var(--chrome-border), var(--chrome-border));
+    background-size: 1px 18px;
+    background-position: left center;
+    background-repeat: no-repeat;
   }
-  /* Wrapped names: the tab grows, the label clamps at N lines. `align-items:
-     flex-start` so the dot and the × sit on the first line instead of
-     floating at the vertical middle of a three-line label. */
-  .tab-bar.rows-2 .tab { height: 42px; align-items: flex-start; padding-top: 5px; }
-  .tab-bar.rows-3 .tab { height: 57px; align-items: flex-start; padding-top: 5px; }
+  .tab:first-child,
+  .tab.active,
+  .tab:hover,
+  .tab.active + .tab,
+  .tab:hover + .tab { background-image: none; }
+  .tab > * { position: relative; z-index: 1; }
+  /* Hover wash on an inactive tab: a rounded pill inside the tab. */
+  .tab:not(.active)::before {
+    content: "";
+    position: absolute;
+    inset: 4px 2px 4px 2px;
+    border-radius: 8px;
+    background: transparent;
+    transition: background-color 90ms ease;
+    pointer-events: none;
+  }
+  .tab:not(.active):hover::before { background: var(--chrome-hover); }
+  .tab:hover { color: var(--fg); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+
+  /* The active tab: toolbar-coloured, joined to the toolbar below. */
+  .tab.active {
+    background-color: var(--toolbar-bg);
+    color: var(--fg-strong);
+    z-index: 2;
+  }
+  .tab.active::before,
+  .tab.active::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+  }
+  .tab.active::before {
+    left: -8px;
+    background: radial-gradient(circle at 0 0, transparent 8px, var(--toolbar-bg) 8.5px);
+  }
+  .tab.active::after {
+    right: -8px;
+    background: radial-gradient(circle at 100% 0, transparent 8px, var(--toolbar-bg) 8.5px);
+  }
+
+  .favicon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+  }
+  .tab.active .favicon { color: #e8792b; }
+
+  /* Wrapped names: the tab grows, the label clamps at N lines. */
+  .tab-bar.rows-2 .tab { height: 49px; align-items: flex-start; padding-top: 9px; }
+  .tab-bar.rows-3 .tab { height: 64px; align-items: flex-start; padding-top: 9px; }
   .tab-bar.rows-2 .name,
   .tab-bar.rows-3 .name {
     white-space: normal;
@@ -708,46 +768,9 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     word-break: break-word;
-    /* Wrapped labels want a wider tab than a single truncated line does, or
-       every name breaks after two words. */
   }
   .tab-bar.rows-2 .name { -webkit-line-clamp: 2; line-clamp: 2; }
   .tab-bar.rows-3 .name { -webkit-line-clamp: 3; line-clamp: 3; }
-  .tab-bar.rows-2 .tab,
-  .tab-bar.rows-3 .tab { max-width: 240px; min-width: 120px; }
-  .tab-bar.rows-2 .changed-dot,
-  .tab-bar.rows-3 .changed-dot,
-  .tab-bar.rows-2 .trailing,
-  .tab-bar.rows-3 .trailing { margin-top: 1px; }
-  .tab:hover { background: var(--chrome-hover); color: var(--fg); }
-  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
-  /* Filled with PAPER, not with a generic raised chrome tone. That is the
-     whole trick: the selected tab is a hole punched through the chrome to the
-     document plane underneath, so "which tab am I reading?" is answered by
-     material rather than by an accent stripe. VS Code encodes the same rule
-     (`tab.activeBackground` == `editor.background`) even though its tab shape
-     doesn't show it. */
-  /* Fox MD's own tab, distinct from Chrome's: a rounded card floating in the
-     strip (Chrome's tabs have curved shoulders that merge into the toolbar),
-     and the open file is marked by a short fox-orange bar under its name. */
-  .tab.active {
-    background: var(--bg);
-    border-color: var(--chrome-border);
-    color: var(--fg-strong);
-    font-weight: 550;
-    box-shadow: var(--shadow-sm);
-  }
-  .tab.active::after {
-    content: "";
-    position: absolute;
-    left: 10px;
-    right: 10px;
-    bottom: 2px;
-    height: 2px;
-    border-radius: 2px;
-    background: #e8792b;
-    pointer-events: none;
-  }
 
   /* ─── Drag ────────────────────────────────────────────────────────────
      The tab being carried gets no transition on `transform` — it must track
@@ -757,8 +780,7 @@
      turns a jump-cut into the strip visibly making room. */
   .tab.held {
     z-index: 3;
-    background: var(--bg);
-    border-color: var(--chrome-border);
+    background-color: var(--toolbar-bg);
     box-shadow: var(--shadow-md);
     cursor: grabbing;
     transition: box-shadow 120ms ease;
@@ -833,8 +855,8 @@
   /* The dot and the × occupy the same 18px slot; only one is ever visible. */
   .trailing {
     position: relative;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
@@ -849,11 +871,11 @@
   .close {
     position: absolute;
     inset: 0;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     padding: 0;
     border: 0;
-    border-radius: 5px;
+    border-radius: 50%;
     background: transparent;
     display: inline-flex;
     align-items: center;
@@ -880,17 +902,17 @@
   .new-tab {
     background: transparent;
     border: 0;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     color: var(--chrome-fg);
     cursor: default;
     flex-shrink: 0;
-    border-radius: 6px;
+    border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    margin-left: 2px;
+    margin: 0 0 3px 6px;
   }
   .new-tab:hover {
     background: var(--chrome-hover);
