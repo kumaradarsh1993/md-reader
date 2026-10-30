@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.0-nightly.4 - 2026-10-30
+
+### Fixed
+
+- **Traffic lights sat on top of the File button** after leaving fullscreen.
+  The app checked "am I fullscreen?" while macOS was still animating out,
+  got "yes", and dropped the space reserved for the lights. It now checks
+  again once the animation has finished.
+- **Traffic lights were not centred** on the toolbar row. They are now placed
+  in the middle of it, with a little more room before the first button.
+- **Pinch to zoom in the reader hardly worked on the Mac.** Inside macOS's web
+  view a pinch is a gesture event, not a Ctrl+scroll, and only the scroll
+  was handled. Both now drive one smooth, continuous zoom.
+- **Zooming the Page preview out re-wrapped the text** below about 50%,
+  because the browser refused to draw text that small and made it bigger
+  instead. The preview now scales the finished page like a picture, so 25%
+  shows the true page layout. Zoom keeps the point under your fingers still.
+
 ## 0.13.0-nightly.3 - 2026-10-30
 
 ### Changed - the house format, second pass, after reading a real document in it

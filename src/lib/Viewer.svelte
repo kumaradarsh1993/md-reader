@@ -6,6 +6,8 @@
     effectiveDark,
     effectiveThemeName,
     bumpZoom,
+    ZOOM_MIN,
+    ZOOM_MAX,
     bumpWidth,
     type ScrollMark,
   } from "./settings-store.svelte";
@@ -526,11 +528,38 @@
   // 2–10 unit ones; stepping per event makes the mouse sluggish and the
   // trackpad uncontrollable. Accumulating distance travelled makes them agree.
   //
-  // On macOS a trackpad pinch is reported as a wheel event with `ctrlKey` set,
-  // so pinch-to-zoom comes free from the Ctrl branch.
+  // On macOS, inside the WKWebView this app runs in, a trackpad pinch is NOT a
+  // Ctrl+wheel (that is Chromium's convention, and Windows'): it arrives as
+  // WebKit `gesturestart` / `gesturechange` events with a cumulative `scale`.
+  // Until v0.13.0-nightly.4 only the wheel was handled, which is why pinch
+  // "hardly ever worked" on the Mac. Both now drive one continuous zoom,
+  // applied at most once per frame so a fast pinch does not queue reflows.
   const WHEEL_STEP = 90;
   let wheelAccum = 0;
   let wheelKind: "" | "zoom" | "width" = "";
+
+  let pendingZoom: number | null = null;
+  let zoomRaf = 0;
+  function setZoomSoon(z: number) {
+    pendingZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 50) / 50));
+    if (zoomRaf) return;
+    zoomRaf = requestAnimationFrame(() => {
+      zoomRaf = 0;
+      if (pendingZoom !== null && pendingZoom !== settings.s.zoom) settings.set("zoom", pendingZoom);
+      pendingZoom = null;
+    });
+  }
+
+  let gestureBase = 1;
+  function onGestureStart(e: Event) {
+    e.preventDefault();
+    gestureBase = settings.s.zoom;
+  }
+  function onGestureChange(e: Event) {
+    e.preventDefault();
+    const scale = (e as unknown as { scale?: number }).scale;
+    if (typeof scale === "number" && scale > 0) setZoomSoon(gestureBase * scale);
+  }
 
   function onModifiedWheel(e: WheelEvent) {
     const zoomMod = e.ctrlKey || e.metaKey;
@@ -551,15 +580,22 @@
     // Normalise the three deltaModes to pixels so a "line" or "page" wheel
     // (some Windows mice, and Firefox) travels the same distance as a pixel one.
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? (container?.clientHeight ?? 800) : 1;
-    wheelAccum += e.deltaY * unit;
 
+    if (kind === "zoom") {
+      // Continuous and exponential: a given travel feels the same at 80% and
+      // 160%, and a trackpad's stream of small deltas moves smoothly instead
+      // of waiting to accumulate a whole step.
+      const base = pendingZoom ?? settings.s.zoom;
+      setZoomSoon(base * Math.exp(-e.deltaY * unit * 0.003));
+      return;
+    }
+
+    wheelAccum += e.deltaY * unit;
     while (Math.abs(wheelAccum) >= WHEEL_STEP) {
       const sign = wheelAccum > 0 ? 1 : -1;
       wheelAccum -= sign * WHEEL_STEP;
-      // deltaY > 0 is "scroll down", which means smaller / narrower.
-      const dir = -sign;
-      if (kind === "zoom") bumpZoom(dir * 0.1);
-      else bumpWidth(dir * 4);
+      // deltaY > 0 is "scroll down", which means narrower.
+      bumpWidth(-sign * 4);
     }
   }
 
@@ -883,6 +919,8 @@
     // to `preventDefault()`: Ctrl+wheel is the browser's own page-zoom gesture
     // and a passive listener cannot stop it.
     container.addEventListener("wheel", onModifiedWheel, { passive: false });
+    container.addEventListener("gesturestart", onGestureStart, { passive: false });
+    container.addEventListener("gesturechange", onGestureChange, { passive: false });
     // `selectionchange` fires on the document, which is the only event that
     // catches every way a selection is made: drag, double-click, Shift+arrow,
     // and Ctrl+A. Read one frame later so the browser has finalised the range.
@@ -900,6 +938,9 @@
       window.removeEventListener("resize", invalidate);
       document.removeEventListener("selectionchange", onSelectionChange);
       container?.removeEventListener("wheel", onModifiedWheel);
+      container?.removeEventListener("gesturestart", onGestureStart);
+      container?.removeEventListener("gesturechange", onGestureChange);
+      if (zoomRaf) cancelAnimationFrame(zoomRaf);
     };
   });
 

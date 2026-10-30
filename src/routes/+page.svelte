@@ -815,17 +815,27 @@
     window.addEventListener("pointermove", onPointerMove);
 
     // `data-fullscreen` on <html>: the toolbar's traffic-light gutter reads it
-    // (the lights hide in fullscreen, so the gap would be a hole). Polled on
-    // resize rather than subscribed, because the green button bypasses every
-    // code path of ours and a resize is the one signal it always produces.
-    const syncFullscreen = async () => {
+    // (the lights hide in fullscreen, so the gap would be a hole).
+    //
+    // Re-checked after every resize AND again once macOS's fullscreen
+    // animation has finished. The first version checked only at the resize,
+    // which fires mid-animation while `isFullscreen()` still says true — so
+    // leaving fullscreen left the flag stuck on, the gutter collapsed, and
+    // the traffic lights sat on top of the File button.
+    let fsTimers: ReturnType<typeof setTimeout>[] = [];
+    const checkFullscreen = async () => {
       try {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const fs = await getCurrentWindow().isFullscreen();
         document.documentElement.dataset.fullscreen = fs ? "true" : "false";
       } catch { /* plain browser */ }
     };
-    void syncFullscreen();
+    const syncFullscreen = () => {
+      fsTimers.forEach(clearTimeout);
+      void checkFullscreen();
+      fsTimers = [250, 800, 1500].map((ms) => setTimeout(checkFullscreen, ms));
+    };
+    syncFullscreen();
     window.addEventListener("resize", syncFullscreen);
 
     // Kill the WebView's own page menu app-wide, once, in the capture phase.
@@ -1874,11 +1884,13 @@
   /* macOS traffic-light gutter. The window uses Tauri's overlay title bar
      (`titleBarStyle: Overlay`, `hiddenTitle: true` in tauri.conf.json), so
      the three lights sit *inside* this row at the left and the empty native
-     bar above it is gone. 78px clears them with the same breathing room
-     Finder and Safari give. In native fullscreen the lights are hidden, so
-     the gutter goes too. `titleBarStyle` is ignored on Windows and Linux,
-     where the native bar stays and `.mac` is not set. */
-  .toolbar.mac { padding-left: 78px; }
+     bar above it is gone. `trafficLightPosition {x: 18, y: 23}` centres them
+     on this 46px row (tao keeps the button's offset from the bottom of its
+     container, so `y` is where the button's centre lands from the top);
+     88px clears the third light with room to spare. In native fullscreen the
+     lights are hidden, so the gutter goes too. `titleBarStyle` is ignored on
+     Windows and Linux, where the native bar stays and `.mac` is not set. */
+  .toolbar.mac { padding-left: 88px; }
   :global(html[data-fullscreen="true"]) .toolbar.mac { padding-left: .6rem; }
 
   /* Mark all interactive zones as no-drag so click events reach buttons.

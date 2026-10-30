@@ -38,7 +38,7 @@
    *
    * v0.9.0+. Reworked for the house format in v0.13.0-nightly.2 and 3.
    */
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { api } from "./api";
   import { postRender } from "./post-render";
   import Icon from "./Icon.svelte";
@@ -100,9 +100,9 @@
 
   /** Leftover content shorter than this can't hold a line, so it is not a page. */
   const MIN_TAIL = 12;
-  const ZOOM_MIN = 0.4;
+  const ZOOM_MIN = 0.25;
   const ZOOM_MAX = 2.0;
-  const ZOOM_STEPS = [0.5, 0.65, 0.8, 1, 1.25, 1.5];
+  const ZOOM_STEPS = [0.25, 0.35, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2];
 
   let zoom = $state(0.8);
   let html = $state("");
@@ -360,11 +360,56 @@
     return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
   }
 
+  let canvasEl = $state<HTMLElement | null>(null);
+  let stageEl = $state<HTMLElement | null>(null);
+  /** Unscaled height of all the pages stacked, for the sizer. */
+  let stageH = $state(PAGE_H);
+  $effect(() => {
+    const el = stageEl;
+    if (!el) return;
+    const ro = new ResizeObserver(() => { stageH = el.offsetHeight; });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  /**
+   * Change zoom keeping one point of the page still: the pointer for a pinch
+   * or wheel, the middle of the view for the buttons. Applied once per frame.
+   */
+  let targetZoom: number | null = null;
+  let anchor: { x: number; y: number } | null = null;
+  let zoomRaf = 0;
+  function setZoom(z: number, at?: { x: number; y: number }) {
+    targetZoom = clampZoom(z);
+    if (at) anchor = at;
+    if (zoomRaf) return;
+    zoomRaf = requestAnimationFrame(() => {
+      zoomRaf = 0;
+      const next = targetZoom;
+      targetZoom = null;
+      if (next === null || next === zoom || !canvasEl) return;
+      const c = canvasEl;
+      const rect = c.getBoundingClientRect();
+      const ax = anchor ? anchor.x - rect.left : c.clientWidth / 2;
+      const ay = anchor ? anchor.y - rect.top : c.clientHeight / 2;
+      anchor = null;
+      // Point under the anchor, in unscaled page coordinates.
+      const px = (c.scrollLeft + ax) / zoom;
+      const py = (c.scrollTop + ay) / zoom;
+      zoom = next;
+      // After Svelte applies the new sizer size, put that point back under the anchor.
+      void tick().then(() => {
+        c.scrollLeft = px * next - ax;
+        c.scrollTop = py * next - ay;
+      });
+    });
+  }
+
   function bumpZoom(dir: 1 | -1) {
     const next = dir > 0
       ? ZOOM_STEPS.find((s) => s > zoom + 0.001) ?? ZOOM_MAX
       : [...ZOOM_STEPS].reverse().find((s) => s < zoom - 0.001) ?? ZOOM_MIN;
-    zoom = clampZoom(next);
+    setZoom(next);
   }
 
   function onKey(e: KeyboardEvent) {
@@ -372,7 +417,7 @@
     const mod = e.ctrlKey || e.metaKey;
     if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); bumpZoom(1); }
     if (mod && e.key === "-") { e.preventDefault(); bumpZoom(-1); }
-    if (mod && e.key === "0") { e.preventDefault(); zoom = 1; }
+    if (mod && e.key === "0") { e.preventDefault(); setZoom(1); }
   }
 
   function onCanvasWheel(e: WheelEvent) {
@@ -380,15 +425,19 @@
     e.preventDefault();
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
     // Exponential, so a given finger travel feels the same at 50% and 150%.
-    zoom = clampZoom(zoom * Math.exp(-e.deltaY * unit * 0.0025));
+    const base = targetZoom ?? zoom;
+    setZoom(base * Math.exp(-e.deltaY * unit * 0.0025), { x: e.clientX, y: e.clientY });
   }
 
   let gestureBase = 1;
   function onGestureStart(e: Event) { e.preventDefault(); gestureBase = zoom; }
   function onGestureChange(e: Event) {
     e.preventDefault();
-    const scale = (e as any).scale as number | undefined;
-    if (typeof scale === "number" && scale > 0) zoom = clampZoom(gestureBase * scale);
+    const g = e as unknown as { scale?: number; clientX?: number; clientY?: number };
+    if (typeof g.scale === "number" && g.scale > 0) {
+      const at = typeof g.clientX === "number" && typeof g.clientY === "number" ? { x: g.clientX, y: g.clientY } : undefined;
+      setZoom(gestureBase * g.scale, at);
+    }
   }
 
   onMount(() => {
@@ -478,8 +527,15 @@
     </button>
   </div>
 
-  <div class="wp-canvas" use:wheelZoom>
-    <div class="wp-pages" style="zoom: {zoom}">
+  <div class="wp-canvas" use:wheelZoom bind:this={canvasEl}>
+    <!-- Zoom is a `transform: scale()` on the stage, inside a sizer whose box
+         is the scaled size so the scrollbars are right. Not CSS `zoom`:
+         under `zoom` WebKit applies its minimum font size, so zooming out
+         past ~50% made the text larger than the page allowed and every line
+         re-wrapped (the "font won't go below one size" bug). A transform
+         scales the laid-out page like a picture, so 30% shows the real page. -->
+    <div class="wp-sizer" style="width: {PAGE_W * zoom}px; height: {stageH * zoom}px">
+    <div class="wp-pages" style="transform: scale({zoom}); width: {PAGE_W}px" bind:this={stageEl}>
       {#each pageStarts as start, i (i)}
         <div class="wp-page" style="width: {PAGE_W}px; min-height: {PAGE_H}px; padding: {MARGIN_Y}px {MARGIN_X}px; {docVars}">
           {#if title}
@@ -505,6 +561,7 @@
           </div>
         </div>
       {/each}
+    </div>
     </div>
   </div>
 
@@ -602,18 +659,24 @@
     overflow: auto;
     padding: 24px 0 48px;
   }
+  .wp-sizer {
+    position: relative;
+    margin: 0 auto;
+    /* Below ~70% the sized box is narrower than the canvas and centres;
+       above it, the canvas scrolls horizontally. */
+  }
   .wp-pages {
+    position: absolute;
+    top: 0;
+    left: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 20px;
-    /* Smooth the zoom: a pinch arrives as many small steps, and the
-       transition turns them into one motion. Short, so it never lags the
-       fingers; `zoom` is animatable in WebKit and Chromium. */
-    transition: zoom 90ms ease-out;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .wp-pages { transition: none; }
+    transform-origin: 0 0;
+    /* Frames are already batched to one per animation frame; a CSS
+       transition on top made the zoom trail the fingers. */
+    will-change: transform;
   }
 
   .wp-page {
@@ -622,10 +685,6 @@
     background: #ffffff;
     color: #000000;
     box-shadow: 0 1px 3px rgba(0, 0, 0, .18), 0 8px 24px rgba(0, 0, 0, .10);
-    /* Offscreen pages skip layout entirely — a 40-page document would
-       otherwise pay for 40 copies of the content on every scroll. */
-    content-visibility: auto;
-    contain-intrinsic-size: 794px 1123px;
   }
   /* The clipped window onto the shared content column: vertical clip only;
      the left padding (set inline) is where an outdented table shows. */
