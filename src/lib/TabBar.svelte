@@ -451,17 +451,24 @@
 
 <svelte:window onkeydown={onWindowKey} />
 
-{#if tabs.tabs.length > 0}
-  <div
-    class="tab-bar"
-    class:dragging={!!drag}
-    class:rows-2={settings.s.tabRows === 2}
-    class:rows-3={settings.s.tabRows === 3}
-    bind:this={strip}
-    role="tablist"
-    tabindex="-1"
-    oncontextmenu={(e) => contextMenu.open(e, barMenu())}
-  >
+<!-- The strip is the window's top row, as in Chrome: traffic lights at the
+     left (macOS), then the tabs, then empty space that drags the window.
+     It renders even with no tabs open, because the lights need a row of
+     their own; only the height handle waits for a tab. `data-tauri-drag-region`
+     acts on the strip itself, not its children, so a press on a tab still
+     selects or reorders it. -->
+<div
+  class="tab-bar"
+  class:mac={isMac}
+  class:dragging={!!drag}
+  class:rows-2={settings.s.tabRows === 2}
+  class:rows-3={settings.s.tabRows === 3}
+  bind:this={strip}
+  role="tablist"
+  tabindex="-1"
+  data-tauri-drag-region
+  oncontextmenu={(e) => contextMenu.open(e, barMenu())}
+>
     {#each tabs.tabs as t, i (t.id)}
       <div
         role="tab"
@@ -510,8 +517,9 @@
     <button class="new-tab" onclick={onNewTab} title={`New tab (${sk("Mod", "T")})`} aria-label="New tab">
       <Icon name="plus" size={14} />
     </button>
-  </div>
+</div>
 
+{#if tabs.tabs.length > 0}
   <!-- The strip's bottom edge. Drag down for taller tabs whose names wrap;
        drag up to go back to one line. Same quiet-until-hovered idiom as the
        side panel's dividers. -->
@@ -571,21 +579,26 @@
   .tab-bar {
     display: flex;
     align-items: center;
-    gap: 3px;
-    padding: 0 .45rem;
+    gap: 4px;
+    padding: 0 .5rem;
     /* Height follows the row setting: one wrapped line is ROW_PX (15px) in
-       the script above; keep the two in step. */
-    height: 36px;
+       the script above; keep the two in step. 38px is the window's top row,
+       and tauri.conf.json's trafficLightPosition centres the lights on it. */
+    height: 38px;
     background: var(--chrome-bg);
     overflow-x: auto;
     overflow-y: hidden;
-    -webkit-app-region: no-drag;
     flex-shrink: 0;
     position: relative;
     z-index: 2;
+    user-select: none;
   }
-  .tab-bar.rows-2 { height: 51px; }
-  .tab-bar.rows-3 { height: 66px; }
+  /* macOS: room for the three traffic lights at the left of the row. In
+     native fullscreen macOS hides them, so the room goes too. */
+  .tab-bar.mac { padding-left: 84px; }
+  :global(html[data-fullscreen="true"]) .tab-bar.mac { padding-left: .5rem; }
+  .tab-bar.rows-2 { height: 53px; }
+  .tab-bar.rows-3 { height: 68px; }
   .tab-bar::-webkit-scrollbar { height: 0; }
   /* Suppress the text I-beam and any accidental selection for the duration of
      a drag — without this, dragging a tab across its neighbours selects their
@@ -714,12 +727,26 @@
      material rather than by an accent stripe. VS Code encodes the same rule
      (`tab.activeBackground` == `editor.background`) even though its tab shape
      doesn't show it. */
+  /* Fox MD's own tab, distinct from Chrome's: a rounded card floating in the
+     strip (Chrome's tabs have curved shoulders that merge into the toolbar),
+     and the open file is marked by a short fox-orange bar under its name. */
   .tab.active {
     background: var(--bg);
     border-color: var(--chrome-border);
     color: var(--fg-strong);
     font-weight: 550;
     box-shadow: var(--shadow-sm);
+  }
+  .tab.active::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 2px;
+    height: 2px;
+    border-radius: 2px;
+    background: #e8792b;
+    pointer-events: none;
   }
 
   /* ─── Drag ────────────────────────────────────────────────────────────
@@ -769,13 +796,15 @@
   .tab-rows-handle {
     position: relative;
     height: 6px;
-    margin-top: -3px;
+    /* Straddles the strip's bottom edge and takes no layout space, so the
+       toolbar below sits flush against the strip. */
+    margin: -3px 0;
     flex-shrink: 0;
     cursor: row-resize;
-    z-index: 3;
+    z-index: 4;
     display: flex;
     align-items: center;
-    background: var(--chrome-bg);
+    background: transparent;
     user-select: none;
     touch-action: none;
   }

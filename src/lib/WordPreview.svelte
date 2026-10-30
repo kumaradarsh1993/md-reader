@@ -690,17 +690,15 @@
      the left padding (set inline) is where an outdented table shows. */
   .wp-window { overflow: hidden; position: relative; box-sizing: border-box; }
 
-  /* The document title, in the header, with the rule under it — as the
-     export's header1.xml renders it. */
+  /* The document title, in the header, light grey at body size with no rule,
+     as the export's header1.xml renders it. */
   .wp-header {
     position: absolute;
     font-family: "Calibri Light", Calibri, Carlito, "Segoe UI", sans-serif;
     font-size: var(--title);
-    font-weight: 700;
-    color: #000;
+    font-weight: 400;
+    color: #808080;
     line-height: 1.22;
-    padding-bottom: 4pt;
-    border-bottom: 1px solid #000;
   }
 
   .wp-gutter {
@@ -772,7 +770,14 @@
     break-after: avoid;
   }
   .wp-content :global(h1),
-  .wp-content :global(h2) { margin: 12pt 0 6pt; }
+  .wp-content :global(h2) {
+    margin: 12pt 0 6pt;
+    /* A `##` section: bold, no underline, one thin black rule under the
+       whole line, as Word's paragraph border draws it. */
+    text-decoration: none;
+    border-bottom: 0.75pt solid #000;
+    padding-bottom: 1pt;
+  }
   .wp-content :global(h3),
   .wp-content :global(h4),
   .wp-content :global(h5),
@@ -780,10 +785,13 @@
   .wp-content :global(h1:first-child),
   .wp-content :global(h2:first-child),
   .wp-content :global(h3:first-child) { margin-top: 0; }
-  /* Section numbers from prepareHeadings: "1." then a tab stop at 0.3in for
-     a `##`; "3.1" then one space for a `###`. */
+  /* Section numbers from prepareHeadings: "1." then a tab stop at 0.25in
+     (about 3 spaces) for a `##`; "3.1" then one space for a `###`. The number
+     is a plain inline span on the same baseline as the text. Its width is set
+     by padding after it, not by inline-block, which shifted it off the
+     text's baseline and broke the underline. */
   .wp-content :global(.hnum) { text-decoration: inherit; }
-  .wp-content :global(.hnum[data-sep="tab"]) { display: inline-block; min-width: 0.3in; }
+  .wp-content :global(.hnum[data-sep="tab"]) { padding-right: 0.12in; }
   .wp-content :global(.hnum[data-sep="space"])::after { content: " "; }
 
   /* Lists: marker flush with the body text, text one step in, wrapped lines

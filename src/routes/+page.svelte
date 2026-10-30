@@ -1013,6 +1013,13 @@
      div, not an interactive control. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="shell" class:focus-mode={focus.active} oncontextmenu={onShellContextMenu}>
+  <!-- Chrome's order: the tab strip is the window's top row (with the macOS
+       traffic lights at its left), and the toolbar sits under it at full
+       width. Focus mode hides the strip; the toolbar then peeks from the top
+       edge and takes the lights' gutter itself. -->
+  {#if !focus.active}
+    <TabBar onNewTab={pickAndOpen} />
+  {/if}
   <header
     class="toolbar"
     class:mac={isMac}
@@ -1237,9 +1244,6 @@
          side panel full-height (the shape every modern app has settled on)
          and puts each tab directly above the paper it opens. -->
     <div class="doc-col">
-      {#if !focus.active}
-        <TabBar onNewTab={pickAndOpen} />
-      {/if}
     <main
       class="content"
       class:theatre-content={theatreEngaged}
@@ -1867,7 +1871,7 @@
     align-items: center;
     gap: .7rem;
     padding: 0 .6rem;
-    height: 46px;
+    height: 40px;
     background: var(--toolbar-bg);
     /* A hairline where the toolbar meets what's below it. `box-shadow` and
        not `border-bottom`, so the row keeps its exact 46px in flat mode where
@@ -1882,15 +1886,12 @@
     z-index: 3;
   }
   /* macOS traffic-light gutter. The window uses Tauri's overlay title bar
-     (`titleBarStyle: Overlay`, `hiddenTitle: true` in tauri.conf.json), so
-     the three lights sit *inside* this row at the left and the empty native
-     bar above it is gone. `trafficLightPosition {x: 18, y: 23}` centres them
-     on this 46px row (tao keeps the button's offset from the bottom of its
-     container, so `y` is where the button's centre lands from the top);
-     88px clears the third light with room to spare. In native fullscreen the
-     lights are hidden, so the gutter goes too. `titleBarStyle` is ignored on
-     Windows and Linux, where the native bar stays and `.mac` is not set. */
-  .toolbar.mac { padding-left: 88px; }
+     (`titleBarStyle: Overlay`, `hiddenTitle: true` in tauri.conf.json), and
+     the lights now sit in the tab strip above this row (TabBar.svelte), so
+     the toolbar runs the full width. Only in focus mode, when the strip is
+     hidden and this row peeks from the top edge on its own, does it make
+     room for them. In native fullscreen the lights are hidden anyway. */
+  .toolbar.mac.focus-hidden { padding-left: 88px; }
   :global(html[data-fullscreen="true"]) .toolbar.mac { padding-left: .6rem; }
 
   /* Mark all interactive zones as no-drag so click events reach buttons.

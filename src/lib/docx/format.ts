@@ -70,7 +70,8 @@ export function resolveFormat(o: Partial<FormatOptions> = {}): Format {
     bodyPt,
     margins,
     footer: o.footer ?? "",
-    titlePt: bodyPt + 1,
+    // The title sits in the header in grey at body size, as in Rahul's OP1.
+    titlePt: bodyPt,
     smallPt: bodyPt - 1,
     footerPt: Math.max(7, bodyPt - 2),
     marginSideIn: m.side,
