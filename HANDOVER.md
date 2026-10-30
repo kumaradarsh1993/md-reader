@@ -9,7 +9,38 @@
 > highlight/comment now properly separated (see the first entry in
 > `docs/DECISIONS.md`).
 
+## 2026-10-30 — Page preview and `.docx` export follow the house format
+
+**v0.13.0-nightly.2.** The owner wrote a one-page rendering spec from his own
+Word habits (A4, 0.75/0.8in margins, Calibri Light 11 justified 6pt after, 12pt
+ruled title, underlined `##`/`###`, 0.25in list steps, grey 10pt notes, black
+header tables outdented 0.3in, captioned figures, `==highlight==`, footer with
+"Page X of Y"). `parts.ts`, `build.ts` and `WordPreview.svelte` now encode it;
+`tools/docx-e2e/README.md` is the table of values. User-facing: the changelog.
+
+Things the next session should know:
+
+- **`==text==` is a pre-pass in `markdown.rs`** (`highlight_to_mark`), not a
+  comrak extension (0.43 has none). It skips fences and code spans and keeps the
+  line count, which `sourcepos` relies on. Unit-tested.
+- **Column widths come from an HTML comment** (`<!-- widths: … -->`) above the
+  table. `buildDocx` therefore walks `childNodes`, not `children`.
+- **Relative images exported at 480×320 before this.** `naturalSize` probes a
+  detached `<img>` whose `src` resolves against the app, not the file, so it
+  always timed out to the fallback. `sizeFromBytes` reads the PNG/JPEG/GIF/BMP
+  header instead; the probe is now only the fallback.
+- **The footer text is a setting** (`docxFooter`, Settings → Word export),
+  empty by default — this is a public repo, the string that goes there is not.
+- **End-to-end check:** `tools/docx-e2e/` runs the real builder in Node via
+  `linkedom` (installed `--no-save`, not a dependency) from the Rust example
+  `src-tauri/examples/render.rs`. Verified by opening the result in Word on
+  macOS and reading the PDF page by page: 3 pages, every element in place.
+- **Word via AppleScript on the Mac:** copying into Word's container is refused
+  by macOS; a uniquely-named copy in `~/Documents` opens fine. A second export
+  in the same Word session timed out once and worked on retry with `activate`.
+
 ## 2026-09-12 — tab strip, Changes marks rebuilt, comments made findable
+
 
 Branch **`changes-revamp`**, from the owner's Mac (first session on real
 macOS hardware). Not yet released; he tries the local build first.

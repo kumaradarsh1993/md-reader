@@ -489,7 +489,7 @@
     exportState = { phase: "working", note: "Building document…" };
     try {
       const { exportDocx } = await import("$lib/docx");
-      const skipped = await exportDocx(active.source, stem, name, target);
+      const skipped = await exportDocx(active.source, stem, name, target, { footer: settings.s.docxFooter });
       const file = target.split(/[\\/]/).pop() ?? "document.docx";
       flashExport(
         "done",
@@ -1292,6 +1292,7 @@
           onExit={() => (previewOpen = false)}
           onExport={exportWord}
           exporting={exportState.phase === "working"}
+          footer={settings.s.docxFooter}
         />
       {:else if mode === "edit" && settings.s.editorMode === "smart"}
         <SmartEditor source={active.source} onChange={onEditorChange} onSave={save} />

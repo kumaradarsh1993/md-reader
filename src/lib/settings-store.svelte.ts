@@ -145,6 +145,10 @@ export interface AppSettings {
   authorName: string;
   /** Colour a fresh highlight takes when made from the keyboard. */
   defaultHighlightColor: HighlightColor;
+  // ─── Word export (v0.13.0-nightly.2+) ────────────────────────────
+  /** Left-hand footer text on every exported page ("Amazon Confidential" in
+   *  the house that asked for the format). Empty leaves only "Page X of Y". */
+  docxFooter: string;
   // ─── Handover (v0.11.0+) ─────────────────────────────────────────
   /** Publish this machine's open documents so your phone can pick them up.
    *  Independent of being signed in: signing in for one machine should not
@@ -244,6 +248,7 @@ const DEFAULTS: AppSettings = {
   showComments: true,
   authorName: "",
   defaultHighlightColor: "yellow",
+  docxFooter: "",
   panelCollapsed: false,
   panelSplit: 0.45,
   panelHoverPeek: true,

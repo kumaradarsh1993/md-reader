@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.13.0-nightly.2 - 2026-10-30
+
+### Changed - Page preview and Word export follow the house format
+
+The page preview and the `.docx` export used Word's defaults (US Letter, 1in
+margins, 8pt after, flush-left lists). They now follow one written spec, so a
+markdown file read in Page preview looks like the Word file it will become.
+
+- **A4, 0.75in side margins, 0.8in top and bottom.** Body Calibri Light 11pt,
+  justified, 6pt after each paragraph, single spacing.
+- **The `#` title is 12pt with a full-width rule. `##` and `###` are body
+  size, bold and underlined**, with a larger gap before each `##` so sections
+  read as sections without a rule under every heading.
+- **Lists indent.** Marker flush with the text, text 0.25in in, each nested
+  level another 0.25in; 3pt between items, 6pt after the last. A nested
+  numbered list counts a., b., c.
+- **Block quotes are notes:** 10pt italic grey, indented, no bar.
+- **Tables are 10pt with a black header row** and reach 0.3in into the left
+  margin, so they start where the line numbers do. `<!-- widths: 1.2, 2.5, 3 -->`
+  on the line above a table sets column widths in inches. A column that is all
+  numbers is right-aligned.
+- **Figures:** an image on its own line is centred and captioned
+  "Figure N: alt text". No alt text, no caption. Relative images now export at
+  their real size (the exporter read every one as 480x320 before).
+- **`==text==` highlights** in yellow, in the reader, the preview and Word
+  alike. `<u>text</u>` underlines. `---` is a thin grey rule.
+- **Footer on every page:** "Page X of Y" on the right and, on the left, the
+  text set in **Settings > Word export** (empty by default). Continuous line
+  numbers down the left margin, as before.
+
+The spec the preview and exporter now share is `tools/docx-e2e/README.md`.
+
 ## 0.13.0-nightly.1 - 2026-09-12
 
 ### Changed - tabs you can read, change marks you can ignore

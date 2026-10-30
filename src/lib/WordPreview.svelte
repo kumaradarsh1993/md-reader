@@ -14,22 +14,22 @@
    * the page count and the breaks are real.
    *
    * ── The format it emulates ────────────────────────────────────────────
-   * US Letter, Word's "Normal" margins (1in all round), **everything at 11pt
-   * Calibri Light** — headings included, because in this house style a heading
-   * is bold and ruled, never bigger — Word's default paragraph spacing (8pt
-   * after, 1.08 line multiple), continuous line numbers down the left margin,
-   * and **no indentation anywhere**: lists sit flush left, block quotes lose
-   * their bar and their indent, and nesting gets one small step rather than a
-   * tab stop. Headings get a rule across the full text column, which in Word is
-   * a *paragraph bottom border*, not a character underline — that is why it
-   * runs the width of the column rather than stopping at the end of the words.
+   * A4, 0.75in side margins and 0.8in top and bottom, Calibri Light 11pt
+   * justified with 6pt after each paragraph, continuous line numbers down the
+   * left margin, and a footer with a configurable text and "Page X of Y".
+   * The `#` title is 12pt with a full-width rule (a paragraph border, so it
+   * runs the column, not just the words); `##` and `###` are body size, bold
+   * and underlined. Lists indent 0.25in per level, block quotes are small grey
+   * notes, tables are 10pt with a black header and reach 0.3in into the left
+   * margin. Every number here has a twin in `docx/parts.ts` and
+   * `docx/build.ts`; change both or the preview lies.
    *
    * ── How pagination actually works here ────────────────────────────────
    * The content is laid out once, off-screen, at exactly the text-column width
-   * (6.5in). Every visual line's box is then measured with `Range.getClientRects`
+   * (6.77in). Every visual line's box is then measured with `Range.getClientRects`
    * — one rect per line box, which is what makes wrapped paragraphs, tables
    * and headings all countable without guessing at line heights. Page breaks
-   * are placed at the last **line boundary** that fits inside 9in of content,
+   * are placed at the last **line boundary** that fits inside 10.09in of content,
    * so a line is never sliced in half across a break, exactly as Word behaves.
    * Each page then renders a clipped window onto that same content, offset to
    * its slice.
@@ -54,15 +54,20 @@
     onExport?: () => void;
     /** Live status of an export started from here. */
     exporting?: boolean;
+    /** Left-hand footer text, from Settings → Word export. */
+    footer?: string;
   }
-  let { source, basePath, onExit, onExport, exporting = false }: Props = $props();
+  let { source, basePath, onExit, onExport, exporting = false, footer = "" }: Props = $props();
 
   // ── Page geometry, in CSS px at 96dpi (1in = 96px) ──────────────────
-  const PAGE_W = 816;        // 8.5in
-  const PAGE_H = 1056;       // 11in
-  const MARGIN = 96;         // 1in — Word's "Normal"
-  const CONTENT_W = PAGE_W - MARGIN * 2;  // 6.5in
-  const CONTENT_H = PAGE_H - MARGIN * 2;  // 9in
+  // A4 with the house margins: 0.75in sides, 0.8in top and bottom. These
+  // mirror PAGE_W / MARGIN_* in docx/parts.ts — change both or the preview lies.
+  const PAGE_W = 794;        // 8.27in
+  const PAGE_H = 1123;       // 11.69in
+  const MARGIN_X = 72;       // 0.75in
+  const MARGIN_Y = 77;       // 0.8in
+  const CONTENT_W = PAGE_W - MARGIN_X * 2;  // 650px ≈ 6.77in
+  const CONTENT_H = PAGE_H - MARGIN_Y * 2;  // 969px
 
   const ZOOM_STEPS = [0.5, 0.65, 0.8, 1, 1.25, 1.5];
   /** Leftover content shorter than this can't hold a line, so it is not a page. */
@@ -108,7 +113,7 @@
       measuring = true;
       const rendered = await api.renderMarkdown(src, "light");
       if (cancelled) return;
-      html = rendered;
+      html = captionFigures(rendered);
       // Let Svelte paint the measure column before touching it.
       await new Promise((r) => requestAnimationFrame(() => r(null)));
       if (cancelled || !measureEl) return;
@@ -121,6 +126,32 @@
     })();
     return () => { cancelled = true; };
   });
+
+  /**
+   * A paragraph that is only an image is a figure. The export centres it and
+   * captions it "Figure N: alt text"; the preview has to do the same or its
+   * page count is short by a line per figure. Mirrors `DocxBuilder.figure`.
+   */
+  function captionFigures(rendered: string): string {
+    if (!rendered.includes("<img")) return rendered;
+    const doc = new DOMParser().parseFromString(`<body>${rendered}</body>`, "text/html");
+    let n = 0;
+    for (const p of Array.from(doc.body.querySelectorAll("p"))) {
+      const kids = Array.from(p.childNodes).filter(
+        (c) => !(c.nodeType === Node.TEXT_NODE && !(c.textContent ?? "").trim()),
+      );
+      if (kids.length !== 1 || (kids[0] as HTMLElement).tagName !== "IMG") continue;
+      p.classList.add("wp-figure");
+      const alt = ((kids[0] as HTMLImageElement).getAttribute("alt") ?? "").trim();
+      if (!alt) continue;
+      n += 1;
+      const cap = doc.createElement("p");
+      cap.className = "wp-caption";
+      cap.textContent = `Figure ${n}: ${alt}`;
+      p.after(cap);
+    }
+    return doc.body.innerHTML;
+  }
 
   /** Images and webfonts both change line positions after first paint, and a
    *  measurement taken before they land is silently wrong — the page count
@@ -306,8 +337,8 @@
       {/if}
     </span>
     <span class="wp-spacer"></span>
-    <span class="wp-format" title="US Letter · Normal margins (1in) · Calibri Light 11pt · continuous line numbers">
-      Letter · Calibri Light 11
+    <span class="wp-format" title="A4 · 0.75in side margins, 0.8in top and bottom · Calibri Light 11pt · continuous line numbers">
+      A4 · Calibri Light 11
     </span>
     <div class="wp-zoom">
       <button onclick={() => bumpZoom(-1)} aria-label="Zoom out" title="Zoom out"><Icon name="minus" size={12} /></button>
@@ -329,16 +360,19 @@
   <div class="wp-canvas" use:wheelZoom>
     <div class="wp-pages" style="zoom: {zoom}" bind:this={pagesEl}>
       {#each pageStarts as start, i (i)}
-        <div class="wp-page">
-          <div class="wp-gutter" aria-hidden="true">
+        <div class="wp-page" style="width: {PAGE_W}px; min-height: {PAGE_H}px; padding: {MARGIN_Y}px {MARGIN_X}px">
+          <div class="wp-gutter" aria-hidden="true" style="top: {MARGIN_Y}px; height: {CONTENT_H}px">
             {#each pageLines(i) as l (l.n)}
               <span class="wp-lineno" style="top: {l.y}px">{l.n}</span>
             {/each}
           </div>
           <div class="wp-window" style="height: {sliceEnd(i) - start}px">
-            <div class="wp-content" style="transform: translateY({-start}px)">{@html html}</div>
+            <div class="wp-content" style="width: {CONTENT_W}px; transform: translateY({-start}px)">{@html html}</div>
           </div>
-          <div class="wp-folio">{i + 1}</div>
+          <div class="wp-footer" style="left: {MARGIN_X}px; right: {MARGIN_X}px">
+            <span>{footer}</span>
+            <span>Page {i + 1} of {pageCount}</span>
+          </div>
         </div>
       {/each}
     </div>
@@ -348,8 +382,8 @@
        column, laid out off-screen. `visibility: hidden` rather than
        `display: none` — a display:none subtree has no boxes, so every rect
        would come back zero. -->
-  <div class="wp-measure" aria-hidden="true">
-    <div class="wp-content" bind:this={measureEl}>{@html html}</div>
+  <div class="wp-measure" aria-hidden="true" style="width: {CONTENT_W}px">
+    <div class="wp-content" style="width: {CONTENT_W}px" bind:this={measureEl}>{@html html}</div>
   </div>
 </div>
 
@@ -444,26 +478,24 @@
 
   .wp-page {
     position: relative;
-    width: 816px;              /* 8.5in */
-    min-height: 1056px;        /* 11in */
-    padding: 96px;             /* Word's "Normal" margins */
+    /* Size, margins and padding are set inline from the geometry constants. */
     background: #ffffff;
     color: #000000;
     box-shadow: 0 1px 3px rgba(0, 0, 0, .18), 0 8px 24px rgba(0, 0, 0, .10);
     /* Offscreen pages skip layout entirely — a 40-page document would
        otherwise pay for 40 copies of the content on every scroll. */
     content-visibility: auto;
-    contain-intrinsic-size: 816px 1056px;
+    contain-intrinsic-size: 794px 1123px;
   }
   /* The clipped window onto the shared content column. */
   .wp-window { overflow: hidden; position: relative; }
 
+  /* Line numbers sit 0.25in (24px) off the text, as the export's lnNumType
+     distance does: the gutter's right edge is at margin − 24px. */
   .wp-gutter {
     position: absolute;
-    left: 52px;
-    top: 96px;
+    left: 22px;
     width: 26px;
-    height: calc(100% - 192px);
   }
   .wp-lineno {
     position: absolute;
@@ -475,20 +507,24 @@
     font-variant-numeric: tabular-nums;
     line-height: 1;
   }
-  .wp-folio {
+  /* The footer: configurable text left, "Page X of Y" right, Calibri 9pt
+     grey — the same as footer1.xml. 0.4in up from the page edge. */
+  .wp-footer {
     position: absolute;
-    right: 12px;
-    bottom: 10px;
-    font-size: 9px;
-    color: #b4b4b4;
+    bottom: 38px;
+    display: flex;
+    justify-content: space-between;
+    font-family: Calibri, Carlito, "Segoe UI", sans-serif;
+    font-size: 9pt;
+    color: #595959;
     font-variant-numeric: tabular-nums;
+    line-height: 1.2;
   }
 
   .wp-measure {
     position: absolute;
     left: -10000px;
     top: 0;
-    width: 624px;
     visibility: hidden;
     pointer-events: none;
   }
@@ -496,127 +532,150 @@
   /* ─── Word-ish document styles ───────────────────────────────────────
      Deliberately hard-coded rather than themed: this is a preview of a page
      that will be printed or mailed, so it is black on white regardless of the
-     app's theme. Everything below is in pt to keep the arithmetic honest
-     against Word's own units. */
+     app's theme. Every number below has a twin in docx/parts.ts and
+     docx/build.ts; change both. Units are pt so the arithmetic stays honest
+     against Word's own. */
   .wp-content {
-    width: 624px;              /* 6.5in text column */
     font-family: "Calibri Light", Calibri, Carlito, "Segoe UI", sans-serif;
     font-size: 11pt;
-    /* Word's default: 1.08 multiple on single spacing. */
-    line-height: 1.37;
+    /* Single spacing. Word's "single" for Calibri is ~1.22 of the size. */
+    line-height: 1.22;
     color: #000;
+    text-align: justify;
+    hyphens: none;
+  }
+  .wp-content :global(p) { margin: 0 0 6pt; }
+
+  /* One larger size in the document: the `#` title at 12pt, with the rule
+     across the full column (a paragraph border in Word, so it runs the width
+     of the column rather than stopping where the words do). */
+  .wp-content :global(h1) {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #000;
+    margin: 0 0 6pt;
+    padding-bottom: 4pt;
+    border-bottom: 1px solid #000;
+    line-height: 1.22;
     text-align: left;
   }
-  .wp-content :global(p) { margin: 0 0 8pt; }
-
-  /* **One type size for the whole document: 11pt.**
-     Headings are weight and a rule, never size. A house style that sets body
-     text at 11pt sets *everything* at 11pt — a 16pt title is a Word default,
-     not this format, and mixing sizes was the single thing that made this
-     preview not look like the document it is previewing. */
-  .wp-content :global(h1),
+  /* `##` is a section, `###` a sub-heading: body size, bold, underlined (the
+     text only, no rule). The larger gap before a `##` is what separates
+     sections on the page. Deeper levels are never written and look like `###`. */
   .wp-content :global(h2),
   .wp-content :global(h3),
   .wp-content :global(h4),
   .wp-content :global(h5),
   .wp-content :global(h6) {
-    font-family: "Calibri Light", Calibri, Carlito, "Segoe UI", sans-serif;
     font-size: 11pt;
     font-weight: 700;
     color: #000;
-    margin: 10pt 0 4pt;
-    line-height: 1.37;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    line-height: 1.22;
+    text-align: left;
+    break-after: avoid;
   }
+  .wp-content :global(h2) { margin: 12pt 0 6pt; }
+  .wp-content :global(h3),
+  .wp-content :global(h4),
+  .wp-content :global(h5),
+  .wp-content :global(h6) { margin: 6pt 0 3pt; }
   .wp-content :global(h1:first-child),
   .wp-content :global(h2:first-child),
   .wp-content :global(h3:first-child) { margin-top: 0; }
-  /* The rule that runs the full width of the column. In Word this is a
-     paragraph *bottom border*, which is why it doesn't stop where the words
-     do — a character underline would.
 
-     **Level 1 only, deliberately (v0.10.0).** It was on h1 *and* h2, and a
-     document that is a stack of ## sections — which is what a briefing note
-     from an agent always is — came out ruled every few paragraphs. The verdict
-     was blunt: "a lot of line segmenters". One rule under the section title is
-     the house format; a rule under every heading is a striped page. Sub-heads
-     already read as sub-heads from their weight and their spacing. */
-  .wp-content :global(h1) {
-    border-bottom: 1px solid #000;
-    padding-bottom: 2pt;
-  }
-
-  /* **No indentation anywhere.**
-     A 24pt list indent is a Word default that this format doesn't use: it
-     spends a third of an inch of a 6.5in column to say "this is a list",
-     which the marker already says. Markers sit flush with the body text
-     (`list-style-position: inside` — with zero padding, an `outside` marker
-     would be clipped off the left edge of the column). Nesting gets one small
-     step, enough to read as nesting and no more. */
+  /* Lists: marker flush with the body text, text 0.25in in, wrapped lines
+     under the text; each nested level steps another 0.25in. 3pt between
+     items, 6pt after the last one. Second-level numbers run a., b., c. */
   .wp-content :global(ul),
   .wp-content :global(ol) {
-    margin: 0 0 8pt;
-    padding-left: 0;
-    list-style-position: inside;
+    margin: 0 0 6pt;
+    padding-left: 0.25in;
+    list-style-position: outside;
+    text-align: left;
   }
-  .wp-content :global(li) { margin: 0 0 2pt; }
+  .wp-content :global(ul) { list-style-type: disc; }
+  .wp-content :global(ul ul) { list-style-type: circle; }
+  .wp-content :global(ol ol) { list-style-type: lower-alpha; }
+  .wp-content :global(li) { margin: 0 0 3pt; }
   .wp-content :global(li > ul),
-  .wp-content :global(li > ol) { margin: 2pt 0 0; padding-left: 12pt; }
+  .wp-content :global(li > ol) { margin: 3pt 0 0; }
   .wp-content :global(li > p) { margin: 0; display: inline; }
 
-  /* Callouts lose their furniture: in a Word document a block quote is just a
-     paragraph. The bar and the indent were reader chrome, and they made a
-     quoted block look like a different kind of content on the page. */
+  /* A block quote is a note: 10pt italic grey, indented 0.25in, no bar. */
   .wp-content :global(blockquote) {
-    margin: 0 0 8pt;
-    padding: 0;
+    margin: 0 0 6pt;
+    padding: 0 0 0 0.25in;
     border: 0;
-    color: inherit;
-    font-style: normal;
+    color: #595959;
+    font-style: italic;
+    font-size: 10pt;
+    text-align: left;
   }
+  .wp-content :global(blockquote p) { margin: 0 0 3pt; }
+  .wp-content :global(blockquote p:last-child) { margin-bottom: 0; }
+
+  /* Tables: 10pt, black header row with white text, thin grey borders, and
+     0.3in wider than the text so the left edge lines up with the line
+     numbers while the right edge stays on the text. */
   .wp-content :global(table) {
     border-collapse: collapse;
-    width: 100%;
-    margin: 0 0 8pt;
-    /* 11pt, like everything else. A table set a point smaller than the prose
-       around it is a Word habit, not this format — one size means one size. */
-    font-size: inherit;
+    width: calc(100% + 0.3in);
+    margin: 0 0 6pt -0.3in;
+    font-size: 10pt;
+    text-align: left;
   }
   .wp-content :global(th),
   .wp-content :global(td) {
-    border: 1px solid #808080;
-    padding: 3pt 5pt;
+    border: 1px solid #8c8c8c;
+    padding: 1pt 5pt 3pt;
     text-align: left;
     vertical-align: top;
     overflow-wrap: anywhere;
+    line-height: 1.22;
   }
-  .wp-content :global(th) { font-weight: 700; background: #f2f2f2; }
+  .wp-content :global(th) { font-weight: 700; background: #000; color: #fff; }
+
+  /* Figures: centred, capped at the column, captioned in small grey italics. */
   .wp-content :global(img) { max-width: 100%; height: auto; }
+  .wp-content :global(p.wp-figure) { text-align: center; margin: 6pt 0 3pt; }
+  .wp-content :global(p.wp-figure img) { display: inline-block; vertical-align: top; }
+  .wp-content :global(p.wp-caption) {
+    text-align: center;
+    color: #595959;
+    font-style: italic;
+    font-size: 10pt;
+    margin: 0 0 6pt;
+  }
+
+  /* Inline treatments the house format uses. */
+  .wp-content :global(mark) { background: #ffff00; color: #000; }
+  .wp-content :global(u) { text-decoration: underline; }
+  .wp-content :global(a) { color: #0563c1; text-decoration: underline; }
+
   .wp-content :global(code) {
     font-family: Consolas, "Courier New", monospace;
     font-size: 10pt;
   }
   .wp-content :global(pre) {
-    background: #f5f5f5;
-    border: 1px solid #dcdcdc;
+    background: #f4f4f2;
     padding: 5pt 6pt;
-    margin: 0 0 8pt;
+    margin: 0 0 6pt;
     white-space: pre-wrap;
     word-break: break-word;
-    font-size: 9.5pt;
+    font-size: 10pt;
     line-height: 1.3;
+    text-align: left;
   }
-  /* A thematic break (`---`) is a *break*, not a printed line. Markdown written
-     by an agent uses one between every section, so drawing each as a rule was
-     the other half of the "line segmenters" complaint — the page ended up with
-     more horizontal rules than headings. It becomes what it means in a Word
-     document: a paragraph of air. Kept as an element (not `display: none`) so
-     it still occupies a measured line and page breaks land where they should. */
+  /* A `---` is a thin grey rule with 6pt of air either side. The house format
+     uses it sparingly, as a real divider, so it is drawn. */
   .wp-content :global(hr) {
     border: 0;
+    border-bottom: 1px solid #a6a6a6;
     height: 0;
-    margin: 11pt 0;
+    margin: 6pt 0 8pt;
   }
-  .wp-content :global(a) { color: #0563c1; text-decoration: underline; }
   /* App furniture that has no business on a printed page. */
   .wp-content :global(.code-copy) { display: none; }
   .wp-content :global(.table-scroll) { overflow: visible; border: 0; border-radius: 0; margin: 0; }

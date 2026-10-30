@@ -20,9 +20,13 @@ import {
   BODY_SZ,
   COLUMN_INCHES,
   EMU_PER_INCH,
-  INCH,
+  GREY_RULE,
   LIST_STEP,
+  PARA_AFTER,
   PT,
+  SMALL_SZ,
+  TABLE_OUTDENT,
+  TABLE_WIDTH,
   xmlEscape,
   type DocRel,
 } from "./parts";
@@ -53,11 +57,19 @@ export type ImageResolver = (src: string) => Promise<{ data: Uint8Array; ext: st
 interface RunStyle {
   b?: boolean;
   i?: boolean;
+  /** `<u>` in the source — used for run-in headings inside list items. */
+  u?: boolean;
   strike?: boolean;
+  /** `==text==` → `<mark>`: the reviewer-check marker, yellow in Word too. */
+  mark?: boolean;
   code?: boolean;
   link?: string;
   sup?: boolean;
   sub?: boolean;
+  /** Half-points. Set only where a block is not body size (table cells). */
+  sz?: number;
+  /** Hex RGB without `#`. Table header text is white on black. */
+  color?: string;
 }
 
 const BLOCK_TAGS = new Set([
@@ -73,6 +85,12 @@ export class DocxBuilder {
   private skippedImages: string[] = [];
   private relSeq = 0;
   private imageCache = new Map<string, string>(); // src -> relationship id
+  private dimsCache = new Map<string, { w: number; h: number }>(); // src -> pixels
+  /** "Figure N" counter for captioned images, in document order. */
+  private figureSeq = 0;
+  /** Column widths (inches) declared by a `<!-- widths: … -->` comment, held
+   *  until the next table consumes them. */
+  private pendingWidths: number[] | null = null;
 
   constructor(private resolveImage: ImageResolver) {}
 
@@ -81,14 +99,28 @@ export class DocxBuilder {
     return `rIdX${this.relSeq}`;
   }
 
+  /**
+   * An HTML comment at block level. The one the house format uses is
+   * `<!-- widths: 1.2, 2.5, 3.0 -->` on the line above a table — column widths
+   * in inches, scaled to the table width if they do not add up. Any other
+   * comment is ignored, as a comment should be.
+   */
+  comment(text: string): void {
+    const m = /^\s*widths?\s*:\s*([\d.,\s]+)$/i.exec(text.trim());
+    if (!m) return;
+    const widths = m[1].split(",").map((s) => parseFloat(s.trim())).filter((n) => n > 0);
+    this.pendingWidths = widths.length ? widths : null;
+  }
+
   // ─── Runs ──────────────────────────────────────────────────────────────
 
   /**
    * A run's properties.
    *
-   * The child order is `CT_RPr`'s: rStyle, rFonts, b, …, strike, …, position,
-   * sz, …. Word does not repair an out-of-order rPr, it refuses the part — so
-   * this order is a correctness requirement, not tidiness.
+   * The child order is `CT_RPr`'s: rStyle, rFonts, b, …, i, …, strike, …,
+   * sz, szCs, highlight, u, …, vertAlign. Word does not repair an
+   * out-of-order rPr, it refuses the part — so this order is a correctness
+   * requirement, not tidiness.
    */
   private rPr(s: RunStyle): string {
     const parts: string[] = [];
@@ -97,6 +129,10 @@ export class DocxBuilder {
     if (s.b) parts.push("<w:b/>");
     if (s.i) parts.push("<w:i/>");
     if (s.strike) parts.push("<w:strike/>");
+    if (s.color) parts.push(`<w:color w:val="${s.color}"/>`);
+    if (s.sz) parts.push(`<w:sz w:val="${s.sz}"/><w:szCs w:val="${s.sz}"/>`);
+    if (s.mark) parts.push('<w:highlight w:val="yellow"/>');
+    if (s.u) parts.push('<w:u w:val="single"/>');
     if (s.sup) parts.push('<w:vertAlign w:val="superscript"/>');
     if (s.sub) parts.push('<w:vertAlign w:val="subscript"/>');
     return parts.length ? `<w:rPr>${parts.join("")}</w:rPr>` : "";
@@ -150,6 +186,8 @@ export class DocxBuilder {
     const next: RunStyle = { ...s };
     if (tag === "STRONG" || tag === "B") next.b = true;
     if (tag === "EM" || tag === "I") next.i = true;
+    if (tag === "U" || tag === "INS") next.u = true;
+    if (tag === "MARK") next.mark = true;
     if (tag === "DEL" || tag === "S" || tag === "STRIKE") next.strike = true;
     if (tag === "CODE" || tag === "KBD" || tag === "SAMP") next.code = true;
     if (tag === "SUP") next.sup = true;
@@ -181,11 +219,11 @@ export class DocxBuilder {
 
   private async image(img: HTMLImageElement): Promise<string> {
     const src = img.getAttribute("src") ?? "";
-    const alt = img.getAttribute("alt") || "image";
+    const alt = img.getAttribute("alt") || "";
     if (!src) return "";
 
     let relId = this.imageCache.get(src);
-    let dims = { w: 0, h: 0 };
+    let dims = this.dimsCache.get(src) ?? { w: 0, h: 0 };
 
     if (!relId) {
       const resolved = await this.resolveImage(src);
@@ -193,16 +231,16 @@ export class DocxBuilder {
         this.skippedImages.push(src);
         // Not silently dropped: the reader should be able to see that something
         // was there. Italic, in the document's own voice.
-        return this.textRun(`[image: ${alt}]`, { i: true });
+        return this.textRun(`[image: ${alt || src}]`, { i: true });
       }
       const name = `image${this.media.length + 1}.${resolved.ext}`;
       this.media.push({ name, data: resolved.data, ext: resolved.ext });
       relId = this.nextRelId();
       this.rels.push({ id: relId, type: "image", target: `media/${name}` });
       this.imageCache.set(src, relId);
+      dims = sizeFromBytes(resolved.data, resolved.ext) ?? (await naturalSize(img));
+      this.dimsCache.set(src, dims);
     }
-
-    dims = await naturalSize(img);
     // Fit the text column, never upscale. EMU is 1/914400 in; the DOM reports
     // CSS pixels, which are 1/96 in by definition.
     const wIn = Math.min(COLUMN_INCHES, (dims.w || 480) / 96);
@@ -211,8 +249,51 @@ export class DocxBuilder {
     const cx = Math.round(wIn * EMU_PER_INCH);
     const cy = Math.round(hIn * EMU_PER_INCH);
     const docId = this.media.length + 1000;
+    const name = alt || `image${this.media.length}`;
 
-    return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${docId}" name="${xmlEscape(alt)}" descr="${xmlEscape(alt)}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${docId}" name="${xmlEscape(alt)}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+    return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${docId}" name="${xmlEscape(name)}" descr="${xmlEscape(alt)}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${docId}" name="${xmlEscape(name)}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+  }
+
+  /**
+   * A paragraph that is nothing but one image — which is how markdown places a
+   * figure. Centred, kept with its caption, and captioned "Figure N: alt text"
+   * in small grey italics. No alt text means no caption and no number.
+   */
+  private async figure(img: HTMLImageElement): Promise<void> {
+    const run = await this.image(img);
+    if (!run) return;
+    const alt = (img.getAttribute("alt") ?? "").trim();
+    const embedded = run.includes("<w:drawing>");
+    this.out.push(
+      this.para(
+        run,
+        `<w:pPr><w:keepNext/><w:spacing w:before="${6 * PT}" w:after="${alt && embedded ? 3 * PT : PARA_AFTER}"/><w:jc w:val="center"/></w:pPr>`,
+      ),
+    );
+    if (alt && embedded) {
+      this.figureSeq += 1;
+      this.out.push(
+        this.para(
+          this.textRun(`Figure ${this.figureSeq}: ${alt}`, {}),
+          `<w:pPr><w:pStyle w:val="Caption"/></w:pPr>`,
+        ),
+      );
+    }
+  }
+
+  /** True when the element holds exactly one `<img>` and nothing but whitespace. */
+  private static isFigure(el: HTMLElement): HTMLImageElement | null {
+    let img: HTMLImageElement | null = null;
+    for (const n of Array.from(el.childNodes)) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        if ((n.textContent ?? "").trim()) return null;
+        continue;
+      }
+      if (n.nodeType !== Node.ELEMENT_NODE) continue;
+      if ((n as HTMLElement).tagName !== "IMG" || img) return null;
+      img = n as HTMLImageElement;
+    }
+    return img;
   }
 
   // ─── Paragraphs and blocks ─────────────────────────────────────────────
@@ -239,15 +320,25 @@ export class DocxBuilder {
     }
 
     if (tag === "P") {
+      const img = DocxBuilder.isFigure(el);
+      if (img && indent === 0) {
+        await this.figure(img);
+        return;
+      }
       const runs = await this.children(el, {});
       this.out.push(this.para(runs, ind ? `<w:pPr>${ind}</w:pPr>` : ""));
       return;
     }
 
     if (tag === "HR") {
-      // A thematic break is a break, not a printed line — the same decision the
-      // page preview makes. It becomes a paragraph of air.
-      this.out.push(this.para("", `<w:pPr><w:spacing w:after="${11 * PT}"/></w:pPr>`));
+      // A thin grey rule, 6pt of air either side. The house format uses `---`
+      // sparingly, as a real divider, so it is drawn rather than swallowed.
+      this.out.push(
+        this.para(
+          "",
+          `<w:pPr><w:suppressLineNumbers/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="${GREY_RULE}"/></w:pBdr><w:spacing w:before="${6 * PT}" w:after="${6 * PT}"/><w:rPr><w:sz w:val="8"/></w:rPr></w:pPr>`,
+        ),
+      );
       return;
     }
 
@@ -267,11 +358,24 @@ export class DocxBuilder {
     }
 
     if (tag === "BLOCKQUOTE") {
-      // House format: a quote is an ordinary paragraph. No bar, no indent, no
-      // italic — in a Word document that is what it is. GFM alerts
-      // (`> [!NOTE]`) keep their title, which comrak has already turned into a
-      // <p class="markdown-alert-title">, so the label survives as bold text.
-      await this.blockChildren(el, indent);
+      // House format: a quote is a note — 10pt italic grey, indented 0.25in,
+      // no bar. Several paragraphs inside one quote sit 3pt apart; the last
+      // takes the normal 6pt. GFM alerts (`> [!NOTE]`) keep their title, which
+      // comrak has already turned into a <p class="markdown-alert-title">.
+      const paras = Array.from(el.children) as HTMLElement[];
+      for (let i = 0; i < paras.length; i++) {
+        const p = paras[i];
+        if (p.tagName === "UL" || p.tagName === "OL" || p.tagName === "TABLE" || p.tagName === "PRE") {
+          await this.block(p, indent + LIST_STEP);
+          continue;
+        }
+        const runs = await this.children(p, {});
+        const after = i === paras.length - 1 ? PARA_AFTER : 3 * PT;
+        const left = indent + LIST_STEP;
+        this.out.push(
+          this.para(runs, `<w:pPr><w:pStyle w:val="Note"/><w:spacing w:after="${after}"/><w:ind w:left="${left}"/></w:pPr>`),
+        );
+      }
       return;
     }
 
@@ -291,7 +395,7 @@ export class DocxBuilder {
         const runs = await this.children(child, isTerm ? { b: true } : {});
         const childIndent = isTerm ? indent : indent + LIST_STEP;
         this.out.push(
-          this.para(runs, `<w:pPr><w:ind w:left="${childIndent}"/><w:spacing w:after="${isTerm ? 0 : 8 * PT}"/></w:pPr>`),
+          this.para(runs, `<w:pPr><w:ind w:left="${childIndent}"/><w:spacing w:after="${isTerm ? 0 : PARA_AFTER}"/></w:pPr>`),
         );
       }
       return;
@@ -323,8 +427,9 @@ export class DocxBuilder {
       numId = this.orderedStarts.length + 1; // numId 1 is the shared bullet list
     }
 
-    for (const li of Array.from(el.children)) {
-      if (li.tagName !== "LI") continue;
+    const items = Array.from(el.children).filter((c) => c.tagName === "LI");
+    for (let idx = 0; idx < items.length; idx++) {
+      const li = items[idx];
 
       // Split the item: its own inline content becomes the numbered paragraph,
       // nested lists recurse, and any other block (a code fence, a table) is
@@ -356,10 +461,16 @@ export class DocxBuilder {
       let runs = "";
       for (const n of inlineNodes) runs += await this.inline(n, {});
       const indAttr = baseIndent > 0 ? `<w:ind w:left="${baseIndent}"/>` : "";
+      // 3pt between items (the style's default); the last item of a top-level
+      // list that has no nested blocks after it takes the paragraph's 6pt.
+      const isLast = idx === items.length - 1;
+      const spacing = level === 0 && isLast && blockNodes.length === 0
+        ? `<w:spacing w:after="${PARA_AFTER}"/>`
+        : "";
       this.out.push(
         this.para(
           runs,
-          `<w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="${Math.min(level, 8)}"/><w:numId w:val="${numId}"/></w:numPr>${indAttr}</w:pPr>`,
+          `<w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="${Math.min(level, 8)}"/><w:numId w:val="${numId}"/></w:numPr>${spacing}${indAttr}</w:pPr>`,
         ),
       );
 
@@ -379,12 +490,37 @@ export class DocxBuilder {
     const cols = Math.max(...rows.map((r) => r.children.length));
     if (cols === 0) return;
 
-    // Fixed layout with an even split. `auto` lets Word re-measure against the
-    // cells' content, which for a table of long paths produces one 6in column
-    // and five slivers — the same failure the reader's own tables had in v0.8.
-    const total = Math.round(COLUMN_INCHES * INCH);
-    const colW = Math.floor(total / cols);
-    const grid = Array.from({ length: cols }, () => `<w:gridCol w:w="${colW}"/>`).join("");
+    // Fixed layout. `auto` lets Word re-measure against the cells' content,
+    // which for a table of long paths produces one 6in column and five
+    // slivers — the same failure the reader's own tables had in v0.8.
+    //
+    // Widths: a `<!-- widths: … -->` comment above the table, in inches,
+    // scaled to the table width if they do not add up. Otherwise equal.
+    const total = TABLE_WIDTH;
+    let widths: number[];
+    const declared = this.pendingWidths;
+    this.pendingWidths = null;
+    if (declared && declared.length === cols) {
+      const sum = declared.reduce((a, b) => a + b, 0);
+      widths = declared.map((w) => Math.round((w / sum) * total));
+    } else {
+      widths = Array.from({ length: cols }, () => Math.floor(total / cols));
+    }
+    // Rounding drift goes to the last column so the grid sums to the width.
+    widths[cols - 1] += total - widths.reduce((a, b) => a + b, 0);
+    const grid = widths.map((w) => `<w:gridCol w:w="${w}"/>`).join("");
+
+    // A column whose every body cell is a number is right-aligned.
+    const numeric = Array.from({ length: cols }, (_, c) =>
+      rows
+        .filter((r) => r.closest("thead") === null)
+        .every((r) => {
+          const t = (r.children[c]?.textContent ?? "").trim();
+          // One decimal point at most, so "2.7.6" (an ID) is text, "1,250.5%" a number.
+          return t === "" || /^[-+−]?\d[\d,]*(\.\d+)?%?$/.test(t) || /^[$£€₹]\s?\d[\d,]*(\.\d+)?[kKmMbB]?$/.test(t);
+        }),
+    );
+    const anyBodyRow = rows.some((r) => r.closest("thead") === null);
 
     const body: string[] = [];
     for (const tr of rows) {
@@ -392,13 +528,19 @@ export class DocxBuilder {
       const cells: string[] = [];
       for (let c = 0; c < cols; c++) {
         const td = tr.children[c] as HTMLElement | undefined;
-        const runs = td ? await this.children(td, isHead ? { b: true } : {}) : "";
+        const style: RunStyle = isHead
+          ? { sz: SMALL_SZ, b: true, color: "FFFFFF" }
+          : { sz: SMALL_SZ };
+        const runs = td ? await this.children(td, style) : "";
         const align = td?.getAttribute("align") ?? td?.style.textAlign ?? "";
-        const jc = align === "center" || align === "right"
-          ? `<w:jc w:val="${align}"/>`
-          : "";
+        const want = align === "center" || align === "right"
+          ? align
+          : !isHead && anyBodyRow && numeric[c] ? "right" : "";
+        // Header: black fill, white bold text (the colour rides on the runs —
+        // cell shading alone does not recolour text).
+        const shd = isHead ? '<w:shd w:val="clear" w:color="auto" w:fill="000000"/>' : "";
         cells.push(
-          `<w:tc><w:tcPr><w:tcW w:w="${colW}" w:type="dxa"/>${isHead ? '<w:shd w:val="clear" w:color="auto" w:fill="F2F2F0"/>' : ""}</w:tcPr><w:p><w:pPr><w:spacing w:after="${2 * PT}" w:line="240" w:lineRule="auto"/>${jc}</w:pPr>${runs}</w:p></w:tc>`,
+          `<w:tc><w:tcPr><w:tcW w:w="${widths[c]}" w:type="dxa"/>${shd}</w:tcPr><w:p><w:pPr><w:spacing w:before="0" w:after="${2 * PT}" w:line="240" w:lineRule="auto"/><w:jc w:val="${want || "left"}"/></w:pPr>${runs}</w:p></w:tc>`,
         );
       }
       // `tblHeader` is what makes a long table repeat its header on every page.
@@ -406,12 +548,14 @@ export class DocxBuilder {
       body.push(`<w:tr>${trPr}${cells.join("")}</w:tr>`);
     }
 
+    // The table reaches 0.3in into the left margin — its left edge lines up
+    // with the line numbers, its right edge with the text.
     this.out.push(
-      `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${total}" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${body.join("")}</w:tbl>`,
+      `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${total}" w:type="dxa"/><w:tblInd w:w="${-TABLE_OUTDENT}" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${body.join("")}</w:tbl>`,
     );
-    // Word merges two tables that touch. An empty paragraph between them is the
-    // standard separator, and it also gives the cursor somewhere to land.
-    this.out.push(this.para("", `<w:pPr><w:spacing w:after="${4 * PT}"/></w:pPr>`));
+    // Word merges two tables that touch. A near-zero-height paragraph between
+    // them is the standard separator; its 6pt after is the table's gap.
+    this.out.push(this.para("", `<w:pPr><w:suppressLineNumbers/><w:spacing w:before="0" w:after="${PARA_AFTER}" w:line="240" w:lineRule="auto"/><w:rPr><w:sz w:val="4"/></w:rPr></w:pPr>`));
   }
 
   result(): BuildResult {
@@ -423,6 +567,45 @@ export class DocxBuilder {
       skippedImages: this.skippedImages,
     };
   }
+}
+
+/**
+ * Image size from the file's own header. The DOM probe below cannot load a
+ * relative path from a detached document (it resolves against the app, not
+ * the markdown file), so before this every relative image exported at the
+ * 480×320 fallback with the wrong aspect ratio. PNG, JPEG, GIF and BMP are
+ * read here; anything else falls back to the probe.
+ */
+function sizeFromBytes(data: Uint8Array, ext: string): { w: number; h: number } | null {
+  const be32 = (o: number) => ((data[o] << 24) | (data[o + 1] << 16) | (data[o + 2] << 8) | data[o + 3]) >>> 0;
+  const le16 = (o: number) => data[o] | (data[o + 1] << 8);
+  const le32 = (o: number) => (data[o] | (data[o + 1] << 8) | (data[o + 2] << 16) | (data[o + 3] << 24)) >>> 0;
+  try {
+    if (ext === "png" && data.length > 24 && data[0] === 0x89 && data[1] === 0x50) {
+      return { w: be32(16), h: be32(20) };
+    }
+    if (ext === "gif" && data.length > 10 && data[0] === 0x47 && data[1] === 0x49) {
+      return { w: le16(6), h: le16(8) };
+    }
+    if (ext === "bmp" && data.length > 26 && data[0] === 0x42 && data[1] === 0x4d) {
+      return { w: le32(18), h: Math.abs(le32(22) | 0) };
+    }
+    if (ext === "jpeg" && data.length > 4 && data[0] === 0xff && data[1] === 0xd8) {
+      // Walk the segments to the first SOFn (C0–CF except C4, C8, CC).
+      let o = 2;
+      while (o + 9 < data.length) {
+        if (data[o] !== 0xff) { o += 1; continue; }
+        const marker = data[o + 1];
+        if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { o += 2; continue; }
+        const len = (data[o + 2] << 8) | data[o + 3];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { w: (data[o + 7] << 8) | data[o + 8], h: (data[o + 5] << 8) | data[o + 6] };
+        }
+        o += 2 + len;
+      }
+    }
+  } catch { /* malformed header: let the probe decide */ }
+  return null;
 }
 
 /** Decode just far enough to learn an image's intrinsic size. */

@@ -300,6 +300,26 @@
       </div>
     </fieldset>
 
+    <h3 class="group-head">Word export</h3>
+
+    <fieldset class="notes-group">
+      <legend><span>Page preview &amp; .docx</span></legend>
+      <p class="hint smart-hint">
+        A4, 0.75in side margins, Calibri Light 11, line numbers, "Page X of Y"
+        in the footer. The text below sits on the left of every footer.
+      </p>
+      <label>
+        <span>Footer text</span>
+        <input
+          type="text"
+          class="text-input"
+          placeholder="e.g. Company Confidential — leave empty for none"
+          value={settings.s.docxFooter}
+          oninput={(e) => settings.set("docxFooter", (e.currentTarget as HTMLInputElement).value)}
+        />
+      </label>
+    </fieldset>
+
     <h3 class="group-head">Updates</h3>
 
     <UpdatePanel title="Fox MD" />

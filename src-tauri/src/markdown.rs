@@ -14,6 +14,8 @@ static SEPIA_ADAPTER: Lazy<SyntectAdapter> =
     Lazy::new(|| SyntectAdapter::new(Some("Solarized (light)")));
 
 pub fn render(source: &str, theme: &str) -> String {
+    let source = highlight_to_mark(source);
+    let source = source.as_str();
     let mut extension = ExtensionOptions::default();
     extension.strikethrough = true;
     extension.table = true;
@@ -76,4 +78,130 @@ pub fn render(source: &str, theme: &str) -> String {
     plugins.render.codefence_syntax_highlighter = Some(adapter);
 
     markdown_to_html_with_plugins(source, &options, &plugins)
+}
+
+/// `==text==` → `<mark>text</mark>`, the common "highlight" extension comrak
+/// does not ship (v0.43). It is the reviewer-check marker in the house document
+/// format: an author marks their own inference, the reviewer strips it.
+///
+/// A pre-pass over the source rather than a comrak extension, so one rule
+/// serves the reader, the page preview and the `.docx` export alike. It leaves
+/// fenced code blocks and inline code spans alone, and only opens on `==`
+/// followed by a non-space, closing on `==` preceded by one — so `a == b` in
+/// prose is untouched. Line count is preserved, which `sourcepos` depends on;
+/// columns on a marked line shift, which nothing depends on.
+fn highlight_to_mark(source: &str) -> String {
+    if !source.contains("==") {
+        return source.to_string();
+    }
+    let mut out = String::with_capacity(source.len() + 64);
+    let mut fence: Option<String> = None;
+    for (i, line) in source.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let trimmed = line.trim_start();
+        if let Some(f) = &fence {
+            out.push_str(line);
+            if trimmed.starts_with(f.as_str()) {
+                fence = None;
+            }
+            continue;
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            let ch = trimmed.chars().next().unwrap_or('`');
+            let n = trimmed.chars().take_while(|c| *c == ch).count();
+            fence = Some(std::iter::repeat(ch).take(n).collect());
+            out.push_str(line);
+            continue;
+        }
+        mark_line(line, &mut out);
+    }
+    out
+}
+
+/// One line of `highlight_to_mark`. Works on bytes: every delimiter it looks
+/// for is ASCII, so each index it slices at is a char boundary.
+fn mark_line(line: &str, out: &mut String) {
+    let b = line.as_bytes();
+    let n = b.len();
+    let mut start = 0;
+    let mut i = 0;
+    while i < n {
+        if b[i] == b'`' {
+            // Copy an inline code span verbatim: a run of k backticks closed by
+            // the next run of exactly k.
+            let k = b[i..].iter().take_while(|c| **c == b'`').count();
+            let mut j = i + k;
+            let mut closed = None;
+            while j < n {
+                if b[j] == b'`' {
+                    let m = b[j..].iter().take_while(|c| **c == b'`').count();
+                    if m == k {
+                        closed = Some(j + m);
+                        break;
+                    }
+                    j += m;
+                } else {
+                    j += 1;
+                }
+            }
+            i = closed.unwrap_or(n);
+            continue;
+        }
+        if b[i] == b'=' && i + 2 < n && b[i + 1] == b'=' && b[i + 2] != b'=' && !b[i + 2].is_ascii_whitespace() {
+            // Find the closing `==`: preceded by a non-space, not followed by
+            // a third `=`, and no backtick in between.
+            let mut j = i + 3;
+            let mut end = None;
+            while j + 1 < n {
+                if b[j] == b'`' {
+                    break;
+                }
+                if b[j] == b'=' && b[j + 1] == b'=' && !b[j - 1].is_ascii_whitespace() && (j + 2 >= n || b[j + 2] != b'=') {
+                    end = Some(j);
+                    break;
+                }
+                j += 1;
+            }
+            if let Some(j) = end {
+                out.push_str(&line[start..i]);
+                out.push_str("<mark>");
+                out.push_str(&line[i + 2..j]);
+                out.push_str("</mark>");
+                i = j + 2;
+                start = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out.push_str(&line[start..]);
+}
+
+#[cfg(test)]
+mod highlight_tests {
+    use super::highlight_to_mark;
+
+    #[test]
+    fn marks_plain_span() {
+        assert_eq!(highlight_to_mark("a ==b c== d"), "a <mark>b c</mark> d");
+    }
+
+    #[test]
+    fn leaves_comparison_alone() {
+        assert_eq!(highlight_to_mark("if a == b then"), "if a == b then");
+    }
+
+    #[test]
+    fn skips_inline_code_and_fences() {
+        let src = "x `==y==` z\n```\n==in fence==\n```\n==out==";
+        assert_eq!(src.matches('\n').count(), highlight_to_mark(src).matches('\n').count());
+        assert_eq!(highlight_to_mark(src), "x `==y==` z\n```\n==in fence==\n```\n<mark>out</mark>");
+    }
+
+    #[test]
+    fn unicode_inside_span() {
+        assert_eq!(highlight_to_mark("==₹3.2L=="), "<mark>₹3.2L</mark>");
+    }
 }
