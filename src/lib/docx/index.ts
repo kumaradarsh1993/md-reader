@@ -21,20 +21,19 @@ import {
   APP_PROPS,
   PACKAGE_RELS,
   SETTINGS,
-  STYLES,
   contentTypes,
   coreProps,
   documentRels,
   documentXml,
   footerXml,
+  headerXml,
   numbering,
+  styles,
 } from "./parts";
+import { prepareHeadings, resolveFormat, type FormatOptions } from "./format";
 
-export interface DocxOptions {
-  /** Left-hand footer text on every page, e.g. "Amazon Confidential". Empty
-   *  leaves only the page numbers. */
-  footer?: string;
-}
+/** Body size, margins and footer text. See `format.ts`. */
+export type DocxOptions = Partial<FormatOptions>;
 
 export interface DocxResult {
   bytes: Uint8Array;
@@ -126,8 +125,12 @@ export async function buildDocx(
   // blocks, so the choice is irrelevant beyond being deterministic.
   const html = await api.renderMarkdown(source, "light");
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const f = resolveFormat(options);
+  // The `#` title leaves the body for the page header, and the sections get
+  // their numbers. Same function the preview uses.
+  const { title: headerTitle } = prepareHeadings(doc.body);
 
-  const builder = new DocxBuilder(makeImageResolver(basePath));
+  const builder = new DocxBuilder(makeImageResolver(basePath), f);
   // childNodes, not children: an HTML comment (`<!-- widths: … -->` above a
   // table) is a node but not an element, and it carries layout.
   for (const node of Array.from(doc.body.childNodes)) {
@@ -146,12 +149,13 @@ export async function buildDocx(
     { name: "_rels/.rels", data: utf8(PACKAGE_RELS) },
     { name: "docProps/core.xml", data: utf8(coreProps(title, now)) },
     { name: "docProps/app.xml", data: utf8(APP_PROPS) },
-    { name: "word/document.xml", data: utf8(documentXml(built.body)) },
+    { name: "word/document.xml", data: utf8(documentXml(built.body, f)) },
     { name: "word/_rels/document.xml.rels", data: utf8(documentRels(built.rels)) },
-    { name: "word/styles.xml", data: utf8(STYLES) },
-    { name: "word/numbering.xml", data: utf8(numbering(built.orderedStarts)) },
+    { name: "word/styles.xml", data: utf8(styles(f)) },
+    { name: "word/numbering.xml", data: utf8(numbering(built.orderedStarts, f)) },
     { name: "word/settings.xml", data: utf8(SETTINGS) },
-    { name: "word/footer1.xml", data: utf8(footerXml(options.footer ?? "")) },
+    { name: "word/header1.xml", data: utf8(headerXml(headerTitle || title)) },
+    { name: "word/footer1.xml", data: utf8(footerXml(f.footer)) },
     ...built.media.map((m) => ({ name: `word/media/${m.name}`, data: m.data })),
   ];
 

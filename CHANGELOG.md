@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.13.0-nightly.3 - 2026-10-30
+
+### Changed - the house format, second pass, after reading a real document in it
+
+- **Body text is 10pt** by default (was 11). Title, tables, notes and footer
+  follow it: title +1, tables and notes −1, footer −2.
+- **The `#` title goes in the page header**, with its rule, on every page.
+  The body starts at the first `##`, which is now the document's first tier,
+  as in the documents this format copies.
+- **Sections are numbered.** `##` becomes "1.", "2.", … with a tab after the
+  number; `###` becomes "3.1", "3.2", … with a space. A number the author
+  typed by hand is removed first, so "## 3.1 Trending" does not come out
+  "3.1 3.1 Trending". "Appendix A" headings keep their letter and get no number.
+- **Margins are a preset:** narrow (0.5in sides), house (0.7in, the default,
+  down from 0.75), wide (1in). Top and bottom follow.
+- **Size and margins are controls on the Page preview bar**, beside the zoom,
+  and in Settings > Word export. They are the same setting, so the export
+  uses what the preview showed.
+- **Pinch to zoom in the Page preview** follows the fingers (⌘+wheel on a
+  mouse), with a short transition between frames. ⌘0 resets to 100%.
+
+### Fixed
+
+- **Tables were clipped at the left text edge** in the Page preview. They reach
+  0.3in into the margin by design; the page window now shows that strip.
+- **A table row could be cut across a page break** in the preview. Rows, and a
+  figure with its caption, are never split now.
+- **Figures showed as an empty box** in the preview when the image path was
+  relative. The preview now resolves paths the same way the reader does.
+- **Escape leaves fullscreen** when the window was made fullscreen with the
+  green button rather than Focus mode. The top-edge toolbar peek band in
+  Focus mode is 12px, not 4, so it is reachable under the macOS menu bar.
+- **The empty title bar above the toolbar is gone on macOS.** The window uses
+  an overlay title bar: the traffic lights sit in the toolbar row, which is
+  the drag handle.
+
 ## 0.13.0-nightly.2 - 2026-10-30
 
 ### Changed - Page preview and Word export follow the house format

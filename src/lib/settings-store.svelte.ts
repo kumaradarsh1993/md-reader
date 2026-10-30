@@ -149,6 +149,11 @@ export interface AppSettings {
   /** Left-hand footer text on every exported page ("Amazon Confidential" in
    *  the house that asked for the format). Empty leaves only "Page X of Y". */
   docxFooter: string;
+  /** Body text size for the page preview and export, 9 to 12 pt. Everything
+   *  else (title, tables, notes, footer) is derived from it. */
+  docxBodyPt: number;
+  /** Margin preset: narrow, house (0.7in sides) or wide (1in). */
+  docxMargins: "narrow" | "house" | "wide";
   // ─── Handover (v0.11.0+) ─────────────────────────────────────────
   /** Publish this machine's open documents so your phone can pick them up.
    *  Independent of being signed in: signing in for one machine should not
@@ -249,6 +254,8 @@ const DEFAULTS: AppSettings = {
   authorName: "",
   defaultHighlightColor: "yellow",
   docxFooter: "",
+  docxBodyPt: 10,
+  docxMargins: "house",
   panelCollapsed: false,
   panelSplit: 0.45,
   panelHoverPeek: true,

@@ -16,20 +16,8 @@
  * up view-only decoration — diff highlights, Theatre spans, heading anchors.
  */
 
-import {
-  BODY_SZ,
-  COLUMN_INCHES,
-  EMU_PER_INCH,
-  GREY_RULE,
-  LIST_STEP,
-  PARA_AFTER,
-  PT,
-  SMALL_SZ,
-  TABLE_OUTDENT,
-  TABLE_WIDTH,
-  xmlEscape,
-  type DocRel,
-} from "./parts";
+import { EMU_PER_INCH, GREY_RULE, PT, xmlEscape, type DocRel } from "./parts";
+import { sz, type Format } from "./format";
 
 export interface MediaFile {
   /** File name inside `word/media/`. */
@@ -92,7 +80,12 @@ export class DocxBuilder {
    *  until the next table consumes them. */
   private pendingWidths: number[] | null = null;
 
-  constructor(private resolveImage: ImageResolver) {}
+  constructor(private resolveImage: ImageResolver, private f: Format) {}
+
+  // Short names for the format values the walk uses on every block.
+  private get step() { return this.f.listStepTwips; }
+  private get after() { return this.f.paraAfterTwips; }
+  private get small() { return sz(this.f.smallPt); }
 
   private nextRelId(): string {
     this.relSeq += 1;
@@ -243,7 +236,7 @@ export class DocxBuilder {
     }
     // Fit the text column, never upscale. EMU is 1/914400 in; the DOM reports
     // CSS pixels, which are 1/96 in by definition.
-    const wIn = Math.min(COLUMN_INCHES, (dims.w || 480) / 96);
+    const wIn = Math.min(this.f.columnIn, (dims.w || 480) / 96);
     const scale = dims.w ? wIn / (dims.w / 96) : 1;
     const hIn = ((dims.h || 320) / 96) * scale;
     const cx = Math.round(wIn * EMU_PER_INCH);
@@ -267,7 +260,7 @@ export class DocxBuilder {
     this.out.push(
       this.para(
         run,
-        `<w:pPr><w:keepNext/><w:spacing w:before="${6 * PT}" w:after="${alt && embedded ? 3 * PT : PARA_AFTER}"/><w:jc w:val="center"/></w:pPr>`,
+        `<w:pPr><w:keepNext/><w:spacing w:before="${6 * PT}" w:after="${alt && embedded ? 3 * PT : this.after}"/><w:jc w:val="center"/></w:pPr>`,
       ),
     );
     if (alt && embedded) {
@@ -313,9 +306,23 @@ export class DocxBuilder {
     const ind = indent > 0 ? `<w:ind w:left="${indent}"/>` : "";
 
     if (/^H[1-6]$/.test(tag)) {
+      // `prepareHeadings` has already removed the `#` title (it is in the page
+      // header) and prefixed each `##`/`###` with a `.hnum` span. A `##` is the
+      // document's first tier, so it takes Word's Heading 1; `###` and deeper
+      // take Heading 2. A stray `<h1>` left in the body (an `h1` after the
+      // first) is treated as a section too.
       const level = +tag[1];
-      const runs = await this.children(el, {});
-      this.out.push(this.para(runs, `<w:pPr><w:pStyle w:val="Heading${level}"/>${ind}</w:pPr>`));
+      const styleLevel = level <= 2 ? 1 : 2;
+      let runs = "";
+      for (const child of Array.from(el.childNodes)) {
+        if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).classList.contains("hnum")) {
+          const sep = (child as HTMLElement).getAttribute("data-sep") === "tab" ? "<w:r><w:tab/></w:r>" : this.textRun(" ", {});
+          runs += this.textRun(child.textContent ?? "", {}) + sep;
+          continue;
+        }
+        runs += await this.inline(child, {});
+      }
+      this.out.push(this.para(runs, `<w:pPr><w:pStyle w:val="Heading${styleLevel}"/>${ind}</w:pPr>`));
       return;
     }
 
@@ -366,12 +373,12 @@ export class DocxBuilder {
       for (let i = 0; i < paras.length; i++) {
         const p = paras[i];
         if (p.tagName === "UL" || p.tagName === "OL" || p.tagName === "TABLE" || p.tagName === "PRE") {
-          await this.block(p, indent + LIST_STEP);
+          await this.block(p, indent + this.step);
           continue;
         }
         const runs = await this.children(p, {});
-        const after = i === paras.length - 1 ? PARA_AFTER : 3 * PT;
-        const left = indent + LIST_STEP;
+        const after = i === paras.length - 1 ? this.after : 3 * PT;
+        const left = indent + this.step;
         this.out.push(
           this.para(runs, `<w:pPr><w:pStyle w:val="Note"/><w:spacing w:after="${after}"/><w:ind w:left="${left}"/></w:pPr>`),
         );
@@ -393,9 +400,9 @@ export class DocxBuilder {
       for (const child of Array.from(el.children)) {
         const isTerm = child.tagName === "DT";
         const runs = await this.children(child, isTerm ? { b: true } : {});
-        const childIndent = isTerm ? indent : indent + LIST_STEP;
+        const childIndent = isTerm ? indent : indent + this.step;
         this.out.push(
-          this.para(runs, `<w:pPr><w:ind w:left="${childIndent}"/><w:spacing w:after="${isTerm ? 0 : PARA_AFTER}"/></w:pPr>`),
+          this.para(runs, `<w:pPr><w:ind w:left="${childIndent}"/><w:spacing w:after="${isTerm ? 0 : this.after}"/></w:pPr>`),
         );
       }
       return;
@@ -465,7 +472,7 @@ export class DocxBuilder {
       // list that has no nested blocks after it takes the paragraph's 6pt.
       const isLast = idx === items.length - 1;
       const spacing = level === 0 && isLast && blockNodes.length === 0
-        ? `<w:spacing w:after="${PARA_AFTER}"/>`
+        ? `<w:spacing w:after="${this.after}"/>`
         : "";
       this.out.push(
         this.para(
@@ -478,7 +485,7 @@ export class DocxBuilder {
         if (b.tagName === "UL" || b.tagName === "OL") {
           await this.list(b, level + 1, baseIndent);
         } else {
-          await this.block(b, baseIndent + (level + 1) * LIST_STEP);
+          await this.block(b, baseIndent + (level + 1) * this.step);
         }
       }
     }
@@ -496,7 +503,7 @@ export class DocxBuilder {
     //
     // Widths: a `<!-- widths: … -->` comment above the table, in inches,
     // scaled to the table width if they do not add up. Otherwise equal.
-    const total = TABLE_WIDTH;
+    const total = this.f.tableWidthTwips;
     let widths: number[];
     const declared = this.pendingWidths;
     this.pendingWidths = null;
@@ -529,8 +536,8 @@ export class DocxBuilder {
       for (let c = 0; c < cols; c++) {
         const td = tr.children[c] as HTMLElement | undefined;
         const style: RunStyle = isHead
-          ? { sz: SMALL_SZ, b: true, color: "FFFFFF" }
-          : { sz: SMALL_SZ };
+          ? { sz: this.small, b: true, color: "FFFFFF" }
+          : { sz: this.small };
         const runs = td ? await this.children(td, style) : "";
         const align = td?.getAttribute("align") ?? td?.style.textAlign ?? "";
         const want = align === "center" || align === "right"
@@ -551,11 +558,11 @@ export class DocxBuilder {
     // The table reaches 0.3in into the left margin — its left edge lines up
     // with the line numbers, its right edge with the text.
     this.out.push(
-      `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${total}" w:type="dxa"/><w:tblInd w:w="${-TABLE_OUTDENT}" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${body.join("")}</w:tbl>`,
+      `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="${total}" w:type="dxa"/><w:tblInd w:w="${-this.f.tableOutdentTwips}" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${grid}</w:tblGrid>${body.join("")}</w:tbl>`,
     );
     // Word merges two tables that touch. A near-zero-height paragraph between
     // them is the standard separator; its 6pt after is the table's gap.
-    this.out.push(this.para("", `<w:pPr><w:suppressLineNumbers/><w:spacing w:before="0" w:after="${PARA_AFTER}" w:line="240" w:lineRule="auto"/><w:rPr><w:sz w:val="4"/></w:rPr></w:pPr>`));
+    this.out.push(this.para("", `<w:pPr><w:suppressLineNumbers/><w:spacing w:before="0" w:after="${this.after}" w:line="240" w:lineRule="auto"/><w:rPr><w:sz w:val="4"/></w:rPr></w:pPr>`));
   }
 
   result(): BuildResult {
@@ -623,5 +630,3 @@ function naturalSize(img: HTMLImageElement): Promise<{ w: number; h: number }> {
   });
 }
 
-/** Body text size in half-points — re-exported so callers don't import parts. */
-export const DEFAULT_SZ = BODY_SZ;

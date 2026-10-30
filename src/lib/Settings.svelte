@@ -305,9 +305,22 @@
     <fieldset class="notes-group">
       <legend><span>Page preview &amp; .docx</span></legend>
       <p class="hint smart-hint">
-        A4, 0.75in side margins, Calibri Light 11, line numbers, "Page X of Y"
-        in the footer. The text below sits on the left of every footer.
+        A4, Calibri Light, line numbers, the document title in the page header,
+        numbered sections and "Page X of Y" in the footer. Size and margins can
+        also be changed from the Page preview bar.
       </p>
+      <div class="presets">
+        <span class="swatch-label">Body size</span>
+        {#each [9, 10, 11, 12] as pt (pt)}
+          <button type="button" class:active={settings.s.docxBodyPt === pt} onclick={() => settings.set("docxBodyPt", pt)}>{pt} pt</button>
+        {/each}
+      </div>
+      <div class="presets">
+        <span class="swatch-label">Margins</span>
+        <button type="button" class:active={settings.s.docxMargins === "narrow"} onclick={() => settings.set("docxMargins", "narrow")}>Narrow</button>
+        <button type="button" class:active={settings.s.docxMargins === "house"} onclick={() => settings.set("docxMargins", "house")}>House</button>
+        <button type="button" class:active={settings.s.docxMargins === "wide"} onclick={() => settings.set("docxMargins", "wide")}>Wide</button>
+      </div>
       <label>
         <span>Footer text</span>
         <input

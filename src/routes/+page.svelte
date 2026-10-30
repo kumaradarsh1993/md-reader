@@ -489,7 +489,11 @@
     exportState = { phase: "working", note: "Building document…" };
     try {
       const { exportDocx } = await import("$lib/docx");
-      const skipped = await exportDocx(active.source, stem, name, target, { footer: settings.s.docxFooter });
+      const skipped = await exportDocx(active.source, stem, name, target, {
+        footer: settings.s.docxFooter,
+        bodyPt: settings.s.docxBodyPt,
+        margins: settings.s.docxMargins,
+      });
       const file = target.split(/[\\/]/).pop() ?? "document.docx";
       flashExport(
         "done",
@@ -600,7 +604,9 @@
   const FOCUS_KEY = isMac ? "⌃⌘F" : "F11";
 
   /** Pointer within this many px of the top edge re-reveals the toolbar. */
-  const FOCUS_PEEK_PX = 4;
+  // 12, not 4: in macOS fullscreen the top couple of pixels belong to the
+  // system menu bar reveal, so a 4px band was nearly unreachable.
+  const FOCUS_PEEK_PX = 12;
   /** …and it stays down until the pointer drops below this, so the toolbar
    *  doesn't flicker away the moment you move toward the button you wanted. */
   const FOCUS_PEEK_RELEASE_PX = 52;
@@ -780,6 +786,13 @@
         // Escape should never drop you out of it while a dialog was what you
         // meant to close.
         focus.exit();
+      } else if (!previewOpen) {
+        // The window may be fullscreen without focus mode being on: the macOS
+        // green button does that, and then nothing in the app knew. Escape
+        // brings it back, the same as it does for focus mode. Skipped while
+        // the page preview is open, because Escape there closes the preview
+        // first (its own listener); the next Escape reaches this branch.
+        focus.exitNativeFullscreenIfAny();
       }
     }
   }
@@ -800,6 +813,20 @@
     // should be able to be cancelled by it.
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointermove", onPointerMove);
+
+    // `data-fullscreen` on <html>: the toolbar's traffic-light gutter reads it
+    // (the lights hide in fullscreen, so the gap would be a hole). Polled on
+    // resize rather than subscribed, because the green button bypasses every
+    // code path of ours and a resize is the one signal it always produces.
+    const syncFullscreen = async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const fs = await getCurrentWindow().isFullscreen();
+        document.documentElement.dataset.fullscreen = fs ? "true" : "false";
+      } catch { /* plain browser */ }
+    };
+    void syncFullscreen();
+    window.addEventListener("resize", syncFullscreen);
 
     // Kill the WebView's own page menu app-wide, once, in the capture phase.
     // Components that want a real menu call contextMenu.open(), which itself
@@ -981,6 +1008,7 @@
     class:mac={isMac}
     class:focus-hidden={focus.active}
     class:focus-peek={focus.active && focus.peeking}
+    data-tauri-drag-region
   >
     <div class="left">
       <!-- Leftmost, ahead of the File menu: this button governs the whole
@@ -1161,7 +1189,7 @@
         class:on={previewOpen}
         disabled={!active}
         onclick={() => (previewOpen = !previewOpen)}
-        title={`Page preview — how this reads as a document: US Letter, 1in margins, Calibri Light 11pt, line numbers (${sk("Mod", "Shift", "P")})`}
+        title={`Page preview — how this reads as a Word document: A4, house margins, Calibri Light, line numbers (${sk("Mod", "Shift", "P")})`}
         aria-label="Page preview"
         aria-pressed={previewOpen}
       ><Icon name="file-page" size={18} /></button>
@@ -1293,6 +1321,10 @@
           onExport={exportWord}
           exporting={exportState.phase === "working"}
           footer={settings.s.docxFooter}
+          bodyPt={settings.s.docxBodyPt}
+          margins={settings.s.docxMargins}
+          onBodyPt={(pt) => settings.set("docxBodyPt", pt)}
+          onMargins={(m) => settings.set("docxMargins", m)}
         />
       {:else if mode === "edit" && settings.s.editorMode === "smart"}
         <SmartEditor source={active.source} onChange={onEditorChange} onSave={save} />
@@ -1839,13 +1871,15 @@
     position: relative;
     z-index: 3;
   }
-  /* No macOS traffic-light gutter here, deliberately. The window keeps
-     `decorations: true`, so on macOS the traffic lights live in a real native
-     title bar *above* this toolbar and never overlap it — reserving 68px
-     would just open an empty hole at the left of the toolbar on the one
-     platform that doesn't need it. If the window is ever switched to an
-     overlay/unified title bar, that padding comes back with it, not before.
-     `isMac` is still used, for shortcut *labels* (⌘ vs Ctrl). */
+  /* macOS traffic-light gutter. The window uses Tauri's overlay title bar
+     (`titleBarStyle: Overlay`, `hiddenTitle: true` in tauri.conf.json), so
+     the three lights sit *inside* this row at the left and the empty native
+     bar above it is gone. 78px clears them with the same breathing room
+     Finder and Safari give. In native fullscreen the lights are hidden, so
+     the gutter goes too. `titleBarStyle` is ignored on Windows and Linux,
+     where the native bar stays and `.mac` is not set. */
+  .toolbar.mac { padding-left: 78px; }
+  :global(html[data-fullscreen="true"]) .toolbar.mac { padding-left: .6rem; }
 
   /* Mark all interactive zones as no-drag so click events reach buttons.
      The .middle (centered title) stays as the drag-region. */

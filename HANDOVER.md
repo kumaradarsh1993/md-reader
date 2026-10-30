@@ -9,6 +9,42 @@
 > highlight/comment now properly separated (see the first entry in
 > `docs/DECISIONS.md`).
 
+## 2026-10-30 (later) — second pass on the format, after Rahul's OP1 went through it
+
+**v0.13.0-nightly.3.** The owner opened a real 9,000-word document in Page
+preview and listed what was off. Changes: `docx/format.ts` is now the single
+source (a `Format` object; `parts.ts`, `build.ts` and `WordPreview.svelte` all
+read it), body 10pt, `#` title in the page header (`header1.xml`), numbered
+sections via `prepareHeadings` (shared by preview and export), margin presets,
+preview knobs for size and margins, continuous pinch zoom.
+
+Traps:
+
+- **`prepareHeadings` runs on the parsed DOM before the walk**, in both the
+  preview and `buildDocx`. It removes the first `<h1>` and prefixes
+  `.hnum` spans. The exporter maps `h2` → Word Heading 1 and `h3+` → Heading 2,
+  because the title is no longer in the body. A document with no `#` gets an
+  empty header; the export then falls back to the file stem for `dc:title`.
+- **Row-splitting fix:** `measure()` records atomic ranges (each `tr`, each
+  figure + caption) and refuses a break inside one. A row taller than a page
+  still hard-cuts, as before.
+- **Table clipping fix:** `.wp-window` is widened by the outdent on the left
+  (negative margin + padding) and clips only vertically.
+- **Preview images:** the preview used `window.__TAURI_INTERNALS__.convertFileSrc`
+  directly, which is not where that function lives in Tauri 2 (it is an API
+  import). Hence the empty figure box. Now uses the same import as the Viewer.
+- **Overlay title bar** (`titleBarStyle: Overlay`, `hiddenTitle: true`): the
+  toolbar carries `data-tauri-drag-region` and `.toolbar.mac` reserves 78px
+  for the traffic lights, dropped when `html[data-fullscreen="true"]`, which
+  `onMount` keeps in step on every resize. The capability gained
+  `core:window:allow-start-dragging` and `allow-toggle-maximize`.
+- **Not verified on screen by the agent:** the macOS accessibility layer does
+  not expose the Tauri window and the sandbox cannot screen-capture, so the
+  overlay title bar, the preview knobs and the pinch zoom were checked only by
+  type-check and by the exporter's Word output (12 pages, headers and numbers
+  correct). The owner is the first to see them.
+
+
 ## 2026-10-30 — Page preview and `.docx` export follow the house format
 
 **v0.13.0-nightly.2.** The owner wrote a one-page rendering spec from his own

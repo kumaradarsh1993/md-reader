@@ -46,6 +46,19 @@ class FocusMode {
     await this.setNativeFullscreen(false);
   }
 
+  /**
+   * Leave native fullscreen when the window is in it without focus mode being
+   * on — the macOS green button puts it there behind the app's back, and the
+   * only ways out were the green button again or ⌃⌘F. Escape now works too.
+   * No-op when the window is not fullscreen or when there is no window.
+   */
+  async exitNativeFullscreenIfAny() {
+    try {
+      const w = getCurrentWindow();
+      if (await w.isFullscreen()) await w.setFullscreen(false);
+    } catch { /* vite dev: no window */ }
+  }
+
   /** Top-edge hover reveal, driven by the page's pointermove handler. */
   setPeek(on: boolean) {
     if (!this.active) {

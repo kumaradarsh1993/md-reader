@@ -14,35 +14,44 @@
    * the page count and the breaks are real.
    *
    * ── The format it emulates ────────────────────────────────────────────
-   * A4, 0.75in side margins and 0.8in top and bottom, Calibri Light 11pt
-   * justified with 6pt after each paragraph, continuous line numbers down the
-   * left margin, and a footer with a configurable text and "Page X of Y".
-   * The `#` title is 12pt with a full-width rule (a paragraph border, so it
-   * runs the column, not just the words); `##` and `###` are body size, bold
-   * and underlined. Lists indent 0.25in per level, block quotes are small grey
-   * notes, tables are 10pt with a black header and reach 0.3in into the left
-   * margin. Every number here has a twin in `docx/parts.ts` and
-   * `docx/build.ts`; change both or the preview lies.
+   * `docx/format.ts` is the single source: A4, a margin preset, a body size
+   * the user picks (10pt by default) from which every other size derives.
+   * The `#` title sits in the page header with a rule under it, so the `##`
+   * sections are the first tier, numbered "1.", "2."; `###` are "3.1", "3.2".
+   * Lists indent 0.25in per level, block quotes are small grey notes, tables
+   * are small with a black header and reach 0.3in into the left margin, where
+   * the line numbers end. Every CSS value below is derived from the same
+   * `Format` the exporter uses; if one changes shape, change both.
    *
    * ── How pagination actually works here ────────────────────────────────
-   * The content is laid out once, off-screen, at exactly the text-column width
-   * (6.77in). Every visual line's box is then measured with `Range.getClientRects`
+   * The content is laid out once, off-screen, at exactly the text-column
+   * width. Every visual line's box is then measured with `Range.getClientRects`
    * — one rect per line box, which is what makes wrapped paragraphs, tables
    * and headings all countable without guessing at line heights. Page breaks
-   * are placed at the last **line boundary** that fits inside 10.09in of content,
-   * so a line is never sliced in half across a break, exactly as Word behaves.
-   * Each page then renders a clipped window onto that same content, offset to
-   * its slice.
+   * are placed at the last **line boundary** that fits inside the page's
+   * content height, never inside a table row or between a figure and its
+   * caption, so nothing is sliced across a break, as Word behaves. Each page
+   * then renders a clipped window onto that same content, offset to its slice.
    *
    * The line measurement does double duty: the numbers in the margin come from
    * the same array as the break positions, so they cannot disagree.
    *
-   * v0.9.0+.
+   * v0.9.0+. Reworked for the house format in v0.13.0-nightly.2 and 3.
    */
   import { onMount } from "svelte";
   import { api } from "./api";
   import { postRender } from "./post-render";
   import Icon from "./Icon.svelte";
+  import {
+    BODY_PT_MAX,
+    BODY_PT_MIN,
+    MARGINS,
+    PAGE_H_TWIPS,
+    PAGE_W_TWIPS,
+    prepareHeadings,
+    resolveFormat,
+    type MarginPreset,
+  } from "./docx/format";
 
   interface Props {
     source: string;
@@ -56,27 +65,49 @@
     exporting?: boolean;
     /** Left-hand footer text, from Settings → Word export. */
     footer?: string;
+    /** Body size and margin preset, from Settings → Word export. The bar
+     *  below can change them; the callbacks persist the change so the export
+     *  uses the same values. */
+    bodyPt?: number;
+    margins?: MarginPreset;
+    onBodyPt?: (pt: number) => void;
+    onMargins?: (m: MarginPreset) => void;
   }
-  let { source, basePath, onExit, onExport, exporting = false, footer = "" }: Props = $props();
+  let {
+    source, basePath, onExit, onExport, exporting = false, footer = "",
+    bodyPt = 10, margins = "house", onBodyPt, onMargins,
+  }: Props = $props();
 
   // ── Page geometry, in CSS px at 96dpi (1in = 96px) ──────────────────
-  // A4 with the house margins: 0.75in sides, 0.8in top and bottom. These
-  // mirror PAGE_W / MARGIN_* in docx/parts.ts — change both or the preview lies.
-  const PAGE_W = 794;        // 8.27in
-  const PAGE_H = 1123;       // 11.69in
-  const MARGIN_X = 72;       // 0.75in
-  const MARGIN_Y = 77;       // 0.8in
-  const CONTENT_W = PAGE_W - MARGIN_X * 2;  // 650px ≈ 6.77in
-  const CONTENT_H = PAGE_H - MARGIN_Y * 2;  // 969px
+  const PX_PER_IN = 96;
+  const PAGE_W = Math.round((PAGE_W_TWIPS / 1440) * PX_PER_IN); // 794
+  const PAGE_H = Math.round((PAGE_H_TWIPS / 1440) * PX_PER_IN); // 1123
 
-  const ZOOM_STEPS = [0.5, 0.65, 0.8, 1, 1.25, 1.5];
+  let fmt = $derived(resolveFormat({ bodyPt, margins, footer }));
+  let MARGIN_X = $derived(Math.round(fmt.marginSideIn * PX_PER_IN));
+  let MARGIN_Y = $derived(Math.round(fmt.marginTopIn * PX_PER_IN));
+  let CONTENT_W = $derived(PAGE_W - MARGIN_X * 2);
+  let CONTENT_H = $derived(PAGE_H - MARGIN_Y * 2);
+  let OUTDENT = $derived(Math.round(fmt.tableOutdentIn * PX_PER_IN)); // 29
+  /** Header: the title line sits 0.35in from the top edge, as in the export. */
+  const HEADER_TOP = Math.round(0.35 * PX_PER_IN);
+
+  /** CSS custom properties that carry the format into the document styles. */
+  let docVars = $derived(
+    `--body: ${fmt.bodyPt}pt; --title: ${fmt.titlePt}pt; --small: ${fmt.smallPt}pt; ` +
+    `--footer: ${fmt.footerPt}pt; --step: ${fmt.listStepIn}in; --outdent: ${fmt.tableOutdentIn}in;`,
+  );
+
   /** Leftover content shorter than this can't hold a line, so it is not a page. */
   const MIN_TAIL = 12;
+  const ZOOM_MIN = 0.4;
+  const ZOOM_MAX = 2.0;
+  const ZOOM_STEPS = [0.5, 0.65, 0.8, 1, 1.25, 1.5];
 
   let zoom = $state(0.8);
   let html = $state("");
+  let title = $state("");
   let measureEl = $state<HTMLElement | null>(null);
-  let pagesEl = $state<HTMLElement | null>(null);
   /** One entry per visual line: vertical midpoint and bottom, in content px. */
   let lines = $state<Array<{ mid: number; bottom: number }>>([]);
   /** Start offset (content px) of each page. */
@@ -106,19 +137,24 @@
   // ── Render ──────────────────────────────────────────────────────────
   // Always the light palette: this is a preview of a printed page, and a
   // dark-mode "Word document" is not a thing anyone is trying to look at.
+  // Re-runs when the source OR the format changes (a size or margin change
+  // moves every page break).
   $effect(() => {
     const src = source;
+    void fmt; // dependency: re-measure on a format change
     let cancelled = false;
     (async () => {
       measuring = true;
       const rendered = await api.renderMarkdown(src, "light");
       if (cancelled) return;
-      html = captionFigures(rendered);
+      const prepared = prepare(rendered);
+      title = prepared.title;
+      html = prepared.html;
       // Let Svelte paint the measure column before touching it.
       await new Promise((r) => requestAnimationFrame(() => r(null)));
       if (cancelled || !measureEl) return;
       await postRender(measureEl, { dark: false });
-      rewriteRelativeImages(measureEl, basePath);
+      await rewriteRelativeImages(measureEl, basePath);
       await settle(measureEl);
       if (cancelled) return;
       measure();
@@ -128,13 +164,13 @@
   });
 
   /**
-   * A paragraph that is only an image is a figure. The export centres it and
-   * captions it "Figure N: alt text"; the preview has to do the same or its
-   * page count is short by a line per figure. Mirrors `DocxBuilder.figure`.
+   * The same preparation the exporter does, so the two agree: the `#` title
+   * leaves the body (it goes in the page header), `##`/`###` get their numbers,
+   * and a paragraph that is only an image becomes a captioned figure.
    */
-  function captionFigures(rendered: string): string {
-    if (!rendered.includes("<img")) return rendered;
+  function prepare(rendered: string): { html: string; title: string } {
     const doc = new DOMParser().parseFromString(`<body>${rendered}</body>`, "text/html");
+    const { title } = prepareHeadings(doc.body);
     let n = 0;
     for (const p of Array.from(doc.body.querySelectorAll("p"))) {
       const kids = Array.from(p.childNodes).filter(
@@ -150,7 +186,7 @@
       cap.textContent = `Figure ${n}: ${alt}`;
       p.after(cap);
     }
-    return doc.body.innerHTML;
+    return { html: doc.body.innerHTML, title };
   }
 
   /** Images and webfonts both change line positions after first paint, and a
@@ -166,28 +202,46 @@
           : new Promise<void>((res) => {
               img.addEventListener("load", () => res(), { once: true });
               img.addEventListener("error", () => res(), { once: true });
+              // A src that never answers must not hold the page count hostage.
+              setTimeout(res, 4000);
             }),
       ),
     );
   }
 
-  /** Relative image paths are resolved against the document, same as the
-   *  Viewer does — a preview with broken images misreports its own length. */
-  function rewriteRelativeImages(root: HTMLElement, docPath: string) {
+  /** `dir/./a/../b.png` → `dir/b.png`. Same as the Viewer's. */
+  function resolveRelative(dir: string, rel: string): string {
+    const parts: string[] = [];
+    for (const seg of `${dir}/${rel}`.split(/[\\/]+/)) {
+      if (seg === "." || seg === "") continue;
+      if (seg === "..") parts.pop();
+      else parts.push(seg);
+    }
+    return parts.join("/");
+  }
+
+  /** Relative image paths are resolved against the document, the same way
+   *  the Viewer does it (through `convertFileSrc` from the API, which is the
+   *  supported route; poking `__TAURI_INTERNALS__` directly is what left the
+   *  figure as an empty box in v0.13.0-nightly.2). A preview with broken
+   *  images misreports its own length. */
+  async function rewriteRelativeImages(root: HTMLElement, docPath: string) {
     if (!docPath) return;
     const dir = docPath.replace(/[\\/][^\\/]*$/, "");
-    for (const img of Array.from(root.querySelectorAll("img"))) {
+    const imgs = Array.from(root.querySelectorAll("img"));
+    if (imgs.length === 0) return;
+    let convert: ((p: string) => string) | null = null;
+    try {
+      const core = await import("@tauri-apps/api/core");
+      convert = core.convertFileSrc;
+    } catch { /* plain browser (vite dev): leave paths as they are */ }
+    for (const img of imgs) {
       const src = img.getAttribute("src") ?? "";
       if (!src || /^(https?:|data:|asset:|file:)/i.test(src)) continue;
-      img.setAttribute("data-rel-src", src);
-      // Left as-is when the app isn't running under Tauri; the Viewer owns the
-      // real conversion and this preview only needs the height to be right.
-      const abs = `${dir}/${src}`.replace(/\\/g, "/");
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const conv = (window as any).__TAURI_INTERNALS__?.convertFileSrc;
-        if (conv) img.setAttribute("src", conv(abs));
-      } catch { /* preview still lays out with the broken image box */ }
+      const abs = /^([a-zA-Z]:[\\/]|\/)/.test(src) ? src : resolveRelative(dir, src);
+      if (convert) {
+        try { img.src = convert(abs); } catch { /* keep the broken box */ }
+      }
     }
   }
 
@@ -198,6 +252,10 @@
    * a wrapped paragraph yields one rect per wrapped line — which is precisely
    * the unit Word numbers. Rects that overlap vertically belong to the same
    * line (a bold run, an inline code span, a table row's cells) and are merged.
+   *
+   * Besides the lines, the walk records **atomic ranges**: a table row, and a
+   * figure with its caption. A page break may not fall inside one — a row cut
+   * in half across two pages was the first thing noticed in the nightly.
    */
   function measure() {
     const root = measureEl;
@@ -244,21 +302,42 @@
     }
     flush();
 
+    // Atomic ranges: table rows, and figure + caption pairs.
+    const atomic: Array<{ top: number; bottom: number }> = [];
+    for (const tr of Array.from(root.querySelectorAll("tr"))) {
+      const r = tr.getBoundingClientRect();
+      if (r.height > 0) atomic.push({ top: r.top - base, bottom: r.bottom - base });
+    }
+    for (const fig of Array.from(root.querySelectorAll("p.wp-figure"))) {
+      const r = fig.getBoundingClientRect();
+      const cap = fig.nextElementSibling;
+      const end = cap && cap.classList.contains("wp-caption") ? cap.getBoundingClientRect().bottom : r.bottom;
+      if (r.height > 0) atomic.push({ top: r.top - base, bottom: end - base });
+    }
+    const insideAtomic = (y: number) => atomic.some((a) => y > a.top + 1 && y < a.bottom - 1);
+
     lines = merged;
     contentHeight = root.scrollHeight;
 
-    // Break at the last line that fits inside a page of content. A block
-    // taller than a whole page (a large image, a long table) can't be broken
-    // on a line boundary, so it falls back to a hard cut — the alternative is
-    // an infinite loop of empty pages.
+    // Break at the last line that fits inside a page of content and is not
+    // inside an atomic range. A block taller than a whole page (a large
+    // image, a very long row) can't be broken on a line boundary, so it
+    // falls back to a hard cut — the alternative is an infinite loop of
+    // empty pages.
     const starts = [0];
     let cursor = 0;
     let guard = 0;
+    const pageH = CONTENT_H;
     while (contentHeight - cursor > MIN_TAIL && guard++ < 500) {
-      const limit = cursor + CONTENT_H;
+      const limit = cursor + pageH;
       let next = 0;
       for (const l of merged) {
-        if (l.bottom > cursor && l.bottom <= limit) next = l.bottom;
+        if (l.bottom > cursor && l.bottom <= limit && !insideAtomic(l.bottom)) next = l.bottom;
+      }
+      // Also allow a break exactly at an atomic block's bottom edge, which
+      // may sit a few px below its last text line (cell padding, borders).
+      for (const a of atomic) {
+        if (a.bottom > cursor && a.bottom <= limit && a.bottom > next) next = a.bottom;
       }
       if (next <= cursor) next = limit;
       // MIN_TAIL, not `>= contentHeight`: `scrollHeight` is rounded up to a
@@ -271,10 +350,21 @@
     pageStarts = starts;
   }
 
+  // ── Zoom ────────────────────────────────────────────────────────────
+  // Buttons step through the fixed stops. A pinch or Ctrl+wheel is continuous:
+  // the zoom follows the fingers, with the CSS transition below smoothing the
+  // frames in between. WebKit (the engine on macOS) reports a trackpad pinch
+  // as `gesturechange` with a cumulative `scale`; Chromium and Windows report
+  // it as a wheel event with ctrlKey. Both are handled.
+  function clampZoom(z: number) {
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
+  }
+
   function bumpZoom(dir: 1 | -1) {
-    const i = ZOOM_STEPS.indexOf(zoom);
-    const next = i === -1 ? 3 : Math.min(ZOOM_STEPS.length - 1, Math.max(0, i + dir));
-    zoom = ZOOM_STEPS[next];
+    const next = dir > 0
+      ? ZOOM_STEPS.find((s) => s > zoom + 0.001) ?? ZOOM_MAX
+      : [...ZOOM_STEPS].reverse().find((s) => s < zoom - 0.001) ?? ZOOM_MIN;
+    zoom = clampZoom(next);
   }
 
   function onKey(e: KeyboardEvent) {
@@ -282,24 +372,23 @@
     const mod = e.ctrlKey || e.metaKey;
     if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); bumpZoom(1); }
     if (mod && e.key === "-") { e.preventDefault(); bumpZoom(-1); }
+    if (mod && e.key === "0") { e.preventDefault(); zoom = 1; }
   }
-
-  // Ctrl+wheel scales the page, exactly as it does in Word. Accumulated rather
-  // than stepped per event so a mouse notch and a trackpad swipe agree; see the
-  // same construction in Viewer.svelte for why.
-  const WHEEL_STEP = 120;
-  let wheelAccum = 0;
 
   function onCanvasWheel(e: WheelEvent) {
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-    wheelAccum += e.deltaY * unit;
-    while (Math.abs(wheelAccum) >= WHEEL_STEP) {
-      const sign = wheelAccum > 0 ? 1 : -1;
-      wheelAccum -= sign * WHEEL_STEP;
-      bumpZoom(sign > 0 ? -1 : 1);
-    }
+    // Exponential, so a given finger travel feels the same at 50% and 150%.
+    zoom = clampZoom(zoom * Math.exp(-e.deltaY * unit * 0.0025));
+  }
+
+  let gestureBase = 1;
+  function onGestureStart(e: Event) { e.preventDefault(); gestureBase = zoom; }
+  function onGestureChange(e: Event) {
+    e.preventDefault();
+    const scale = (e as any).scale as number | undefined;
+    if (typeof scale === "number" && scale > 0) zoom = clampZoom(gestureBase * scale);
   }
 
   onMount(() => {
@@ -310,8 +399,30 @@
   /** Non-passive so the browser's own Ctrl+wheel page zoom can be suppressed. */
   function wheelZoom(node: HTMLElement) {
     node.addEventListener("wheel", onCanvasWheel, { passive: false });
-    return { destroy: () => node.removeEventListener("wheel", onCanvasWheel) };
+    node.addEventListener("gesturestart", onGestureStart, { passive: false });
+    node.addEventListener("gesturechange", onGestureChange, { passive: false });
+    return {
+      destroy: () => {
+        node.removeEventListener("wheel", onCanvasWheel);
+        node.removeEventListener("gesturestart", onGestureStart);
+        node.removeEventListener("gesturechange", onGestureChange);
+      },
+    };
   }
+
+  // ── Format controls ─────────────────────────────────────────────────
+  const MARGIN_ORDER: MarginPreset[] = ["narrow", "house", "wide"];
+  function bumpBody(d: 1 | -1) {
+    const next = Math.min(BODY_PT_MAX, Math.max(BODY_PT_MIN, bodyPt + d));
+    if (next !== bodyPt) onBodyPt?.(next);
+  }
+  function cycleMargins() {
+    const i = MARGIN_ORDER.indexOf(margins);
+    onMargins?.(MARGIN_ORDER[(i + 1) % MARGIN_ORDER.length]);
+  }
+  let marginLabel = $derived(
+    `${margins[0].toUpperCase()}${margins.slice(1)} · ${MARGINS[margins].side}in`,
+  );
 
   /** Rough word count — the other number people ask for before exporting. */
   let wordCount = $derived(
@@ -337,13 +448,23 @@
       {/if}
     </span>
     <span class="wp-spacer"></span>
-    <span class="wp-format" title="A4 · 0.75in side margins, 0.8in top and bottom · Calibri Light 11pt · continuous line numbers">
-      A4 · Calibri Light 11
-    </span>
+
+    <!-- The two format knobs. They write to Settings, so the export uses the
+         same values the preview showed. -->
+    <div class="wp-knob" title="Body text size. Title, tables and notes follow it.">
+      <button onclick={() => bumpBody(-1)} aria-label="Smaller text" disabled={bodyPt <= BODY_PT_MIN}><Icon name="minus" size={12} /></button>
+      <span>{bodyPt} pt</span>
+      <button onclick={() => bumpBody(1)} aria-label="Larger text" disabled={bodyPt >= BODY_PT_MAX}><Icon name="plus" size={12} /></button>
+    </div>
+    <button class="wp-knob wp-margins" onclick={cycleMargins} title="Margins: narrow (0.5in), house (0.7in), wide (1in). Click to cycle.">
+      <span>{marginLabel}</span>
+    </button>
+    <span class="wp-format" title="A4 · Calibri Light · line numbers · title in the header">A4</span>
+
     <div class="wp-zoom">
-      <button onclick={() => bumpZoom(-1)} aria-label="Zoom out" title="Zoom out"><Icon name="minus" size={12} /></button>
+      <button onclick={() => bumpZoom(-1)} aria-label="Zoom out" title="Zoom out (⌘−, or pinch)"><Icon name="minus" size={12} /></button>
       <span>{Math.round(zoom * 100)}%</span>
-      <button onclick={() => bumpZoom(1)} aria-label="Zoom in" title="Zoom in"><Icon name="plus" size={12} /></button>
+      <button onclick={() => bumpZoom(1)} aria-label="Zoom in" title="Zoom in (⌘+, or pinch)"><Icon name="plus" size={12} /></button>
     </div>
     {#if onExport}
       <button class="wp-export" onclick={onExport} disabled={exporting} title="Save this as a Word document (.docx)">
@@ -358,15 +479,24 @@
   </div>
 
   <div class="wp-canvas" use:wheelZoom>
-    <div class="wp-pages" style="zoom: {zoom}" bind:this={pagesEl}>
+    <div class="wp-pages" style="zoom: {zoom}">
       {#each pageStarts as start, i (i)}
-        <div class="wp-page" style="width: {PAGE_W}px; min-height: {PAGE_H}px; padding: {MARGIN_Y}px {MARGIN_X}px">
-          <div class="wp-gutter" aria-hidden="true" style="top: {MARGIN_Y}px; height: {CONTENT_H}px">
+        <div class="wp-page" style="width: {PAGE_W}px; min-height: {PAGE_H}px; padding: {MARGIN_Y}px {MARGIN_X}px; {docVars}">
+          {#if title}
+            <div class="wp-header" style="top: {HEADER_TOP}px; left: {MARGIN_X}px; right: {MARGIN_X}px">{title}</div>
+          {/if}
+          <!-- The gutter's right edge is `outdent` left of the text, where a
+               table's left edge lands — the same distance the export gives
+               `lnNumType`. -->
+          <div class="wp-gutter" aria-hidden="true" style="top: {MARGIN_Y}px; height: {CONTENT_H}px; left: {MARGIN_X - OUTDENT - 30}px">
             {#each pageLines(i) as l (l.n)}
               <span class="wp-lineno" style="top: {l.y}px">{l.n}</span>
             {/each}
           </div>
-          <div class="wp-window" style="height: {sliceEnd(i) - start}px">
+          <!-- The window is widened to the left by the table outdent and clips
+               only vertically, so an outdented table is not cut at the text
+               edge (the second bug from the nightly). -->
+          <div class="wp-window" style="height: {sliceEnd(i) - start}px; margin-left: {-OUTDENT}px; padding-left: {OUTDENT}px; width: {CONTENT_W + OUTDENT}px">
             <div class="wp-content" style="width: {CONTENT_W}px; transform: translateY({-start}px)">{@html html}</div>
           </div>
           <div class="wp-footer" style="left: {MARGIN_X}px; right: {MARGIN_X}px">
@@ -382,7 +512,7 @@
        column, laid out off-screen. `visibility: hidden` rather than
        `display: none` — a display:none subtree has no boxes, so every rect
        would come back zero. -->
-  <div class="wp-measure" aria-hidden="true" style="width: {CONTENT_W}px">
+  <div class="wp-measure" aria-hidden="true" style="width: {CONTENT_W}px; {docVars}">
     <div class="wp-content" style="width: {CONTENT_W}px" bind:this={measureEl}>{@html html}</div>
   </div>
 </div>
@@ -420,7 +550,7 @@
   .wp-meta .dot { opacity: .4; margin: 0 .15rem; }
   .wp-spacer { flex: 1 1 auto; }
   .wp-format { opacity: .75; }
-  .wp-zoom {
+  .wp-zoom, .wp-knob {
     display: inline-flex;
     align-items: center;
     gap: .1rem;
@@ -428,11 +558,12 @@
     border-radius: 6px;
     padding: 2px;
   }
-  .wp-zoom span {
+  .wp-zoom span, .wp-knob span {
     min-width: 3.1em;
     text-align: center;
     font-variant-numeric: tabular-nums;
   }
+  .wp-margins span { min-width: 0; padding: 0 .3rem; }
   .wp-bar button {
     display: inline-flex;
     align-items: center;
@@ -450,6 +581,8 @@
   .wp-bar button:hover { background: var(--hover-bg); color: var(--fg-strong); }
   .wp-bar button:disabled { opacity: .55; cursor: default; }
   .wp-bar button:disabled:hover { background: none; color: inherit; }
+  .wp-bar button.wp-knob { padding: 2px; }
+  .wp-bar button.wp-knob:hover { background: var(--hover-bg); }
 
   /* The one action in this bar that writes something. It is the whole point of
      having looked at the preview, so it carries weight the zoom controls don't. */
@@ -474,11 +607,18 @@
     flex-direction: column;
     align-items: center;
     gap: 20px;
+    /* Smooth the zoom: a pinch arrives as many small steps, and the
+       transition turns them into one motion. Short, so it never lags the
+       fingers; `zoom` is animatable in WebKit and Chromium. */
+    transition: zoom 90ms ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wp-pages { transition: none; }
   }
 
   .wp-page {
     position: relative;
-    /* Size, margins and padding are set inline from the geometry constants. */
+    /* Size, margins and padding are set inline from the format. */
     background: #ffffff;
     color: #000000;
     box-shadow: 0 1px 3px rgba(0, 0, 0, .18), 0 8px 24px rgba(0, 0, 0, .10);
@@ -487,35 +627,46 @@
     content-visibility: auto;
     contain-intrinsic-size: 794px 1123px;
   }
-  /* The clipped window onto the shared content column. */
-  .wp-window { overflow: hidden; position: relative; }
+  /* The clipped window onto the shared content column: vertical clip only;
+     the left padding (set inline) is where an outdented table shows. */
+  .wp-window { overflow: hidden; position: relative; box-sizing: border-box; }
 
-  /* Line numbers sit 0.25in (24px) off the text, as the export's lnNumType
-     distance does: the gutter's right edge is at margin − 24px. */
+  /* The document title, in the header, with the rule under it — as the
+     export's header1.xml renders it. */
+  .wp-header {
+    position: absolute;
+    font-family: "Calibri Light", Calibri, Carlito, "Segoe UI", sans-serif;
+    font-size: var(--title);
+    font-weight: 700;
+    color: #000;
+    line-height: 1.22;
+    padding-bottom: 4pt;
+    border-bottom: 1px solid #000;
+  }
+
   .wp-gutter {
     position: absolute;
-    left: 22px;
-    width: 26px;
+    width: 30px;
   }
   .wp-lineno {
     position: absolute;
     right: 0;
     transform: translateY(-50%);
     font-family: "Calibri Light", Calibri, Carlito, "Segoe UI", sans-serif;
-    font-size: 9pt;
+    font-size: 8pt;
     color: #9a9a9a;
     font-variant-numeric: tabular-nums;
     line-height: 1;
   }
-  /* The footer: configurable text left, "Page X of Y" right, Calibri 9pt
-     grey — the same as footer1.xml. 0.4in up from the page edge. */
+  /* The footer: configurable text left, "Page X of Y" right — the same as
+     footer1.xml. 0.4in up from the page edge. */
   .wp-footer {
     position: absolute;
     bottom: 38px;
     display: flex;
     justify-content: space-between;
     font-family: Calibri, Carlito, "Segoe UI", sans-serif;
-    font-size: 9pt;
+    font-size: var(--footer);
     color: #595959;
     font-variant-numeric: tabular-nums;
     line-height: 1.2;
@@ -532,12 +683,11 @@
   /* ─── Word-ish document styles ───────────────────────────────────────
      Deliberately hard-coded rather than themed: this is a preview of a page
      that will be printed or mailed, so it is black on white regardless of the
-     app's theme. Every number below has a twin in docx/parts.ts and
-     docx/build.ts; change both. Units are pt so the arithmetic stays honest
-     against Word's own. */
+     app's theme. Sizes come in as CSS variables from the same Format the
+     exporter uses (`--body`, `--title`, `--small`, `--step`, `--outdent`). */
   .wp-content {
     font-family: "Calibri Light", Calibri, Carlito, "Segoe UI", sans-serif;
-    font-size: 11pt;
+    font-size: var(--body);
     /* Single spacing. Word's "single" for Calibri is ~1.22 of the size. */
     line-height: 1.22;
     color: #000;
@@ -546,28 +696,14 @@
   }
   .wp-content :global(p) { margin: 0 0 6pt; }
 
-  /* One larger size in the document: the `#` title at 12pt, with the rule
-     across the full column (a paragraph border in Word, so it runs the width
-     of the column rather than stopping where the words do). */
-  .wp-content :global(h1) {
-    font-size: 12pt;
-    font-weight: 700;
-    color: #000;
-    margin: 0 0 6pt;
-    padding-bottom: 4pt;
-    border-bottom: 1px solid #000;
-    line-height: 1.22;
-    text-align: left;
-  }
-  /* `##` is a section, `###` a sub-heading: body size, bold, underlined (the
-     text only, no rule). The larger gap before a `##` is what separates
-     sections on the page. Deeper levels are never written and look like `###`. */
+  /* A stray `#` after the first (the first went to the header) is a section. */
+  .wp-content :global(h1),
   .wp-content :global(h2),
   .wp-content :global(h3),
   .wp-content :global(h4),
   .wp-content :global(h5),
   .wp-content :global(h6) {
-    font-size: 11pt;
+    font-size: var(--body);
     font-weight: 700;
     color: #000;
     text-decoration: underline;
@@ -576,6 +712,7 @@
     text-align: left;
     break-after: avoid;
   }
+  .wp-content :global(h1),
   .wp-content :global(h2) { margin: 12pt 0 6pt; }
   .wp-content :global(h3),
   .wp-content :global(h4),
@@ -584,14 +721,19 @@
   .wp-content :global(h1:first-child),
   .wp-content :global(h2:first-child),
   .wp-content :global(h3:first-child) { margin-top: 0; }
+  /* Section numbers from prepareHeadings: "1." then a tab stop at 0.3in for
+     a `##`; "3.1" then one space for a `###`. */
+  .wp-content :global(.hnum) { text-decoration: inherit; }
+  .wp-content :global(.hnum[data-sep="tab"]) { display: inline-block; min-width: 0.3in; }
+  .wp-content :global(.hnum[data-sep="space"])::after { content: " "; }
 
-  /* Lists: marker flush with the body text, text 0.25in in, wrapped lines
-     under the text; each nested level steps another 0.25in. 3pt between
-     items, 6pt after the last one. Second-level numbers run a., b., c. */
+  /* Lists: marker flush with the body text, text one step in, wrapped lines
+     under the text; each nested level steps another. 3pt between items, 6pt
+     after the last one. Second-level numbers run a., b., c. */
   .wp-content :global(ul),
   .wp-content :global(ol) {
     margin: 0 0 6pt;
-    padding-left: 0.25in;
+    padding-left: var(--step);
     list-style-position: outside;
     text-align: left;
   }
@@ -603,27 +745,27 @@
   .wp-content :global(li > ol) { margin: 3pt 0 0; }
   .wp-content :global(li > p) { margin: 0; display: inline; }
 
-  /* A block quote is a note: 10pt italic grey, indented 0.25in, no bar. */
+  /* A block quote is a note: small italic grey, indented one step, no bar. */
   .wp-content :global(blockquote) {
     margin: 0 0 6pt;
-    padding: 0 0 0 0.25in;
+    padding: 0 0 0 var(--step);
     border: 0;
     color: #595959;
     font-style: italic;
-    font-size: 10pt;
+    font-size: var(--small);
     text-align: left;
   }
   .wp-content :global(blockquote p) { margin: 0 0 3pt; }
   .wp-content :global(blockquote p:last-child) { margin-bottom: 0; }
 
-  /* Tables: 10pt, black header row with white text, thin grey borders, and
-     0.3in wider than the text so the left edge lines up with the line
-     numbers while the right edge stays on the text. */
+  /* Tables: small, black header row with white text, thin grey borders, and
+     wider than the text by the outdent so the left edge lines up with the
+     line numbers while the right edge stays on the text. */
   .wp-content :global(table) {
     border-collapse: collapse;
-    width: calc(100% + 0.3in);
-    margin: 0 0 6pt -0.3in;
-    font-size: 10pt;
+    width: calc(100% + var(--outdent));
+    margin: 0 0 6pt calc(-1 * var(--outdent));
+    font-size: var(--small);
     text-align: left;
   }
   .wp-content :global(th),
@@ -636,6 +778,7 @@
     line-height: 1.22;
   }
   .wp-content :global(th) { font-weight: 700; background: #000; color: #fff; }
+  .wp-content :global(tr) { break-inside: avoid; }
 
   /* Figures: centred, capped at the column, captioned in small grey italics. */
   .wp-content :global(img) { max-width: 100%; height: auto; }
@@ -645,7 +788,7 @@
     text-align: center;
     color: #595959;
     font-style: italic;
-    font-size: 10pt;
+    font-size: var(--small);
     margin: 0 0 6pt;
   }
 
@@ -656,7 +799,7 @@
 
   .wp-content :global(code) {
     font-family: Consolas, "Courier New", monospace;
-    font-size: 10pt;
+    font-size: var(--small);
   }
   .wp-content :global(pre) {
     background: #f4f4f2;
@@ -664,7 +807,7 @@
     margin: 0 0 6pt;
     white-space: pre-wrap;
     word-break: break-word;
-    font-size: 10pt;
+    font-size: var(--small);
     line-height: 1.3;
     text-align: left;
   }
