@@ -83,6 +83,42 @@ export async function revealInFileManager(path: string): Promise<void> {
   await revealItemInDir(path);
 }
 
+/** True when running on Windows. Same reasoning as `isMac`. */
+export const isWindows: boolean =
+  typeof navigator !== "undefined" &&
+  (/win/i.test(navigator.platform ?? "") || /Windows/i.test(navigator.userAgent ?? ""));
+
+/** What this platform calls "show the file in the file manager". */
+export const REVEAL_LABEL = isMac ? "Reveal in Finder" : isWindows ? "Show in Explorer" : "Show in folder";
+
+/**
+ * Reveal a path that came from document text, which may start with `~` or
+ * point at a file that has since moved. Walks up to the nearest ancestor that
+ * exists, so a stale path still lands the user in the right folder. Returns
+ * the path actually revealed, or null if nothing on it exists.
+ */
+export async function revealNearest(path: string): Promise<string | null> {
+  let p = path;
+  if (/^~[\\/]/.test(p)) {
+    const { homeDir } = await import("@tauri-apps/api/path");
+    const home = (await homeDir()).replace(/[\\/]+$/, "");
+    p = home + p.slice(1);
+  }
+  p = p.replace(/[\\/]+$/, "") || p;
+  for (let i = 0; i < 64; i++) {
+    try {
+      await revealInFileManager(p);
+      return p;
+    } catch {
+      const parent = p.replace(/[\\/]+[^\\/]*$/, "");
+      // Stop at the root: "/Users" → "", "C:\Users" → "C:".
+      if (!parent || parent === p || /^[A-Za-z]:$/.test(parent)) return null;
+      p = parent;
+    }
+  }
+  return null;
+}
+
 /** Open a URL in the user's real browser rather than inside the app window. */
 export async function openExternal(url: string): Promise<void> {
   const { openUrl } = await import("@tauri-apps/plugin-opener");

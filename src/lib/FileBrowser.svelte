@@ -2,7 +2,7 @@
   import { api, type DirEntry } from "./api";
   import Icon from "./Icon.svelte";
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
-  import { isMac, copyText, revealInFileManager } from "./platform";
+  import { copyText, revealInFileManager, REVEAL_LABEL } from "./platform";
   import { refresher } from "./refresh.svelte";
   import { changes } from "./changes/store.svelte";
   import { settings, type FileSort } from "./settings-store.svelte";
@@ -130,7 +130,7 @@
       { label: "Copy name", icon: "copy", action: () => copyText(e.name) },
       { label: "Copy full path", icon: "copy", action: () => copyText(e.path) },
       {
-        label: isMac ? "Reveal in Finder" : "Show in folder",
+        label: REVEAL_LABEL,
         icon: "folder-open",
         action: () => revealInFileManager(e.path),
       },
@@ -172,7 +172,7 @@
         action: () => currentDir && copyText(currentDir),
       },
       {
-        label: isMac ? "Reveal in Finder" : "Show in folder",
+        label: REVEAL_LABEL,
         icon: "folder-open",
         disabled: !currentDir,
         action: () => currentDir && revealInFileManager(currentDir),

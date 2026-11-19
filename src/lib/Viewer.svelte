@@ -19,7 +19,8 @@
   import SelectionToolbar from "./annotations/SelectionToolbar.svelte";
   import type { Anchor, HighlightColor, Placed } from "./annotations/types";
   import { contextMenu, type MenuEntry } from "./context-menu.svelte";
-  import { sk, copyText } from "./platform";
+  import { sk, copyText, REVEAL_LABEL, revealNearest } from "./platform";
+  import { pathAtPointer } from "./path-in-text";
   import { postRender } from "./post-render";
   import { viewNav } from "./view-nav.svelte";
   import ResumeMarker from "./ResumeMarker.svelte";
@@ -1411,6 +1412,22 @@
         icon: "link",
         action: () => copyText(`#${heading.id}`),
       });
+      items.push({ separator: true });
+    }
+
+    // An absolute path written in the text: jump to it in Finder / Explorer.
+    const filePath = pathAtPointer(e, selection);
+    if (filePath) {
+      items.push({
+        label: REVEAL_LABEL,
+        icon: "folder-open",
+        action: async () => {
+          if (!(await revealNearest(filePath))) {
+            console.warn("[Fox MD] nothing on this path exists:", filePath);
+          }
+        },
+      });
+      items.push({ label: "Copy path", icon: "copy", action: () => copyText(filePath) });
       items.push({ separator: true });
     }
 
